@@ -99,3 +99,56 @@ func TestShellLibraryViewRendering(t *testing.T) {
 		t.Fatalf("expected tagID to be t2, got %q", a.tagID)
 	}
 }
+
+func TestPairingShareUIControls(t *testing.T) {
+	dir := t.TempDir()
+	lib, err := library.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lib.Close()
+
+	tag, err := lib.CreateTag("Art")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := project.New(lib.DB)
+	proj, err := store.Create("Demo", "desc", []string{tag.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	a := NewApp()
+	a.lib = lib
+	a.projects = store
+	a.lang = i18n.ZhHant
+	a.cfg.LibraryPath = dir
+	a.openProject(proj.ID)
+
+	tt := gui.NewTester(a.View, 1280, 800)
+
+	// Toggle top-bar receive-by-code bar.
+	if err := tt.Click("輸入配對碼"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if !tt.HasText("連線接收") {
+		t.Fatalf("receive pair bar missing, texts: %v", tt.Texts())
+	}
+
+	// Open project share panel and verify pairing section renders.
+	if err := tt.Click("分享"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if !tt.HasText("產生配對碼") {
+		t.Fatalf("pairing code button missing, texts: %v", tt.Texts())
+	}
+
+	// Simulate active pairing code state.
+	a.pairCode = "K7P-4M2"
+	tt.Frame()
+	if !tt.HasText("複製配對碼") {
+		t.Fatalf("copy code button missing, texts: %v", tt.Texts())
+	}
+}

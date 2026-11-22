@@ -9,6 +9,7 @@ import (
 
 	gui "github.com/egoist/mygo/ui"
 
+	"ragle/internal/config"
 	"ragle/internal/share"
 )
 
@@ -61,34 +62,219 @@ func (a *App) shareNode() *share.Node {
 
 func (a *App) sharePanel(c *gui.Context) {
 	t := c.Theme()
+	services := c.Services()
 	gui.Column(c).Gap(8).Padding(12).Border(1, t.Border).Radius(8).Children(func() {
 		gui.Text(c, a.t("share.title")).Bold()
 		gui.Checkbox(c.Key("share-files"), &a.shareFiles, a.t("share.files"))
 		node := a.shareNode()
 		if node == nil || !node.DiscoveryOK() {
 			gui.Text(c, a.t("share.unavailable")).TextColor(t.TextMuted)
-			return
-		}
-		peers := node.Peers()
-		if len(peers) == 0 {
-			gui.Text(c, a.t("share.none")).TextColor(t.TextMuted)
-			return
-		}
-		for _, peer := range peers {
-			item := peer
-			label := item.Name
-			if label == "" {
-				label = item.Addr
+		} else {
+			peers := node.Peers()
+			if len(peers) == 0 {
+				gui.Text(c, a.t("share.none")).TextColor(t.TextMuted)
 			}
-			gui.Row(c.Key("share-row-" + item.ID)).Gap(8).AlignItems(gui.Center).Children(func() {
-				gui.Text(c, label).Width(220)
-				gui.Text(c, item.Addr).TextColor(t.TextMuted)
-				gui.Button(c, a.t("share.sendTo")).Disabled(a.shareSending).OnClick(func() {
-					a.sendProject(item.Addr)
+			for _, peer := range peers {
+				item := peer
+				label := item.Name
+				if label == "" {
+					label = item.Addr
+				}
+				gui.Row(c.Key("share-row-" + item.ID)).Gap(8).AlignItems(gui.Center).Children(func() {
+					gui.Text(c, label).Width(220)
+					gui.Text(c, item.Addr).TextColor(t.TextMuted)
+					gui.Button(c, a.t("share.sendTo")).Disabled(a.shareSending).OnClick(func() {
+						a.sendProject(item.Addr)
+					})
+				})
+			}
+		}
+
+		gui.Divider(c)
+		gui.Text(c, a.t("share.pairTitle")).Bold()
+		gui.Row(c).Gap(8).AlignItems(gui.Center).Children(func() {
+			gui.TextInput(c.Key("signal-url"), &a.signalURL).Placeholder(a.t("share.signalURL")).Width(280)
+			if a.pairCode == "" {
+				gui.Button(c.Key("pair-create"), a.t("share.createCode")).Disabled(a.shareSending).OnClick(func() {
+					a.startPairSend()
+				})
+			} else {
+				gui.Button(c.Key("pair-cancel"), a.t("common.cancel")).OnClick(func() {
+					a.cancelPair()
+				})
+			}
+		})
+		if a.pairCode != "" {
+			code := a.pairCode
+			gui.Row(c).Gap(8).AlignItems(gui.Center).Children(func() {
+				gui.Text(c, fmt.Sprintf(a.t("share.codeWaiting"), code)).Bold().TextColor(t.Accent)
+				gui.Button(c.Key("pair-copy"), a.t("share.copyCode")).OnClick(func() {
+					services.WriteClipboard(code)
+					a.status = a.t("share.codeCopied")
 				})
 			})
 		}
 	})
+}
+
+func (a *App) receivePairBar(c *gui.Context) {
+	t := c.Theme()
+	gui.Row(c).Padding(8, 16).Gap(8).AlignItems(gui.Center).Background(t.Surface).Border(1, t.Border).Children(func() {
+		gui.Text(c, a.t("share.pairTitle")).Bold().FontSize(12)
+		gui.TextInput(c.Key("recv-signal-url"), &a.signalURL).Placeholder(a.t("share.signalURL")).Width(240)
+		gui.TextInput(c.Key("recv-pair-code"), &a.pairRecvCode).Placeholder(a.t("share.enterCode")).Width(180)
+		gui.Button(c.Key("recv-pair-go"), a.t("share.connect")).Disabled(a.pairReceiving).OnClick(func() {
+			a.startPairReceive()
+		})
+		gui.Button(c.Key("recv-pair-close"), a.t("common.cancel")).OnClick(func() {
+			a.cancelPair()
+			a.pairRecvOpen = false
+		})
+	})
+}
+
+func (a *App) saveSignalURL() string {
+	url := trim(a.signalURL)
+	if url != a.cfg.SignalingURL {
+		a.cfg.SignalingURL = url
+		if a.win != nil {
+			_ = config.Save(a.cfg)
+		}
+	}
+	return url
+}
+
+func (a *App) cancelPair() {
+	a.mu.Lock()
+	cancel := a.pairCancel
+	a.pairCancel = nil
+	a.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+	a.pairCode = ""
+	a.shareSending = false
+	a.pairReceiving = false
+}
+
+func (a *App) startPairSend() {
+	database := a.shareDB.Load()
+	if database == nil || a.shareSending || a.win == nil || a.projectID == "" {
+		return
+	}
+	sigURL := a.saveSignalURL()
+	if sigURL == "" {
+		a.status = a.t("share.needSignal")
+		return
+	}
+	name, err := os.Hostname()
+	if err != nil || name == "" {
+		name = "Ragle"
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	a.mu.Lock()
+	if a.pairCancel != nil {
+		a.pairCancel()
+	}
+	a.pairCancel = cancel
+	a.mu.Unlock()
+
+	a.shareSending = true
+	a.pairCode = ""
+	a.status = a.t("share.sending")
+	include := a.shareFiles
+	projectID := a.projectID
+	win := a.win
+	go func() {
+		defer cancel()
+		bundle, files, err := share.Export(database, projectID, include)
+		if err == nil {
+			err = share.PairSend(ctx, share.PairOptions{
+				SignalingURL: sigURL,
+				Name:         name,
+			}, bundle, files, func(code string) {
+				win.Update(func() {
+					if a.isClosed() {
+						return
+					}
+					a.pairCode = code
+				})
+			})
+		}
+		sendErr := err
+		win.Update(func() {
+			a.mu.Lock()
+			a.pairCancel = nil
+			a.mu.Unlock()
+			a.shareSending = false
+			a.pairCode = ""
+			if a.isClosed() {
+				return
+			}
+			if sendErr == nil {
+				a.status = a.t("share.sent")
+				return
+			}
+			if errors.Is(sendErr, context.Canceled) {
+				a.status = ""
+				return
+			}
+			a.status = a.shareErrText(sendErr)
+		})
+	}()
+}
+
+func (a *App) startPairReceive() {
+	database := a.shareDB.Load()
+	if database == nil || a.pairReceiving || a.win == nil {
+		return
+	}
+	sigURL := a.saveSignalURL()
+	if sigURL == "" {
+		a.status = a.t("share.needSignal")
+		return
+	}
+	code := share.NormalizeCode(a.pairRecvCode)
+	if len(code) < 4 {
+		a.status = a.t("share.badCode")
+		return
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	a.mu.Lock()
+	if a.pairCancel != nil {
+		a.pairCancel()
+	}
+	a.pairCancel = cancel
+	a.mu.Unlock()
+
+	a.pairReceiving = true
+	a.status = a.t("share.connecting")
+	win := a.win
+	go func() {
+		defer cancel()
+		_, recvErr := share.PairReceive(ctx, share.PairOptions{
+			SignalingURL: sigURL,
+		}, code, a.decide, a.shareTake, a.shareCommit)
+		win.Update(func() {
+			a.mu.Lock()
+			a.pairCancel = nil
+			a.mu.Unlock()
+			a.pairReceiving = false
+			if a.isClosed() {
+				return
+			}
+			if recvErr == nil {
+				a.pairRecvCode = ""
+				a.pairRecvOpen = false
+				return
+			}
+			if errors.Is(recvErr, context.Canceled) {
+				a.status = ""
+				return
+			}
+			a.status = a.shareErrText(recvErr)
+		})
+	}()
 }
 
 func (a *App) sendProject(addr string) {
@@ -229,6 +415,12 @@ func (a *App) shareErrText(err error) string {
 		return a.t("share.declined")
 	case errors.Is(err, share.ErrInterrupted):
 		return a.t("share.interrupted")
+	case errors.Is(err, share.ErrNoSignaling):
+		return a.t("share.needSignal")
+	case errors.Is(err, share.ErrRoomNotFound), errors.Is(err, share.ErrBadCode):
+		return a.t("share.badCode")
+	case errors.Is(err, share.ErrRoomClaimed):
+		return a.t("share.codeClaimed")
 	case err == nil:
 		return ""
 	default:

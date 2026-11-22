@@ -546,3 +546,20 @@ Asset 有 `missing`。監聽發現檔案不見時把它設為 true，並拿掉 p
      - Inspector 內將原先手刻的 5 個星號按鈕替換為 MyGo 原生 `Rating` 組件，支援即時懸停預覽與無障礙鍵盤操作。
    - **頂部工具列（TopBar）視覺強化**：
      - 採用 `Background(t.Surface)` 獨立視覺層次，狀態文字設定 `SingleLine()` 與最大寬度，避免訊息過長破壞標題列佈局。
+
+---
+
+### 十二、階段 7 實作紀錄（配對碼 E2E 分享）
+
+1. **輕量自架信令服務（`internal/share/signal.go`、`cmd/ragle-signal`）**：
+   - 提供可自架的純 HTTP/JSON 長輪詢信令伺服器（`go run ./cmd/ragle-signal -addr :8787 -ttl 5m`），僅在記憶體暫存短生命週期 SDP Offer/Answer，不經手專案資料或檔案。
+   - 配對碼採用 6 碼去歧義字元（格式 `XXX-XXX`，輸入時不分大小寫與連字號），支援過期清理、防重複領取與發送方取消清理。
+
+2. **WebRTC DataChannel 端對端加密傳輸（`internal/share/pair.go`）**：
+   - 使用 `github.com/pion/webrtc/v4` 建立 DTLS 加密、有序可靠的 DataChannel（`ragle-share`）。
+   - 先分塊傳送 `Bundle` 元資料幀，經接收方確認後，再以 32 KiB 分塊傳送檔案幀（含 `Hash` 與位元組偏移 `Offset`）並具備背壓控制。
+   - 接收方驗證檔案大小與 SHA-256 後，於單一 bbolt transaction 內寫入並依雜湊去重。
+
+3. **設定與 UI 整合（`internal/config`、`internal/i18n`、`ui/share.go`、`ui/shell.go`）**：
+   - `config.json` 新增選填 `signaling_url`；未設定時不影響單機離線與區域網分享。
+   - 專案分享面板整合「產生配對碼 / 複製配對碼 / 取消」，頂部工具列新增「輸入配對碼」快速接收列。

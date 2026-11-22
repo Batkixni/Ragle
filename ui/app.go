@@ -2,6 +2,7 @@
 package ui
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -64,13 +65,19 @@ type App struct {
 	watch    *watcher.Watcher
 	ffmpeg   bool
 
-	node         *share.Node
-	shareDB      atomic.Pointer[db.DB]
-	shareOpen    bool
-	shareFiles   bool
-	shareDown    bool
-	shareSending bool
-	shareAsking  bool
+	node          *share.Node
+	shareDB       atomic.Pointer[db.DB]
+	shareOpen     bool
+	shareFiles    bool
+	shareDown     bool
+	shareSending  bool
+	shareAsking   bool
+	signalURL     string
+	pairCode      string
+	pairCancel    context.CancelFunc
+	pairRecvOpen  bool
+	pairRecvCode  string
+	pairReceiving bool
 
 	openErr     error
 	pendingRoot string
@@ -165,6 +172,9 @@ func Run() error {
 		if cfg.Language == i18n.ZhHant || cfg.Language == i18n.En {
 			a.lang = cfg.Language
 		}
+		if cfg.SignalingURL != "" {
+			a.signalURL = cfg.SignalingURL
+		}
 	}
 	mygo.App.WhenReady(func() {
 		a.win = mygo.NewWindow(mygo.WindowOptions{
@@ -204,7 +214,12 @@ func (a *App) shutdown() {
 	a.closed = true
 	node := a.node
 	a.node = nil
+	pairCancel := a.pairCancel
+	a.pairCancel = nil
 	a.mu.Unlock()
+	if pairCancel != nil {
+		pairCancel()
+	}
 	// Drop the library pointer before waiting, so a transfer blocked on the
 	// accept dialog wakes up from the node context and does not touch the DB.
 	a.shareDB.Store(nil)

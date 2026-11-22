@@ -13,6 +13,9 @@ func (a *App) shell(c *gui.Context) {
 	}
 	gui.Column(c).Fill().Background(t.Background).Children(func() {
 		a.topBar(c)
+		if a.pairRecvOpen {
+			a.receivePairBar(c)
+		}
 		if a.screen == screenBoard {
 			a.boardView(c)
 		} else {
@@ -56,6 +59,11 @@ func (a *App) topBar(c *gui.Context) {
 		gui.Box(c).Grow(1)
 		if a.status != "" {
 			gui.Text(c, a.status).MaxWidth(360).TextColor(t.TextMuted).FontSize(12).SingleLine()
+		}
+		if a.screen != screenBoard {
+			gui.Button(c.Key("top-recv-pair"), a.t("share.receiveByCode")).OnClick(func() {
+				a.pairRecvOpen = !a.pairRecvOpen
+			})
 		}
 		a.langButtons(c)
 	})
