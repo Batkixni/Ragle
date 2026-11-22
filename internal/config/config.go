@@ -60,6 +60,10 @@ type Config struct {
 	ServerBindAll   bool   `json:"server_bind_all,omitempty"`
 	ServerAutoStart bool   `json:"server_auto_start,omitempty"`
 	ServerToken     string `json:"server_token,omitempty"`
+
+	// Auto-updater preferences (GitHub Releases).
+	AutoCheckUpdates  *bool `json:"auto_check_updates,omitempty"`
+	UpdateBetaChannel *bool `json:"update_beta_channel,omitempty"`
 }
 
 // BoolOr returns *p when non-nil, or def otherwise.

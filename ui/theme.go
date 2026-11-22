@@ -69,6 +69,10 @@ var (
 	springSmooth = gui.Animation{
 		Spring: gui.SpringOptions{Duration: 400 * time.Millisecond, Bounce: 0},
 	}
+	// Sidebar & inspector slide open/close — brisk, critically damped, zero bounce.
+	springSidebar = gui.Animation{
+		Spring: gui.SpringOptions{Duration: 280 * time.Millisecond, Bounce: 0},
+	}
 	// Shared-layout highlights & pill morphs — critically damped, zero bounce.
 	springMorph = gui.Animation{
 		Spring: gui.SpringOptions{Duration: 420 * time.Millisecond, Bounce: 0},

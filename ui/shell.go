@@ -20,7 +20,20 @@ func (a *App) shell(c *gui.Context) {
 	if a.cardSize < 128 || a.cardSize > 300 {
 		a.cardSize = 184
 	}
-	gui.Box(c).Fill().Background(a.pal.canvas).Children(func() {
+	root := gui.Box(c.Key("shell-root")).Fill().Background(a.pal.canvas)
+
+	targetSidebarW := float32(0)
+	if a.sidebarOpen {
+		targetSidebarW = a.sidebarWidth
+	}
+	var animSidebarW float32
+	if a.sidebarResizing && a.sidebarOpen {
+		animSidebarW = root.Jump("sidebar-w", a.sidebarWidth)
+	} else {
+		animSidebarW = root.AnimateTo("sidebar-w", targetSidebarW, springSidebar)
+	}
+
+	root.Children(func() {
 		if a.screen == screenBoard {
 			a.boardView(c)
 			return
@@ -42,21 +55,104 @@ func (a *App) shell(c *gui.Context) {
 			})
 		}
 
-		if !a.sidebarOpen {
-			renderMain()
-		} else {
-			gui.Split(c, &a.sidebarWidth, func() {
-				a.sidebar(c)
-			}, renderMain).Fill()
-		}
+		gui.Row(c.Key("shell-layout")).Fill().Children(func() {
+			if animSidebarW > 0.5 {
+				progress := animSidebarW / a.sidebarWidth
+				if progress < 0 {
+					progress = 0
+				} else if progress > 1 {
+					progress = 1
+				}
+				gui.Box(c.Key("sidebar-anim-clip")).
+					Width(animSidebarW).
+					FillHeight().
+					Clip().
+					Children(func() {
+						slide := gui.Box(c.Key("sidebar-slide-wrap")).
+							Absolute().
+							Left(animSidebarW - a.sidebarWidth).
+							Top(0).
+							Bottom(0).
+							Width(a.sidebarWidth)
+						if progress < 0.995 {
+							slide.Opacity(0.35 + 0.65*progress)
+						}
+						slide.Children(func() {
+							a.sidebar(c)
+						})
+					})
 
-		// Floating bottom-corner re-open buttons when panels are collapsed
-		// (keeps top bar clean and matches bottom-anchored collapse controls).
+				// Sleek draggable splitter handle when sidebar is expanded.
+				if a.sidebarOpen && animSidebarW >= a.sidebarWidth-1.5 {
+					grip := gui.Box(c.Key("sidebar-resize-grip")).
+						Width(5).
+						FillHeight().
+						Center().
+						Cursor(gui.CursorResizeEW).
+						HandleInput(func(ev gui.InputEvent) bool {
+							winX := a.sidebarGripX + ev.X
+							switch ev.Kind {
+							case gui.InputPointerDown:
+								if ev.Button != 0 {
+									return false
+								}
+								a.sidebarResizing = true
+								a.sidebarDragStartX = winX
+								a.sidebarDragStartW = a.sidebarWidth
+								return true
+							case gui.InputPointerMove:
+								if !a.sidebarResizing {
+									return false
+								}
+								w := a.sidebarDragStartW + (winX - a.sidebarDragStartX)
+								if w < 204 {
+									w = 204
+								} else if w > 340 {
+									w = 340
+								}
+								a.sidebarWidth = w
+								return true
+							case gui.InputPointerUp:
+								if !a.sidebarResizing {
+									return false
+								}
+								if ev.Canceled {
+									a.sidebarWidth = a.sidebarDragStartW
+								}
+								a.sidebarResizing = false
+								return true
+							}
+							return false
+						})
+					a.sidebarGripX = grip.Bounds().X
+					gripCol := gui.Transparent
+					if a.sidebarResizing || grip.Hovered() {
+						gripCol = a.pal.surfaceActive
+					}
+					grip.Children(func() {
+						gui.Box(c).
+							Width(2).
+							Height(44).
+							Radius(radiusPill).
+							Background(grip.AnimateColor("grip-bg", gripCol, animFast))
+					})
+				}
+			}
+
+			gui.Box(c.Key("shell-main-slot")).Grow(1).FillHeight().Clip().Children(renderMain)
+		})
+
+		// Floating bottom-corner re-open buttons with smooth enter/exit transitions.
 		if !a.sidebarOpen {
 			gui.Box(c.Key("reopen-sidebar-wrap")).
 				Absolute().
 				Left(14).
 				Bottom(14).
+				Transition(gui.ElementTransition{
+					Animation: &springSnappy,
+					Enter:     &gui.Motion{X: -12, Scale: 0.9, Opacity: 0},
+					Exit:      &gui.Motion{X: -12, Scale: 0.9, Opacity: 0},
+				}).
 				Children(func() {
 					gui.Box(c).
 						Radius(radiusPill).
@@ -75,6 +171,11 @@ func (a *App) shell(c *gui.Context) {
 				Absolute().
 				Right(14).
 				Bottom(14).
+				Transition(gui.ElementTransition{
+					Animation: &springSnappy,
+					Enter:     &gui.Motion{X: 12, Scale: 0.9, Opacity: 0},
+					Exit:      &gui.Motion{X: 12, Scale: 0.9, Opacity: 0},
+				}).
 				Children(func() {
 					gui.Box(c).
 						Radius(radiusPill).
@@ -86,6 +187,113 @@ func (a *App) shell(c *gui.Context) {
 								a.inspectorOpen = true
 							})
 						})
+				})
+		}
+	})
+}
+
+// withAnimatedInspector renders mainContent alongside a smoothly sliding,
+// resizable right Inspector panel (shared by Library and Inline Preview).
+func (a *App) withAnimatedInspector(c *gui.Context, key string, mainContent func()) {
+	if a.inspectorWidth < 260 {
+		a.inspectorWidth = 316
+	} else if a.inspectorWidth > 460 {
+		a.inspectorWidth = 460
+	}
+	row := gui.Row(c.Key(key)).Grow(1).FillWidth()
+	targetW := float32(0)
+	if a.inspectorOpen {
+		targetW = a.inspectorWidth
+	}
+	var animW float32
+	if a.inspectorResizing && a.inspectorOpen {
+		animW = row.Jump("inspector-w", a.inspectorWidth)
+	} else {
+		animW = row.AnimateTo("inspector-w", targetW, springSidebar)
+	}
+
+	row.Children(func() {
+		gui.Box(c.Key(key + "-main")).Grow(1).FillHeight().Clip().Children(mainContent)
+
+		if animW > 0.5 {
+			if a.inspectorOpen && animW >= a.inspectorWidth-1.5 {
+				grip := gui.Box(c.Key(key + "-resize-grip")).
+					Width(5).
+					FillHeight().
+					Center().
+					Cursor(gui.CursorResizeEW).
+					HandleInput(func(ev gui.InputEvent) bool {
+						winX := a.inspectorGripX + ev.X
+						switch ev.Kind {
+						case gui.InputPointerDown:
+							if ev.Button != 0 {
+								return false
+							}
+							a.inspectorResizing = true
+							a.inspectorDragX = winX
+							a.inspectorDragW = a.inspectorWidth
+							return true
+						case gui.InputPointerMove:
+							if !a.inspectorResizing {
+								return false
+							}
+							w := a.inspectorDragW - (winX - a.inspectorDragX)
+							if w < 260 {
+								w = 260
+							} else if w > 460 {
+								w = 460
+							}
+							a.inspectorWidth = w
+							return true
+						case gui.InputPointerUp:
+							if !a.inspectorResizing {
+								return false
+							}
+							if ev.Canceled {
+								a.inspectorWidth = a.inspectorDragW
+							}
+							a.inspectorResizing = false
+							return true
+						}
+						return false
+					})
+				a.inspectorGripX = grip.Bounds().X
+				gripCol := gui.Transparent
+				if a.inspectorResizing || grip.Hovered() {
+					gripCol = a.pal.surfaceActive
+				}
+				grip.Children(func() {
+					gui.Box(c).
+						Width(2).
+						Height(44).
+						Radius(radiusPill).
+						Background(grip.AnimateColor("igrip-bg", gripCol, animFast))
+				})
+			}
+
+			progress := animW / a.inspectorWidth
+			if progress < 0 {
+				progress = 0
+			} else if progress > 1 {
+				progress = 1
+			}
+			gui.Box(c.Key(key + "-insp-clip")).
+				Width(animW).
+				FillHeight().
+				Clip().
+				Children(func() {
+					slide := gui.Box(c.Key(key + "-insp-slide")).
+						Absolute().
+						Left(0).
+						Top(0).
+						Bottom(0).
+						Width(a.inspectorWidth)
+					if progress < 0.995 {
+						slide.Opacity(0.35 + 0.65*progress)
+					}
+					slide.Children(func() {
+						a.inspector(c)
+					})
 				})
 		}
 	})
@@ -469,9 +677,11 @@ func (a *App) sidebar(c *gui.Context) {
 							a.openOnboarding()
 						})
 						gui.Spacer(c)
-						a.iconButton(c, "sb-collapse-btn", iconPanelLeft, a.t("sidebar.toggle"), false).OnClick(func() {
-							a.sidebarOpen = false
-						})
+						if a.sidebarOpen {
+							a.iconButton(c, "sb-collapse-btn", iconPanelLeft, a.t("sidebar.toggle"), false).OnClick(func() {
+								a.sidebarOpen = false
+							})
+						}
 					})
 			})
 	})

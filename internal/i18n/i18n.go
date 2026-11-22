@@ -588,6 +588,27 @@ var pairs = []pair{
 	{"goto.actToggleInspector", "展開 / 收合右側資訊欄", "Toggle right inspector"},
 	{"goto.actToggleServer", "啟動 / 停止內建伺服器", "Start / stop built-in server"},
 	{"goto.actSettings", "開啟偏好設定", "Open preferences"},
+
+	// Auto-updater (GitHub Releases).
+	{"update.section", "軟體更新", "Software Updates"},
+	{"update.current", "目前版本", "Current version"},
+	{"update.autoCheck", "啟動時自動檢查 GitHub 更新", "Check GitHub for updates on launch"},
+	{"update.betaChannel", "接收 Beta 測試版更新", "Include Beta pre-releases"},
+	{"update.checkBtn", "檢查更新", "Check for Updates"},
+	{"update.checking", "正在檢查 GitHub 最新版本…", "Checking GitHub for updates…"},
+	{"update.upToDate", "目前已是最新版本（%s）", "You are up to date (%s)"},
+	{"update.available", "發現新版本：%s", "New version available: %s"},
+	{"update.toastAvailable", "發現新版本 %s，可於偏好設定一鍵更新", "Update %s available — install in Preferences"},
+	{"update.installBtn", "下載並更新", "Download & Update"},
+	{"update.downloading", "正在下載更新（%d%%）…", "Downloading update (%d%%)…"},
+	{"update.verifying", "正在驗證 SHA-256 校驗碼…", "Verifying SHA-256 checksum…"},
+	{"update.extracting", "正在解壓縮更新檔…", "Extracting update archive…"},
+	{"update.installing", "正在套用更新…", "Installing update…"},
+	{"update.ready", "更新已安裝完成，重新啟動即可套用新版本。", "Update installed. Restart Ragle to launch the new version."},
+	{"update.restartBtn", "立即重新啟動", "Restart Now"},
+	{"update.openRelease", "查看發行說明", "Release Notes"},
+	{"update.noAsset", "此版本尚未提供目前平台的執行檔，請前往 GitHub 查看。", "No binary for this platform in release; open GitHub to view."},
+	{"update.failed", "檢查或更新失敗：%s", "Update failed: %s"},
 }
 
 var (

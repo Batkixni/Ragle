@@ -30,6 +30,7 @@ import (
 	"ragle/internal/server"
 	"ragle/internal/share"
 	"ragle/internal/thumbnail"
+	"ragle/internal/updater"
 	"ragle/internal/watcher"
 )
 
@@ -338,11 +339,32 @@ type App struct {
 	askFn      func()
 	askCancel  func()
 
-	sidebarOpen    bool
-	sidebarWidth   float32
-	libraryPercent float32
-	selectedNav    string
-	lastNav        string
+	sidebarOpen       bool
+	sidebarWidth      float32
+	sidebarResizing   bool
+	sidebarGripX      float32
+	sidebarDragStartX float32
+	sidebarDragStartW float32
+	inspectorWidth    float32
+	inspectorResizing bool
+	inspectorGripX    float32
+	inspectorDragX    float32
+	inspectorDragW    float32
+	libraryPercent    float32
+	selectedNav       string
+	lastNav           string
+
+	// GitHub Auto-Updater state.
+	autoCheckUpdates  bool
+	updateBetaChannel bool
+	updateChecking    bool
+	updateApplying    bool
+	updateAvailable   bool
+	updateInstalled   bool
+	updatePct         float64
+	updateMsg         string
+	updateErr         string
+	updateRelease     *updater.Release
 
 	// Auto-dismissing floating toast popup state.
 	toastSeq     uint64
@@ -416,7 +438,10 @@ func NewApp() *App {
 		newProjTags:          map[string]bool{},
 		sidebarOpen:          true,
 		sidebarWidth:         240,
+		inspectorWidth:       316,
 		libraryPercent:       74,
+		autoCheckUpdates:     true,
+		updateBetaChannel:    true,
 		selectedNav:          "tag-all",
 		lastNav:              "tag-all",
 	}
@@ -424,6 +449,7 @@ func NewApp() *App {
 
 // Run opens the window and, when a library path was saved, opens that folder.
 func Run() error {
+	updater.CleanupOldBinary()
 	a := NewApp()
 	if cfg, err := config.Load(); err == nil {
 		a.applyConfig(cfg)
@@ -447,6 +473,7 @@ func Run() error {
 		})
 		a.win.OnClosed(func() { a.shutdown() })
 		a.startShare()
+		a.startQuietUpdateCheck()
 		if a.cfg.LibraryPath != "" {
 			root := a.cfg.LibraryPath
 			go a.openRoot(root)
@@ -516,6 +543,8 @@ func (a *App) applyConfig(cfg config.Config) {
 	a.serverBindAll = cfg.ServerBindAll
 	a.serverAutoStart = cfg.ServerAutoStart
 	a.serverToken = cfg.ServerToken
+	a.autoCheckUpdates = config.BoolOr(cfg.AutoCheckUpdates, true)
+	a.updateBetaChannel = config.BoolOr(cfg.UpdateBetaChannel, true)
 }
 
 func (a *App) syncConfigFromState() {
@@ -553,6 +582,8 @@ func (a *App) syncConfigFromState() {
 	a.cfg.ServerBindAll = a.serverBindAll
 	a.cfg.ServerAutoStart = a.serverAutoStart
 	a.cfg.ServerToken = strings.TrimSpace(a.serverToken)
+	a.cfg.AutoCheckUpdates = config.BoolPtr(a.autoCheckUpdates)
+	a.cfg.UpdateBetaChannel = config.BoolPtr(a.updateBetaChannel)
 	a.saveConfig()
 }
 

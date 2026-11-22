@@ -16,18 +16,9 @@ type cardRevealKey struct {
 }
 
 func (a *App) libraryView(c *gui.Context) {
-	if !a.inspectorOpen {
+	a.withAnimatedInspector(c, "library-insp-layout", func() {
 		a.libraryMain(c)
-		return
-	}
-	if a.libraryPercent <= 40 || a.libraryPercent >= 90 {
-		a.libraryPercent = 73
-	}
-	gui.SplitPercent(c, &a.libraryPercent, func() {
-		a.libraryMain(c)
-	}, func() {
-		a.inspector(c)
-	}).Grow(1)
+	})
 }
 
 func (a *App) libraryMain(c *gui.Context) {
@@ -1004,6 +995,7 @@ func (a *App) assetCard(c *gui.Context, index int, asset model.Asset, selected b
 
 	hovered := card.Hovered()
 	pressed := card.Pressed()
+	dragging := card.Dragging()
 
 	targetBg := a.pal.surface
 	liftY := float32(0)
@@ -1011,6 +1003,23 @@ func (a *App) assetCard(c *gui.Context, index int, asset model.Asset, selected b
 	imgScale := float32(1)
 	shadow := a.pal.shadowResting
 	switch {
+	case dragging:
+		// Shrink dragged preview to a crisp ~56px miniature so the cursor stays
+		// clearly visible for accurate aiming at sidebar tags, boards & projects.
+		bounds := card.LayoutBounds()
+		maxDim := max(bounds.W, bounds.H)
+		dragScale := float32(0.30)
+		if maxDim > 0 {
+			dragScale = 56.0 / maxDim
+			if dragScale < 0.14 {
+				dragScale = 0.14
+			} else if dragScale > 0.42 {
+				dragScale = 0.42
+			}
+		}
+		cardScale = dragScale
+		shadow = a.pal.shadowFloating
+		card.Opacity(0.26)
 	case pressed:
 		targetBg = a.pal.surfaceActive
 		cardScale = 0.985
@@ -1029,7 +1038,7 @@ func (a *App) assetCard(c *gui.Context, index int, asset model.Asset, selected b
 
 	bg := card.AnimateColor("card-bg", targetBg, animFast)
 	card.Background(bg).Shadow(0, 4, 14, 0, shadow)
-	if pressed {
+	if dragging || pressed {
 		card.AnimatePose(gui.Pose{Y: liftY, Scale: cardScale}, springResponsive)
 	} else {
 		card.AnimatePose(gui.Pose{Y: liftY, Scale: cardScale}, springGentle)
@@ -1521,9 +1530,11 @@ func (a *App) inspector(c *gui.Context) {
 					AlignItems(gui.Center).
 					Children(func() {
 						gui.Spacer(c)
-						a.iconButton(c, "insp-collapse-btn", iconPanelRight, a.t("inspector.toggle"), false).OnClick(func() {
-							a.inspectorOpen = false
-						})
+						if a.inspectorOpen {
+							a.iconButton(c, "insp-collapse-btn", iconPanelRight, a.t("inspector.toggle"), false).OnClick(func() {
+								a.inspectorOpen = false
+							})
+						}
 					})
 			})
 	})

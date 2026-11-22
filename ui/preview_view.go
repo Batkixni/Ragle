@@ -197,17 +197,6 @@ func (a *App) inlinePreviewView(c *gui.Context) {
 			})
 		}
 
-		gui.Box(c).Grow(1).FillWidth().Children(func() {
-			if a.inspectorOpen {
-				if a.libraryPercent <= 40 || a.libraryPercent >= 90 {
-					a.libraryPercent = 73
-				}
-				gui.SplitPercent(c, &a.libraryPercent, stage, func() {
-					a.inspector(c)
-				}).Fill()
-			} else {
-				stage()
-			}
-		})
+		a.withAnimatedInspector(c, "viewer-insp-layout", stage)
 	})
 }

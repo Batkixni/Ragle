@@ -12,6 +12,7 @@ import (
 	gui "github.com/egoist/mygo/ui"
 
 	"ragle/internal/model"
+	"ragle/internal/updater"
 )
 
 const (
@@ -318,7 +319,12 @@ func (a *App) settingsModal(c *gui.Context) {
 					gui.Spacer(c)
 
 					gui.Column(c).Padding(0, 10).Gap(2).Children(func() {
-						gui.Text(c, "Ragle").FontSize(11).Bold().TextColor(a.pal.inkMuted)
+						gui.Row(c).Gap(6).AlignItems(gui.Center).Children(func() {
+							gui.Text(c, "Ragle v"+updater.Version).FontSize(11).Bold().TextColor(a.pal.inkMuted).SingleLine()
+							if a.updateAvailable || a.updateInstalled {
+								gui.Box(c).Size(7, 7).Radius(radiusPill).Background(gui.Hex("#10B981"))
+							}
+						})
 						gui.Text(c, a.t("shell.localFirst")).FontSize(10).TextColor(a.pal.inkFaint).SingleLine()
 					})
 				})
@@ -554,6 +560,65 @@ func (a *App) settingsGeneralTab(c *gui.Context) {
 				a.settingsOpen = false
 				a.openOnboarding()
 			})
+		})
+	})
+
+	// Software updates (GitHub Releases Auto-Updater).
+	services := c.Services()
+	a.settingsGroup(c, a.t("update.section"), func() {
+		gui.Row(c).FillWidth().Gap(10).AlignItems(gui.Center).Children(func() {
+			gui.Text(c, a.t("update.current")).FontSize(13).Grow(1)
+			a.pillBadge(c, "v"+updater.Version, a.pal.ink, a.pal.surfaceMuted)
+		})
+		a.settingsSwitchRow(c, "pref-upd-auto", a.t("update.autoCheck"), &a.autoCheckUpdates, func() {
+			a.syncConfigFromState()
+		})
+		a.settingsSwitchRow(c, "pref-upd-beta", a.t("update.betaChannel"), &a.updateBetaChannel, func() {
+			a.syncConfigFromState()
+		})
+
+		if a.updateMsg != "" {
+			msgCol := a.pal.inkSecondary
+			if a.updateInstalled || a.updateAvailable {
+				msgCol = a.pal.ink
+			}
+			if a.updateErr != "" {
+				msgCol = a.pal.danger
+			}
+			gui.Text(c, a.updateMsg).FontSize(12).Bold().TextColor(msgCol).LineHeight(1.4)
+		}
+
+		if a.updateApplying {
+			pct := float32(a.updatePct)
+			if pct < 4 {
+				pct = 4
+			} else if pct > 100 {
+				pct = 100
+			}
+			gui.Box(c).FillWidth().Height(6).Radius(radiusPill).Clip().Background(a.pal.surfaceMuted).Children(func() {
+				gui.Box(c).WidthPercent(pct).FillHeight().Radius(radiusPill).Background(a.pal.controlOn)
+			})
+		}
+
+		gui.Row(c).FillWidth().Gap(8).AlignItems(gui.Center).Wrap().Children(func() {
+			if a.updateInstalled {
+				a.arcButton(c, "pref-upd-restart", a.t("update.restartBtn"), true).OnClick(func() {
+					a.restartToApplyUpdate()
+				})
+			} else if a.updateAvailable && a.updateRelease != nil && a.updateRelease.DownloadURL != "" {
+				a.arcButton(c, "pref-upd-install", a.t("update.installBtn"), true).
+					Disabled(a.updateApplying).
+					OnClick(func() { a.applyUpdateNow() })
+			}
+			a.arcButton(c, "pref-upd-check", a.t("update.checkBtn"), !a.updateAvailable && !a.updateInstalled).
+				Disabled(a.updateChecking || a.updateApplying).
+				OnClick(func() { a.checkForUpdatesNow() })
+			if a.updateRelease != nil && a.updateRelease.HTMLURL != "" {
+				relURL := a.updateRelease.HTMLURL
+				a.toolButton(c, "pref-upd-notes", iconExternal, a.t("update.openRelease"), false).OnClick(func() {
+					services.OpenURL(relURL)
+				})
+			}
 		})
 	})
 }

@@ -229,7 +229,10 @@ func (a *App) boardTray(c *gui.Context) {
 								})
 							bg := a.pal.surface
 							scale := float32(1)
-							if card.Pressed() {
+							if card.Dragging() {
+								scale = 0.54
+								card.Opacity(0.28)
+							} else if card.Pressed() {
 								scale = 0.95
 								bg = a.pal.surfaceMuted
 							} else if card.Hovered() {
