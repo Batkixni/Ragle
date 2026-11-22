@@ -4,6 +4,7 @@ import gui "github.com/egoist/mygo/ui"
 
 // View builds the window. Tester calls it without a running app.
 func (a *App) View(c *gui.Context) {
+	a.viewFrameSeq++
 	a.captureTheme(c)
 	// Register window-wide shortcuts at the root scope (raw.parent == raw.root)
 	// so Ctrl+A, Ctrl+F, Ctrl+I, Ctrl+,, Space, Delete, Arrows, and 0-5 work

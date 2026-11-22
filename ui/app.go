@@ -123,6 +123,7 @@ type App struct {
 	assets             []model.Asset
 	assetIdx           map[string]int
 	assetByID          map[string]model.Asset
+	assetSearchKey     map[string]string
 	assetTags          map[string][]model.Tag
 	tagCounts          map[string]int
 	allAssetsCount     int
@@ -144,6 +145,9 @@ type App struct {
 	grid            gui.GridState
 	bentoScroll     gui.ScrollState
 	masonryScroll   gui.ScrollState
+	layoutGen       uint64
+	masonryCache    masonryLayoutCache
+	bentoCache      bentoLayoutCache
 	assetIndex      int
 	anchorIndex     int
 	selectedIDs     map[string]bool
@@ -375,11 +379,15 @@ type App struct {
 	fontSizeBuf        float64
 	flushArmed         bool
 
-	bitmaps     map[string]*gui.Bitmap
-	bitmapOrder []string
-	bitmapSem   chan struct{}
-	loading     map[string]bool
-	queued      map[string]bool
+	bitmaps      map[string]*gui.Bitmap
+	bitmapOrder  []string
+	bitmapSem    chan struct{}
+	bitmapWake   chan struct{}
+	bitmapGen    map[string]uint64
+	bitmapPaths  map[string]string
+	viewFrameSeq uint64
+	loading      map[string]bool
+	queued       map[string]bool
 
 	askOpen    bool
 	askTitle   string
@@ -473,10 +481,14 @@ func NewApp() *App {
 		boardInspectorOpen:   true,
 		bitmaps:              map[string]*gui.Bitmap{},
 		bitmapSem:            make(chan struct{}, 6),
+		bitmapWake:           make(chan struct{}, 1),
+		bitmapGen:            map[string]uint64{},
+		bitmapPaths:          map[string]string{},
 		loading:              map[string]bool{},
 		queued:               map[string]bool{},
 		allAssetIdx:          map[string]int{},
 		assetIdx:             map[string]int{},
+		assetSearchKey:       map[string]string{},
 		tagByID:              map[string]model.Tag{},
 		tagChildren:          map[string][]model.Tag{},
 		tagRecursiveCounts:   map[string]int{},
@@ -894,6 +906,7 @@ func (a *App) reload() {
 	a.allAssetsCount = len(all)
 	a.allAssetIdx = make(map[string]int, len(all))
 	a.assetByID = make(map[string]model.Asset, len(all))
+	a.assetSearchKey = make(map[string]string, len(all))
 	a.assetTags = snap.AssetTags
 	if a.assetTags == nil {
 		a.assetTags = make(map[string][]model.Tag)
@@ -910,6 +923,7 @@ func (a *App) reload() {
 			a.missingCount++
 		}
 		atags := a.assetTags[asset.ID]
+		a.assetSearchKey[asset.ID] = a.buildAssetSearchKey(asset, atags)
 		if len(atags) == 0 {
 			a.untaggedCount++
 		}
@@ -1173,6 +1187,7 @@ func (a *App) applyFilters() {
 	}
 
 	a.assets = out
+	a.layoutGen++
 	a.assetIdx = make(map[string]int, len(out))
 	for i, item := range out {
 		a.assetIdx[item.ID] = i
@@ -1260,7 +1275,27 @@ func (a *App) tagDisplayCount(tagID string) int {
 	return a.tagCounts[tagID]
 }
 
+func (a *App) buildAssetSearchKey(asset model.Asset, tags []model.Tag) string {
+	var sb strings.Builder
+	sb.Grow(len(asset.Path) + len(asset.Mime) + len(asset.Notes) + 24)
+	sb.WriteString(strings.ToLower(filepath.Base(asset.Path)))
+	sb.WriteByte('\n')
+	sb.WriteString(strings.ToLower(asset.Mime))
+	if asset.Notes != "" {
+		sb.WriteByte('\n')
+		sb.WriteString(strings.ToLower(asset.Notes))
+	}
+	for _, tg := range tags {
+		sb.WriteByte('\n')
+		sb.WriteString(strings.ToLower(tg.Name))
+	}
+	return sb.String()
+}
+
 func (a *App) matchesQuery(asset model.Asset, q string) bool {
+	if key, ok := a.assetSearchKey[asset.ID]; ok {
+		return strings.Contains(key, q)
+	}
 	name := strings.ToLower(a.assetName(asset))
 	if strings.Contains(name, q) {
 		return true
@@ -1363,6 +1398,116 @@ func (a *App) queueThumb(asset model.Asset) {
 	a.thumbs.Enqueue(asset.ID)
 }
 
+// updateAssetInMemory mutates a single asset's record in all in-memory slices
+// and maps in O(1) time without running a full bbolt reload().
+func (a *App) updateAssetInMemory(asset model.Asset) {
+	a.assetByID[asset.ID] = asset
+	if idx, ok := a.allAssetIdx[asset.ID]; ok && idx >= 0 && idx < len(a.allAssets) && a.allAssets[idx].ID == asset.ID {
+		a.allAssets[idx] = asset
+	}
+	if idx, ok := a.assetIdx[asset.ID]; ok && idx >= 0 && idx < len(a.assets) && a.assets[idx].ID == asset.ID {
+		a.assets[idx] = asset
+	}
+	for i := range a.projectAssets {
+		if a.projectAssets[i].ID == asset.ID {
+			a.projectAssets[i] = asset
+			break
+		}
+	}
+	a.assetSearchKey[asset.ID] = a.buildAssetSearchKey(asset, a.assetTags[asset.ID])
+}
+
+// setAssetRatingFast updates an asset's star rating in bbolt and in memory in O(1).
+func (a *App) setAssetRatingFast(assetID string, rating int) {
+	if a.lib == nil || assetID == "" {
+		return
+	}
+	if err := a.lib.SetRating(assetID, rating); err != nil {
+		a.status = err.Error()
+		return
+	}
+	if cur, ok := a.assetByID[assetID]; ok {
+		cur.Rating = rating
+		a.updateAssetInMemory(cur)
+	}
+	if a.inspectorAssetID == assetID {
+		a.inspectorRating = rating
+	}
+	if a.minRating > 0 || a.sortBy == sortRating {
+		a.applyFilters()
+	}
+}
+
+// setAssetTagFast links or unlinks a tag on an asset in O(1) without reloading 100k records.
+func (a *App) setAssetTagFast(assetID, tagID string, on bool) {
+	if a.lib == nil || assetID == "" || tagID == "" {
+		return
+	}
+	if err := a.lib.SetAssetTag(assetID, tagID, on); err != nil {
+		a.status = err.Error()
+		return
+	}
+	tg, ok := a.tagByID[tagID]
+	if !ok {
+		a.reload()
+		return
+	}
+	curTags := a.assetTags[assetID]
+	hadTag := false
+	for _, existing := range curTags {
+		if existing.ID == tagID {
+			hadTag = true
+			break
+		}
+	}
+	if on && !hadTag {
+		wasUntagged := len(curTags) == 0
+		curTags = append(curTags, tg)
+		a.assetTags[assetID] = curTags
+		if wasUntagged && a.untaggedCount > 0 {
+			a.untaggedCount--
+		}
+	} else if !on && hadTag {
+		next := make([]model.Tag, 0, len(curTags)-1)
+		for _, existing := range curTags {
+			if existing.ID != tagID {
+				next = append(next, existing)
+			}
+		}
+		a.assetTags[assetID] = next
+		if len(next) == 0 {
+			a.untaggedCount++
+		}
+	}
+	a.recomputeTagCountsForAsset(assetID)
+	if cur, ok := a.assetByID[assetID]; ok {
+		a.assetSearchKey[assetID] = a.buildAssetSearchKey(cur, a.assetTags[assetID])
+	}
+	if a.tagID != "" || a.navFilter == "untagged" || a.searchQuery != "" {
+		a.applyFilters()
+	}
+}
+
+func (a *App) recomputeTagCountsForAsset(_ string) {
+	a.tagCounts = make(map[string]int, len(a.tags))
+	a.tagRecursiveCounts = make(map[string]int, len(a.tags))
+	for _, atags := range a.assetTags {
+		if len(atags) == 0 {
+			continue
+		}
+		countedAncestors := map[string]bool{}
+		for _, tg := range atags {
+			a.tagCounts[tg.ID]++
+			walk := tg.ID
+			for walk != "" && !countedAncestors[walk] {
+				countedAncestors[walk] = true
+				a.tagRecursiveCounts[walk]++
+				walk = a.tagByID[walk].ParentID
+			}
+		}
+	}
+}
+
 func (a *App) onThumb(id string) {
 	if a.lib == nil {
 		return
@@ -1371,21 +1516,7 @@ func (a *App) onThumb(id string) {
 	if err != nil {
 		return
 	}
-	a.assetByID[id] = asset
-	if idx, ok := a.allAssetIdx[id]; ok && idx >= 0 && idx < len(a.allAssets) && a.allAssets[idx].ID == id {
-		a.allAssets[idx] = asset
-	}
-	if idx, ok := a.assetIdx[id]; ok && idx >= 0 && idx < len(a.assets) && a.assets[idx].ID == id {
-		a.assets[idx] = asset
-	}
-	for i := range a.projectAssets {
-		if a.projectAssets[i].ID == id {
-			a.projectAssets[i] = asset
-			break
-		}
-	}
-	// Do NOT eagerly decode the bitmap here; if the card is currently visible in
-	// the viewport, assetCard() will request ensureBitmap on the next frame.
+	a.updateAssetInMemory(asset)
 }
 
 const maxCachedBitmaps = 480
@@ -1444,7 +1575,8 @@ func (a *App) ensureBitmap(id, path string) {
 		a.bitmapSem = make(chan struct{}, 6)
 	}
 	// Non-blocking concurrency guard: only decode up to 6 thumbnails at once.
-	// Visible cards still waiting will automatically re-request on subsequent frames.
+	// Visible cards still waiting will automatically re-request on subsequent frames;
+	// cards scrolled past are never queued at all!
 	select {
 	case a.bitmapSem <- struct{}{}:
 	default:
@@ -1453,7 +1585,14 @@ func (a *App) ensureBitmap(id, path string) {
 	a.loading[id] = true
 	win := a.win
 	go func() {
-		defer func() { <-a.bitmapSem }()
+		defer func() {
+			<-a.bitmapSem
+			// Wake the UI loop so any remaining visible cards waiting for a slot
+			// immediately claim the freed worker on the next frame.
+			if win != nil {
+				win.Update(func() {})
+			}
+		}()
 		data, err := os.ReadFile(path)
 		var bm *gui.Bitmap
 		var decErr error
@@ -2575,9 +2714,19 @@ func (a *App) batchSetRating(rating int) {
 		return
 	}
 	for _, id := range ids {
-		_ = a.lib.SetRating(id, rating)
+		if err := a.lib.SetRating(id, rating); err == nil {
+			if cur, ok := a.assetByID[id]; ok {
+				cur.Rating = rating
+				a.updateAssetInMemory(cur)
+			}
+			if a.inspectorAssetID == id {
+				a.inspectorRating = rating
+			}
+		}
 	}
-	a.reload()
+	if a.minRating > 0 || a.sortBy == sortRating {
+		a.applyFilters()
+	}
 }
 
 func (a *App) notify(msg string) {

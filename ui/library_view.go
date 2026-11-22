@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -9,6 +10,50 @@ import (
 
 	"raglex/internal/model"
 )
+
+type masonryEntry struct {
+	index int
+	y     float32
+	h     float32
+}
+
+type masonryLayoutCache struct {
+	gen        uint64
+	count      int
+	cols       int
+	colW       float32
+	capH       float32
+	buckets    [][]masonryEntry
+	colHeights []float32
+}
+
+type bentoBlockKind uint8
+
+const (
+	bentoBlockHero bentoBlockKind = iota
+	bentoBlockWide
+	bentoBlockRow
+)
+
+type bentoBlock struct {
+	kind     bentoBlockKind
+	blockIdx int
+	startIdx int
+	count    int
+	widePos  int
+	heroLeft bool
+	y        float32
+	h        float32
+}
+
+type bentoLayoutCache struct {
+	gen    uint64
+	count  int
+	cols   int
+	unitH  float32
+	blocks []bentoBlock
+	totalH float32
+}
 
 type cardRevealKey struct {
 	gen int
@@ -588,7 +633,7 @@ func (a *App) bindAssetShortcuts(el gui.Element) {
 
 // assetMasonry renders an Eagle-style multi-column waterfall masonry layout
 // preserving each asset's natural aspect ratio in balanced shortest-column order,
-// with full viewport virtualization so 250,000+ item libraries scroll at 60 FPS.
+// with cached prefix-sum geometry and O(log N) binary search viewport culling.
 func (a *App) assetMasonry(c *gui.Context) {
 	if a.assetIndex >= len(a.assets) {
 		a.assetIndex = -1
@@ -632,38 +677,54 @@ func (a *App) assetMasonry(c *gui.Context) {
 		capH = 0
 	}
 
-	type masonryEntry struct {
-		index int
-		y     float32
-		h     float32
-	}
-	buckets := make([][]masonryEntry, cols)
-	colHeights := make([]float32, cols)
-
-	for i, asset := range a.assets {
-		ratio := float32(0.82)
-		if asset.Width > 0 && asset.Height > 0 {
-			ratio = float32(asset.Height) / float32(asset.Width)
-		} else {
-			presets := [...]float32{0.72, 1.15, 0.92, 1.28, 0.78}
-			ratio = presets[i%len(presets)]
+	if a.masonryCache.gen != a.layoutGen ||
+		a.masonryCache.count != len(a.assets) ||
+		a.masonryCache.cols != cols ||
+		a.masonryCache.colW != colW ||
+		a.masonryCache.capH != capH {
+		buckets := make([][]masonryEntry, cols)
+		colHeights := make([]float32, cols)
+		estPerCol := len(a.assets)/cols + 1
+		for col := 0; col < cols; col++ {
+			buckets[col] = make([]masonryEntry, 0, estPerCol)
 		}
-		if ratio < 0.55 {
-			ratio = 0.55
-		} else if ratio > 1.85 {
-			ratio = 1.85
-		}
-		itemH := colW*ratio + capH
-		best := 0
-		for k := 1; k < cols; k++ {
-			if colHeights[k] < colHeights[best] {
-				best = k
+		for i, asset := range a.assets {
+			ratio := float32(0.82)
+			if asset.Width > 0 && asset.Height > 0 {
+				ratio = float32(asset.Height) / float32(asset.Width)
+			} else {
+				presets := [...]float32{0.72, 1.15, 0.92, 1.28, 0.78}
+				ratio = presets[i%len(presets)]
 			}
+			if ratio < 0.55 {
+				ratio = 0.55
+			} else if ratio > 1.85 {
+				ratio = 1.85
+			}
+			itemH := colW*ratio + capH
+			best := 0
+			for k := 1; k < cols; k++ {
+				if colHeights[k] < colHeights[best] {
+					best = k
+				}
+			}
+			y := colHeights[best]
+			buckets[best] = append(buckets[best], masonryEntry{index: i, y: y, h: itemH})
+			colHeights[best] = y + itemH + gap
 		}
-		y := colHeights[best]
-		buckets[best] = append(buckets[best], masonryEntry{index: i, y: y, h: itemH})
-		colHeights[best] = y + itemH + gap
+		a.masonryCache = masonryLayoutCache{
+			gen:        a.layoutGen,
+			count:      len(a.assets),
+			cols:       cols,
+			colW:       colW,
+			capH:       capH,
+			buckets:    buckets,
+			colHeights: colHeights,
+		}
 	}
+
+	buckets := a.masonryCache.buckets
+	colHeights := a.masonryCache.colHeights
 
 	scroll.Children(func() {
 		gui.Row(c).FillWidth().Padding(8, 12, 72, 8).Gap(gap).AlignItems(gui.Start).Children(func() {
@@ -677,22 +738,23 @@ func (a *App) assetMasonry(c *gui.Context) {
 					if len(entries) == 0 {
 						return
 					}
-					firstVis := -1
-					lastVis := -1
-					for idx, ent := range entries {
-						if ent.y+ent.h >= minY && ent.y <= maxY {
-							if firstVis < 0 {
-								firstVis = idx
-							}
-							lastVis = idx
-						} else if firstVis >= 0 && ent.y > maxY {
-							break
-						}
-					}
-					if firstVis < 0 {
+					// O(log N) binary search for first entry whose bottom >= minY.
+					firstVis := sort.Search(len(entries), func(idx int) bool {
+						return entries[idx].y+entries[idx].h >= minY
+					})
+					if firstVis >= len(entries) || entries[firstVis].y > maxY {
 						gui.Box(c).FillWidth().Height(totalH)
 						return
 					}
+					// O(log N) binary search for first entry whose top > maxY.
+					afterLast := sort.Search(len(entries)-firstVis, func(offset int) bool {
+						return entries[firstVis+offset].y > maxY
+					})
+					lastVis := firstVis + afterLast - 1
+					if lastVis < firstVis {
+						lastVis = firstVis
+					}
+
 					if topPad := entries[firstVis].y - gap; topPad > 0 {
 						gui.Box(c).FillWidth().Height(topPad)
 					}
@@ -714,7 +776,8 @@ func (a *App) assetMasonry(c *gui.Context) {
 }
 
 // assetBento renders an editorial Arc UI Bento grid with alternating 2x2 hero
-// blocks and wide accent rows, with viewport virtualization for huge libraries.
+// blocks and wide accent rows, using cached block geometry, O(log N) binary
+// search, and a SINGLE topPad + SINGLE botPad spacer for 250k+ asset scale.
 func (a *App) assetBento(c *gui.Context) {
 	if a.assetIndex >= len(a.assets) {
 		a.assetIndex = -1
@@ -757,32 +820,119 @@ func (a *App) assetBento(c *gui.Context) {
 		unitH = 290
 	}
 
+	if a.bentoCache.gen != a.layoutGen ||
+		a.bentoCache.count != len(a.assets) ||
+		a.bentoCache.cols != cols ||
+		a.bentoCache.unitH != unitH {
+		n := len(a.assets)
+		blocks := make([]bentoBlock, 0, n/cols+2)
+		i := 0
+		blockIdx := 0
+		var curY float32 = 0
+		sideCols := cols - 2
+		heroBlockSize := 1 + sideCols*2
+		wideRowSize := cols - 1
+
+		for i < n {
+			rem := n - i
+			if cols >= 3 && rem >= heroBlockSize && blockIdx%2 == 0 {
+				heroH := unitH*2 + gap
+				blocks = append(blocks, bentoBlock{
+					kind:     bentoBlockHero,
+					blockIdx: blockIdx,
+					startIdx: i,
+					count:    heroBlockSize,
+					heroLeft: (blockIdx/2)%2 == 0,
+					y:        curY,
+					h:        heroH,
+				})
+				curY += heroH + gap
+				i += heroBlockSize
+				blockIdx++
+				continue
+			}
+			if cols >= 3 && rem >= wideRowSize && rem != cols {
+				widePos := 0
+				if blockIdx%2 == 1 {
+					widePos = wideRowSize - 1
+				}
+				blocks = append(blocks, bentoBlock{
+					kind:     bentoBlockWide,
+					blockIdx: blockIdx,
+					startIdx: i,
+					count:    wideRowSize,
+					widePos:  widePos,
+					y:        curY,
+					h:        unitH,
+				})
+				curY += unitH + gap
+				i += wideRowSize
+				blockIdx++
+				continue
+			}
+			take := min(rem, cols)
+			blocks = append(blocks, bentoBlock{
+				kind:     bentoBlockRow,
+				blockIdx: blockIdx,
+				startIdx: i,
+				count:    take,
+				y:        curY,
+				h:        unitH,
+			})
+			curY += unitH + gap
+			i += take
+			blockIdx++
+		}
+		totalH := curY
+		if totalH > gap {
+			totalH -= gap
+		}
+		a.bentoCache = bentoLayoutCache{
+			gen:    a.layoutGen,
+			count:  n,
+			cols:   cols,
+			unitH:  unitH,
+			blocks: blocks,
+			totalH: totalH,
+		}
+	}
+
+	blocks := a.bentoCache.blocks
+	totalH := a.bentoCache.totalH
+	sideCols := cols - 2
+
 	scroll.Children(func() {
 		gui.Column(c).FillWidth().Padding(8, 12, 72, 8).Gap(gap).Children(func() {
-			n := len(a.assets)
-			i := 0
-			blockIdx := 0
-			var curY float32 = 8
-			sideCols := cols - 2
-			sideCount := sideCols * 2
-			heroBlockSize := 1 + sideCount
+			if len(blocks) == 0 {
+				return
+			}
+			// O(log N) binary search for visible block range.
+			firstVis := sort.Search(len(blocks), func(idx int) bool {
+				return blocks[idx].y+blocks[idx].h >= minY
+			})
+			if firstVis >= len(blocks) || blocks[firstVis].y > maxY {
+				gui.Box(c).FillWidth().Height(totalH)
+				return
+			}
+			afterLast := sort.Search(len(blocks)-firstVis, func(offset int) bool {
+				return blocks[firstVis+offset].y > maxY
+			})
+			lastVis := firstVis + afterLast - 1
+			if lastVis < firstVis {
+				lastVis = firstVis
+			}
 
-			for i < n {
-				rem := n - i
-				// Hero Bento block: 2x2 hero tile + 2 rows of companion tiles.
-				if cols >= 3 && rem >= heroBlockSize && blockIdx%2 == 0 {
-					heroIdx := i
-					heroH := unitH*2 + gap
-					vis := curY+heroH >= minY && curY <= maxY
-					curY += heroH + gap
-					if !vis {
-						gui.Box(c.Key(fmt.Sprintf("bento-blk-sp-%d", blockIdx))).FillWidth().Height(heroH)
-						i += heroBlockSize
-						blockIdx++
-						continue
-					}
-					heroLeft := (blockIdx/2)%2 == 0
+			// Single top spacer box instead of thousands of individual row spacers!
+			if topPad := blocks[firstVis].y - gap; topPad > 0 {
+				gui.Box(c.Key("bento-top-pad")).FillWidth().Height(topPad)
+			}
 
+			for bIdx := firstVis; bIdx <= lastVis; bIdx++ {
+				blk := blocks[bIdx]
+				switch blk.kind {
+				case bentoBlockHero:
+					heroIdx := blk.startIdx
+					heroH := blk.h
 					renderHero := func() {
 						gui.Box(c).Grow(2).Height(heroH).Children(func() {
 							a.assetCard(c, heroIdx, a.assets[heroIdx], a.isCardSelected(heroIdx, a.assets[heroIdx].ID))
@@ -808,9 +958,8 @@ func (a *App) assetBento(c *gui.Context) {
 							})
 						})
 					}
-
-					gui.Row(c.Key(fmt.Sprintf("bento-blk-%d", blockIdx))).FillWidth().Gap(gap).Children(func() {
-						if heroLeft {
+					gui.Row(c.Key(fmt.Sprintf("bento-blk-%d", blk.blockIdx))).FillWidth().Gap(gap).Children(func() {
+						if blk.heroLeft {
 							renderHero()
 							renderSide()
 						} else {
@@ -818,32 +967,14 @@ func (a *App) assetBento(c *gui.Context) {
 							renderHero()
 						}
 					})
-					i += heroBlockSize
-					blockIdx++
-					continue
-				}
 
-				// Wide accent Bento row: one 2-column wide card + standard companions.
-				wideRowSize := cols - 1
-				if cols >= 3 && rem >= wideRowSize && rem != cols {
-					vis := curY+unitH >= minY && curY <= maxY
-					curY += unitH + gap
-					if !vis {
-						gui.Box(c.Key(fmt.Sprintf("bento-wide-sp-%d", blockIdx))).FillWidth().Height(unitH)
-						i += wideRowSize
-						blockIdx++
-						continue
-					}
-					widePos := 0
-					if blockIdx%2 == 1 {
-						widePos = wideRowSize - 1
-					}
-					start := i
-					gui.Row(c.Key(fmt.Sprintf("bento-wide-%d", blockIdx))).FillWidth().Height(unitH).Gap(gap).Children(func() {
-						for k := 0; k < wideRowSize; k++ {
+				case bentoBlockWide:
+					start := blk.startIdx
+					gui.Row(c.Key(fmt.Sprintf("bento-wide-%d", blk.blockIdx))).FillWidth().Height(blk.h).Gap(gap).Children(func() {
+						for k := 0; k < blk.count; k++ {
 							idx := start + k
 							span := float32(1)
-							if k == widePos {
+							if k == blk.widePos {
 								span = 2
 							}
 							gui.Box(c).Grow(span).FillHeight().Children(func() {
@@ -851,41 +982,34 @@ func (a *App) assetBento(c *gui.Context) {
 							})
 						}
 					})
-					i += wideRowSize
-					blockIdx++
-					continue
-				}
 
-				// Standard balanced row (fills cols, or wide card if single trailing item).
-				take := min(rem, cols)
-				vis := curY+unitH >= minY && curY <= maxY
-				curY += unitH + gap
-				if !vis {
-					gui.Box(c.Key(fmt.Sprintf("bento-row-sp-%d", blockIdx))).FillWidth().Height(unitH)
-					i += take
-					blockIdx++
-					continue
-				}
-				start := i
-				gui.Row(c.Key(fmt.Sprintf("bento-row-%d", blockIdx))).FillWidth().Height(unitH).Gap(gap).Children(func() {
-					usedSpan := 0
-					for k := 0; k < take; k++ {
-						idx := start + k
-						span := 1
-						if take == 1 && cols >= 3 {
-							span = 2
+				case bentoBlockRow:
+					start := blk.startIdx
+					take := blk.count
+					gui.Row(c.Key(fmt.Sprintf("bento-row-%d", blk.blockIdx))).FillWidth().Height(blk.h).Gap(gap).Children(func() {
+						usedSpan := 0
+						for k := 0; k < take; k++ {
+							idx := start + k
+							span := 1
+							if take == 1 && cols >= 3 {
+								span = 2
+							}
+							usedSpan += span
+							gui.Box(c).Grow(float32(span)).FillHeight().Children(func() {
+								a.assetCard(c, idx, a.assets[idx], a.isCardSelected(idx, a.assets[idx].ID))
+							})
 						}
-						usedSpan += span
-						gui.Box(c).Grow(float32(span)).FillHeight().Children(func() {
-							a.assetCard(c, idx, a.assets[idx], a.isCardSelected(idx, a.assets[idx].ID))
-						})
-					}
-					if usedSpan < cols {
-						gui.Box(c).Grow(float32(cols - usedSpan))
-					}
-				})
-				i += take
-				blockIdx++
+						if usedSpan < cols {
+							gui.Box(c).Grow(float32(cols - usedSpan))
+						}
+					})
+				}
+			}
+
+			// Single bottom spacer box!
+			lastBlk := blocks[lastVis]
+			if botPad := totalH - (lastBlk.y + lastBlk.h) - gap; botPad > 0 {
+				gui.Box(c.Key("bento-bot-pad")).FillWidth().Height(botPad)
 			}
 		})
 	})
@@ -1008,9 +1132,7 @@ func (a *App) assetCard(c *gui.Context, index int, asset model.Asset, selected b
 						lbl = strings.Repeat("★", rating)
 					}
 					if sm.Item(lbl).Radio(asset.Rating == rating).Chosen() {
-						if err := a.lib.SetRating(asset.ID, rating); err == nil {
-							a.reload()
-						}
+						a.setAssetRatingFast(asset.ID, rating)
 					}
 				}
 			})
@@ -1550,9 +1672,7 @@ func (a *App) inspector(c *gui.Context) {
 						gui.Column(c).Gap(6).Children(func() {
 							a.sectionLabel(c, a.t("library.rating"))
 							gui.Rating(c.Key("rating-"+asset.ID), &a.inspectorRating, 5).OnChange(func() {
-								if err := a.lib.SetRating(asset.ID, a.inspectorRating); err == nil {
-									a.reload()
-								}
+								a.setAssetRatingFast(asset.ID, a.inspectorRating)
 							})
 						})
 
@@ -1574,11 +1694,7 @@ func (a *App) inspector(c *gui.Context) {
 								for _, tag := range applied {
 									tg := tag
 									a.tintedTagChip(c, "insp-tag-"+asset.ID+"-"+tg.ID, tg, func() {
-										if err := a.lib.SetAssetTag(asset.ID, tg.ID, false); err != nil {
-											a.status = err.Error()
-											return
-										}
-										a.reload()
+										a.setAssetTagFast(asset.ID, tg.ID, false)
 									})
 								}
 								if len(available) > 0 {
@@ -1592,11 +1708,7 @@ func (a *App) inspector(c *gui.Context) {
 											for _, cand := range available {
 												tg := cand
 												if m.Item(tg.Name).Chosen() {
-													if err := a.lib.SetAssetTag(asset.ID, tg.ID, true); err != nil {
-														a.status = err.Error()
-														return
-													}
-													a.reload()
+													a.setAssetTagFast(asset.ID, tg.ID, true)
 												}
 											}
 										})
