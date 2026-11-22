@@ -1,0 +1,8 @@
+{
+  "name": "Ragle",
+  "identifier": "dev.ragle.app",
+  "version": "0.1.0",
+  "out": "build",
+  "icon": "Logo.png",
+  "main": "./cmd/ragle"
+}

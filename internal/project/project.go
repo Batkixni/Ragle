@@ -1,0 +1,269 @@
+// Package project stores projects, the assets they reference, boards, and placements.
+package project
+
+import (
+	"errors"
+	"time"
+
+	"go.etcd.io/bbolt"
+
+	"ragle/internal/db"
+	"ragle/internal/model"
+)
+
+// ErrNeedTag means a new project was given no tag.
+var ErrNeedTag = errors.New("ragle: a project needs a tag")
+
+// Store uses the library database.
+type Store struct {
+	DB *db.DB
+}
+
+// New wraps an open database.
+func New(d *db.DB) *Store { return &Store{DB: d} }
+
+// Create adds a project under at least one existing tag.
+func (s *Store) Create(name, description string, tagIDs []string) (model.Project, error) {
+	if len(tagIDs) == 0 {
+		return model.Project{}, ErrNeedTag
+	}
+	p := model.Project{
+		ID:          model.NewID(),
+		Name:        name,
+		Description: description,
+		CreatedAt:   time.Now().UTC(),
+	}
+	err := s.DB.Update(func(tx *bbolt.Tx) error {
+		for _, id := range tagIDs {
+			if _, err := db.GetTag(tx, id); err != nil {
+				return err
+			}
+		}
+		if err := db.PutProject(tx, p); err != nil {
+			return err
+		}
+		for _, id := range tagIDs {
+			if err := db.LinkProjectTag(tx, p.ID, id); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	return p, err
+}
+
+// List returns every project.
+func (s *Store) List() ([]model.Project, error) {
+	var out []model.Project
+	err := s.DB.View(func(tx *bbolt.Tx) error {
+		var err error
+		out, err = db.ListProjects(tx)
+		return err
+	})
+	return out, err
+}
+
+// ListByTag returns projects linked to tagID.
+func (s *Store) ListByTag(tagID string) ([]model.Project, error) {
+	var out []model.Project
+	err := s.DB.View(func(tx *bbolt.Tx) error {
+		ids, err := db.ProjectsOfTag(tx, tagID)
+		if err != nil {
+			return err
+		}
+		for _, id := range ids {
+			p, err := db.GetProject(tx, id)
+			if err != nil {
+				return err
+			}
+			out = append(out, p)
+		}
+		return nil
+	})
+	return out, err
+}
+
+// TagIDs lists a project's tags.
+func (s *Store) TagIDs(projectID string) ([]string, error) {
+	var ids []string
+	err := s.DB.View(func(tx *bbolt.Tx) error {
+		var err error
+		ids, err = db.TagsOfProject(tx, projectID)
+		return err
+	})
+	return ids, err
+}
+
+// SetTag adds or removes one tag link. Removing the last tag is allowed;
+// the project stays reachable from the full list.
+func (s *Store) SetTag(projectID, tagID string, on bool) error {
+	return s.DB.Update(func(tx *bbolt.Tx) error {
+		if _, err := db.GetProject(tx, projectID); err != nil {
+			return err
+		}
+		if on {
+			if _, err := db.GetTag(tx, tagID); err != nil {
+				return err
+			}
+			return db.LinkProjectTag(tx, projectID, tagID)
+		}
+		return db.UnlinkProjectTag(tx, projectID, tagID)
+	})
+}
+
+// Delete removes the project, its boards, and its placements.
+// Library files stay.
+func (s *Store) Delete(projectID string) error {
+	if err := s.DB.Backup(); err != nil {
+		return err
+	}
+	return s.DB.Update(func(tx *bbolt.Tx) error { return db.DeleteProject(tx, projectID) })
+}
+
+// Reference records that a project uses an asset. Repeating it changes nothing.
+func (s *Store) Reference(projectID, assetID string) error {
+	return s.DB.Update(func(tx *bbolt.Tx) error {
+		if _, err := db.GetProject(tx, projectID); err != nil {
+			return err
+		}
+		if _, err := db.GetAsset(tx, assetID); err != nil {
+			return err
+		}
+		return db.LinkProjectAsset(tx, projectID, assetID)
+	})
+}
+
+// Unreference removes the reference and every placement of that asset on
+// this project's boards. The library file stays, as do other projects.
+func (s *Store) Unreference(projectID, assetID string) error {
+	return s.DB.Update(func(tx *bbolt.Tx) error {
+		boards, err := db.BoardsOfProject(tx, projectID)
+		if err != nil {
+			return err
+		}
+		for _, boardID := range boards {
+			items, err := db.LoadBoard(tx, boardID)
+			if err != nil {
+				return err
+			}
+			for _, item := range items {
+				if item.Kind == model.KindImage && item.AssetID == assetID {
+					if err := db.DeletePlacement(tx, item.ID); err != nil {
+						return err
+					}
+				}
+			}
+		}
+		return db.UnlinkProjectAsset(tx, projectID, assetID)
+	})
+}
+
+// Assets lists assets referenced by a project.
+func (s *Store) Assets(projectID string) ([]model.Asset, error) {
+	var out []model.Asset
+	err := s.DB.View(func(tx *bbolt.Tx) error {
+		ids, err := db.AssetsOfProject(tx, projectID)
+		if err != nil {
+			return err
+		}
+		for _, id := range ids {
+			a, err := db.GetAsset(tx, id)
+			if err != nil {
+				return err
+			}
+			out = append(out, a)
+		}
+		return nil
+	})
+	return out, err
+}
+
+// CreateBoard adds a board to a project.
+func (s *Store) CreateBoard(projectID, name string) (model.Board, error) {
+	b := model.Board{
+		ID:        model.NewID(),
+		ProjectID: projectID,
+		Name:      name,
+		CreatedAt: time.Now().UTC(),
+	}
+	err := s.DB.Update(func(tx *bbolt.Tx) error {
+		if _, err := db.GetProject(tx, projectID); err != nil {
+			return err
+		}
+		return db.PutBoard(tx, b)
+	})
+	return b, err
+}
+
+// Boards lists a project's boards.
+func (s *Store) Boards(projectID string) ([]model.Board, error) {
+	var out []model.Board
+	err := s.DB.View(func(tx *bbolt.Tx) error {
+		ids, err := db.BoardsOfProject(tx, projectID)
+		if err != nil {
+			return err
+		}
+		for _, id := range ids {
+			b, err := db.GetBoard(tx, id)
+			if err != nil {
+				return err
+			}
+			out = append(out, b)
+		}
+		return nil
+	})
+	return out, err
+}
+
+// DeleteBoard removes a board and its placements.
+func (s *Store) DeleteBoard(boardID string) error {
+	if err := s.DB.Backup(); err != nil {
+		return err
+	}
+	return s.DB.Update(func(tx *bbolt.Tx) error { return db.DeleteBoard(tx, boardID) })
+}
+
+// LoadPlacements reads a board.
+func (s *Store) LoadPlacements(boardID string) ([]model.Placement, error) {
+	var items []model.Placement
+	err := s.DB.View(func(tx *bbolt.Tx) error {
+		var err error
+		items, err = db.LoadBoard(tx, boardID)
+		return err
+	})
+	return items, err
+}
+
+// SavePlacements replaces a board's placements in one transaction.
+func (s *Store) SavePlacements(boardID string, items []model.Placement) error {
+	items = normalize(items)
+	return s.DB.Update(func(tx *bbolt.Tx) error {
+		if _, err := db.GetBoard(tx, boardID); err != nil {
+			return err
+		}
+		return db.ReplaceBoardPlacements(tx, boardID, items)
+	})
+}
+
+func normalize(items []model.Placement) []model.Placement {
+	ids := make(map[string]bool, len(items))
+	for _, item := range items {
+		if item.ID != "" {
+			ids[item.ID] = true
+		}
+	}
+	out := make([]model.Placement, 0, len(items))
+	for _, item := range items {
+		if item.ID == "" {
+			continue
+		}
+		if item.ParentID != "" && !ids[item.ParentID] {
+			item.ParentID = ""
+		}
+		if item.Scale == 0 {
+			item.Scale = 1
+		}
+		out = append(out, item)
+	}
+	return out
+}
