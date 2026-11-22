@@ -27,7 +27,7 @@
 
 **Raglex** 結合了原生桌面軟體的極致速度、Eagle 等級的視覺素材管理體驗，以及 PureRef 風格的置頂參考白板——**零 Electron 負擔**、**完全離線可用**，所有索引與標籤都儲存在你本機的單一 `bbolt` 資料庫中，檔案主權 100% 歸你所有。
 
-採用 **Go** 與 **[MyGo Native UI](https://github.com/egoist/mygo)**（`CGO_ENABLED=0`）打造，跨平台支援 **macOS（Apple Silicon & Intel）**、**Windows（x64 & ARM64）** 與 **Linux（x64 & ARM64）**，免安裝即開即用。
+採用 **Go** 與 **[MyGo Native UI](https://github.com/egoist/mygo)**（`CGO_ENABLED=0`）打造，跨平台支援 **macOS（Apple Silicon & Intel）**、**Windows（x64 & ARM64）** 與 **Linux（x64 & ARM64）**。
 
 ---
 
@@ -90,8 +90,8 @@
 | :--- | :--- | :--- |
 | **macOS** | Apple Silicon (`darwin/arm64`) | `Raglex-darwin-arm64.zip`（`.app` 應用程式包） |
 | **macOS** | Intel x86_64 (`darwin/amd64`) | `Raglex-darwin-amd64.zip`（`.app` 應用程式包） |
-| **Windows** | x64 (`windows/amd64`) | `Raglex-windows-amd64.zip` / `.exe` |
-| **Windows** | ARM64 (`windows/arm64`) | `Raglex-windows-arm64.zip` / `.exe` |
+| **Windows** | x64 (`windows/amd64`) | `raglex-setup-0.1.1-amd64.exe`（安裝版） / `Raglex-windows-amd64.zip` |
+| **Windows** | ARM64 (`windows/arm64`) | `raglex-setup-0.1.1-arm64.exe`（安裝版） / `Raglex-windows-arm64.zip` |
 | **Linux** | x64 (`linux/amd64`) | `.tar.gz`、`.deb`、`.rpm`、`PKGBUILD` |
 | **Linux** | ARM64 (`linux/arm64`) | `.tar.gz`、`.deb`、`.rpm`、`PKGBUILD` |
 

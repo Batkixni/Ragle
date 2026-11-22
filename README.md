@@ -97,8 +97,8 @@ Inspect creative assets inline without leaving Raglex:
 | :--- | :--- | :--- |
 | **macOS** | Apple Silicon (`darwin/arm64`) | `Raglex-darwin-arm64.zip` (`.app` bundle) |
 | **macOS** | Intel x86_64 (`darwin/amd64`) | `Raglex-darwin-amd64.zip` (`.app` bundle) |
-| **Windows** | x64 (`windows/amd64`) | `Raglex-windows-amd64.zip` / `.exe` |
-| **Windows** | ARM64 (`windows/arm64`) | `Raglex-windows-arm64.zip` / `.exe` |
+| **Windows** | x64 (`windows/amd64`) | `raglex-setup-0.1.1-amd64.exe` (Installer) / `Raglex-windows-amd64.zip` |
+| **Windows** | ARM64 (`windows/arm64`) | `raglex-setup-0.1.1-arm64.exe` (Installer) / `Raglex-windows-arm64.zip` |
 | **Linux** | x64 (`linux/amd64`) | `.tar.gz`, `.deb`, `.rpm`, `PKGBUILD` |
 | **Linux** | ARM64 (`linux/arm64`) | `.tar.gz`, `.deb`, `.rpm`, `PKGBUILD` |
 

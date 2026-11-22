@@ -32,11 +32,11 @@ jobs:
           go tool mygo vet .
           go test -count=1 ./...
 
-      - name: Cross-Compile Desktop Apps (macOS Silicon/Intel, Windows x64/ARM64, Linux x64/ARM64)
+      - name: Cross-Compile Desktop Apps & Installers (macOS Silicon/Intel, Windows x64/ARM64, Linux x64/ARM64)
         env:
           CGO_ENABLED: '0'
         run: |
-          go tool mygo build -skip-installer -skip-dmg -skip-notarize \
+          go tool mygo build -skip-dmg -skip-notarize \
             -o build/release \
             -platform "darwin/arm64,darwin/amd64,windows/amd64,windows/arm64,linux/amd64,linux/arm64"
 
@@ -48,9 +48,11 @@ jobs:
           (cd build/release/darwin-arm64 && zip -r ../../../dist/Raglex-darwin-arm64.zip Raglex.app)
           (cd build/release/darwin-amd64 && zip -r ../../../dist/Raglex-darwin-amd64.zip Raglex.app)
 
-          # Windows x64 & ARM64
+          # Windows x64 & ARM64 (NSIS Setup Installers + Portable)
+          find build/release/windows-amd64 -maxdepth 1 -name '*setup*.exe' -exec cp {} dist/ \;
           cp build/release/windows-amd64/Raglex.exe dist/Raglex-windows-amd64.exe
           (cd build/release/windows-amd64 && zip -r ../../../dist/Raglex-windows-amd64.zip Raglex.exe)
+          find build/release/windows-arm64 -maxdepth 1 -name '*setup*.exe' -exec cp {} dist/ \;
           cp build/release/windows-arm64/Raglex.exe dist/Raglex-windows-arm64.exe
           (cd build/release/windows-arm64 && zip -r ../../../dist/Raglex-windows-arm64.zip Raglex.exe)
 

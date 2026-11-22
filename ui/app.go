@@ -1636,6 +1636,34 @@ func (a *App) stepPreview(delta int) {
 	}
 }
 
+func (a *App) defaultInstallLibraryDir() string {
+	if exe, err := os.Executable(); err == nil && exe != "" {
+		if resolved, err := filepath.EvalSymlinks(exe); err == nil && resolved != "" {
+			exe = resolved
+		}
+		dir := filepath.Dir(exe)
+		// On macOS, if running inside Foo.app/Contents/MacOS, place the default library beside Foo.app.
+		if strings.HasSuffix(filepath.ToSlash(dir), ".app/Contents/MacOS") {
+			dir = filepath.Dir(filepath.Dir(filepath.Dir(dir)))
+		}
+		candidate := filepath.Join(dir, "Library")
+		if err := os.MkdirAll(candidate, 0o755); err == nil {
+			return candidate
+		}
+	}
+	if cfgDir, err := os.UserConfigDir(); err == nil && cfgDir != "" {
+		fallback := filepath.Join(cfgDir, "Raglex", "Library")
+		_ = os.MkdirAll(fallback, 0o755)
+		return fallback
+	}
+	return "Library"
+}
+
+func (a *App) useDefaultLibrary() {
+	root := a.defaultInstallLibraryDir()
+	go a.openRoot(root)
+}
+
 func (a *App) chooseLibrary() {
 	if a.win == nil {
 		return

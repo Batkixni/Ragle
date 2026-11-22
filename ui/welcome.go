@@ -135,7 +135,11 @@ func (a *App) welcome(c *gui.Context) {
 					LineHeight(1.6)
 
 				gui.Column(c).FillWidth().Gap(10).AlignItems(gui.Center).Children(func() {
-					a.arcButton(c, "welcome-choose", a.t("welcome.choose"), true).
+					a.arcButton(c, "welcome-default-dir", a.t("welcome.defaultDir"), true).
+						FillWidth().
+						Padding(11, 18).
+						OnClick(func() { a.useDefaultLibrary() })
+					a.arcButton(c, "welcome-choose", a.t("welcome.choose"), false).
 						FillWidth().
 						Padding(11, 18).
 						OnClick(func() { a.chooseLibrary() })

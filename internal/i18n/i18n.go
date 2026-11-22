@@ -24,6 +24,7 @@ type pair struct {
 // pairs is the whole catalog. Both languages are filled from this list.
 var pairs = []pair{
 	{"welcome.choose", "選擇資料夾", "Choose a folder"},
+	{"welcome.defaultDir", "預設位置（安裝位置）", "Default location (Install folder)"},
 	{"welcome.restore", "從備份還原", "Restore backup"},
 	{"welcome.lead", "選擇一個資料夾當作資料庫。索引、縮圖，以及複製、移動或連結進來的檔案都會放在這裡。", "Pick a folder for the library. The database, thumbnails, and files you copy, move, or link live there."},
 	{"welcome.openFailed", "這個資料夾的資料庫打不開。", "This library database could not be opened."},
