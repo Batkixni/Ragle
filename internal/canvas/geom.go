@@ -5,7 +5,7 @@ package canvas
 import (
 	"math"
 
-	"ragle/internal/model"
+	"raglex/internal/model"
 )
 
 // Xform is an object's center in board space, plus the scale and clockwise

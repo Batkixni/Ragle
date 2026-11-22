@@ -6,8 +6,8 @@ import (
 
 	"go.etcd.io/bbolt"
 
-	"ragle/internal/db"
-	"ragle/internal/model"
+	"raglex/internal/db"
+	"raglex/internal/model"
 )
 
 func TestUnreferenceDropsPlacementsAndDeleteKeepsAsset(t *testing.T) {

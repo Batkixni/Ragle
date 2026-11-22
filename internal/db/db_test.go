@@ -8,7 +8,7 @@ import (
 
 	"go.etcd.io/bbolt"
 
-	"ragle/internal/model"
+	"raglex/internal/model"
 )
 
 func openTest(t *testing.T) *DB {
@@ -309,7 +309,7 @@ func TestBackupAndRestore(t *testing.T) {
 	if err := d.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(root, "ragle.db"), []byte("not a database"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "raglex.db"), []byte("not a database"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := Open(root); err == nil {

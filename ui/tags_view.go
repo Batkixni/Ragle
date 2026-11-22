@@ -6,7 +6,7 @@ import (
 
 	gui "github.com/egoist/mygo/ui"
 
-	"ragle/internal/model"
+	"raglex/internal/model"
 )
 
 // buildTagContextMenu populates an Eagle-inspired rich right-click menu shared

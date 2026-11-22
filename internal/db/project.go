@@ -3,7 +3,7 @@ package db
 import (
 	"go.etcd.io/bbolt"
 
-	"ragle/internal/model"
+	"raglex/internal/model"
 )
 
 // PutProject writes a project record.

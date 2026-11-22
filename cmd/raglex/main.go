@@ -3,7 +3,7 @@ package main
 import (
 	"log"
 
-	"ragle/ui"
+	"raglex/ui"
 )
 
 func main() {

@@ -38,28 +38,28 @@ func TestCompareVersion(t *testing.T) {
 
 func TestMatchAsset(t *testing.T) {
 	assets := []string{
-		"Ragle-windows-amd64.zip",
-		"Ragle-windows-amd64.exe",
-		"ragle-cli-windows-amd64.zip",
-		"ragle-browser-extension.zip",
-		"Ragle-darwin-arm64.zip",
+		"Raglex-windows-amd64.zip",
+		"Raglex-windows-amd64.exe",
+		"raglex-cli-windows-amd64.zip",
+		"raglex-browser-extension.zip",
+		"Raglex-darwin-arm64.zip",
 		"SHA256SUMS.txt",
 	}
-	if got := MatchAsset(assets, "windows", "amd64"); got != "Ragle-windows-amd64.zip" {
-		t.Fatalf("windows/amd64 matched %q, want Ragle-windows-amd64.zip", got)
+	if got := MatchAsset(assets, "windows", "amd64"); got != "Raglex-windows-amd64.zip" {
+		t.Fatalf("windows/amd64 matched %q, want Raglex-windows-amd64.zip", got)
 	}
-	if got := MatchAsset(assets, "darwin", "arm64"); got != "Ragle-darwin-arm64.zip" {
-		t.Fatalf("darwin/arm64 matched %q, want Ragle-darwin-arm64.zip", got)
+	if got := MatchAsset(assets, "darwin", "arm64"); got != "Raglex-darwin-arm64.zip" {
+		t.Fatalf("darwin/arm64 matched %q, want Raglex-darwin-arm64.zip", got)
 	}
 }
 
 func TestCheckAndApplyZipWithChecksum(t *testing.T) {
-	// Build an in-memory release zip containing a fake updated Ragle binary.
-	binName := "Ragle"
+	// Build an in-memory release zip containing a fake updated Raglex binary.
+	binName := "Raglex"
 	if runtime.GOOS == "windows" {
-		binName = "Ragle.exe"
+		binName = "Raglex.exe"
 	}
-	newBinary := []byte("RAGLE_UPDATED_BINARY_V0_2_0_BETA_2")
+	newBinary := []byte("RAGLEX_UPDATED_BINARY_V0_2_0_BETA_2")
 
 	var zipBuf bytes.Buffer
 	zw := zip.NewWriter(&zipBuf)
@@ -77,19 +77,19 @@ func TestCheckAndApplyZipWithChecksum(t *testing.T) {
 	sum := sha256.Sum256(zipBytes)
 	hexSum := hex.EncodeToString(sum[:])
 
-	assetName := fmt.Sprintf("Ragle-%s-%s.zip", runtime.GOOS, runtime.GOARCH)
+	assetName := fmt.Sprintf("Raglex-%s-%s.zip", runtime.GOOS, runtime.GOARCH)
 	badChecksum := false
 
 	var srv *httptest.Server
 	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/repos/Batkixni/Ragle/releases":
+		case "/repos/Batkixni/Raglex/releases":
 			rels := []ghRelease{
 				{
 					TagName:    "v0.2.0-beta.2",
-					Name:       "Ragle v0.2.0-beta.2",
+					Name:       "Raglex v0.2.0-beta.2",
 					Body:       "Smooth sidebar transitions and compact drag previews.",
-					HTMLURL:    "https://github.com/Batkixni/Ragle/releases/tag/v0.2.0-beta.2",
+					HTMLURL:    "https://github.com/Batkixni/Raglex/releases/tag/v0.2.0-beta.2",
 					Prerelease: true,
 					Assets: []ghAsset{
 						{
@@ -120,7 +120,7 @@ func TestCheckAndApplyZipWithChecksum(t *testing.T) {
 	defer srv.Close()
 
 	client := &Client{
-		Repo:              "Batkixni/Ragle",
+		Repo:              "Batkixni/Raglex",
 		CurrentVersion:    "0.2.0-beta.1",
 		IncludePrerelease: true,
 		APIBase:           srv.URL,

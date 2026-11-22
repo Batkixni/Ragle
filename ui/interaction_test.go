@@ -13,10 +13,10 @@ import (
 
 	gui "github.com/egoist/mygo/ui"
 
-	"ragle/internal/i18n"
-	"ragle/internal/library"
-	"ragle/internal/model"
-	"ragle/internal/project"
+	"raglex/internal/i18n"
+	"raglex/internal/library"
+	"raglex/internal/model"
+	"raglex/internal/project"
 )
 
 func writeSamplePNG(t *testing.T, path string, w, h int, c color.RGBA) {
@@ -609,7 +609,7 @@ func TestGlobalShortcutsAndMarqueeBoxSelection(t *testing.T) {
 		t.Fatalf("clicking onboarding help button failed: %v", err)
 	}
 	tt.Advance(300 * time.Millisecond)
-	if !a.onboardingOpen || !tt.HasText("歡迎使用 Ragle") {
+	if !a.onboardingOpen || !tt.HasText("歡迎使用 Raglex") {
 		t.Fatalf("onboarding step 1 did not render, texts=%v", tt.Texts())
 	}
 	for step := 1; step < onboardingTotalSteps; step++ {
@@ -624,7 +624,7 @@ func TestGlobalShortcutsAndMarqueeBoxSelection(t *testing.T) {
 	if !tt.HasText("常用快捷鍵一覽") {
 		t.Fatalf("onboarding shortcuts step missing, texts=%v", tt.Texts())
 	}
-	if err := tt.Click("開始使用 Ragle"); err != nil {
+	if err := tt.Click("開始使用 Raglex"); err != nil {
 		t.Fatalf("clicking Finish onboarding failed: %v", err)
 	}
 	if a.onboardingOpen || !a.onboardingDone {

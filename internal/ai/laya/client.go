@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	"ragle/internal/model"
+	"raglex/internal/model"
 )
 
 const (

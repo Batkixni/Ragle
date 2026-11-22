@@ -15,15 +15,15 @@ import (
 	"github.com/vmihailenco/msgpack/v5"
 	"go.etcd.io/bbolt"
 
-	"ragle/internal/db"
-	"ragle/internal/library"
-	"ragle/internal/model"
-	"ragle/internal/project"
+	"raglex/internal/db"
+	"raglex/internal/library"
+	"raglex/internal/model"
+	"raglex/internal/project"
 )
 
 func TestTransferCopiesProjectAndDedupsFile(t *testing.T) {
-	bodyA := []byte("ragle-share-asset-a")
-	bodyB := []byte("ragle-share-asset-b")
+	bodyA := []byte("raglex-share-asset-a")
+	bodyB := []byte("raglex-share-asset-b")
 	src := openLib(t)
 	dst := openLib(t)
 

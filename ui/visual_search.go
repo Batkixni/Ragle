@@ -8,8 +8,8 @@ import (
 
 	"github.com/egoist/mygo"
 
-	"ragle/internal/ai/laya"
-	"ragle/internal/model"
+	"raglex/internal/ai/laya"
+	"raglex/internal/model"
 )
 
 var colorFilterSwatches = []string{
@@ -132,7 +132,7 @@ func (a *App) searchSimilarByFileDialog() {
 }
 
 // classifyAssetsWithLaya uses local Ollaya/Laya when reachable, or falls back
-// seamlessly to Ragle's built-in offline embedding centroid + lexical decision
+// seamlessly to Raglex's built-in offline embedding centroid + lexical decision
 // classifier so smart classification works immediately inside the app.
 func (a *App) classifyAssetsWithLaya(ids []string) {
 	if a.lib == nil || len(ids) == 0 {
@@ -395,7 +395,7 @@ func (a *App) refreshLayaStatus() {
 }
 
 // deployLayaInApp downloads Ollaya, starts the local daemon silently, and pulls
-// the selected Laya decision model directly inside Ragle.
+// the selected Laya decision model directly inside Raglex.
 func (a *App) deployLayaInApp() {
 	if a.layaDeployBusy {
 		return

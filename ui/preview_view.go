@@ -6,7 +6,7 @@ import (
 
 	gui "github.com/egoist/mygo/ui"
 
-	"ragle/internal/model"
+	"raglex/internal/model"
 )
 
 // inlinePreviewView renders the full-stage inline Asset Viewer (NOT a popup!)

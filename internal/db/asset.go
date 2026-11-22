@@ -6,7 +6,7 @@ import (
 
 	"go.etcd.io/bbolt"
 
-	"ragle/internal/model"
+	"raglex/internal/model"
 )
 
 // PutAsset writes the asset and its hash and path indexes. The path index

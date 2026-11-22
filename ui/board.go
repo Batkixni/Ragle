@@ -7,8 +7,8 @@ import (
 
 	gui "github.com/egoist/mygo/ui"
 
-	"ragle/internal/canvas"
-	"ragle/internal/model"
+	"raglex/internal/canvas"
+	"raglex/internal/model"
 )
 
 type gesture struct {

@@ -1,6 +1,6 @@
 package ui
 
-import "ragle/internal/i18n"
+import "raglex/internal/i18n"
 
 const (
 	i18nZh = i18n.ZhHant

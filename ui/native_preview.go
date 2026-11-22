@@ -12,8 +12,8 @@ import (
 
 	gui "github.com/egoist/mygo/ui"
 
-	"ragle/internal/model"
-	"ragle/internal/preview"
+	"raglex/internal/model"
+	"raglex/internal/preview"
 )
 
 func rgbaToBitmap(img *image.RGBA) (*gui.Bitmap, error) {

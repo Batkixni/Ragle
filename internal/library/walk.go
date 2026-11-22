@@ -78,5 +78,5 @@ func skipLibraryFile(path, root string) bool {
 		return true
 	}
 	base := filepath.Base(path)
-	return base == "ragle.db" || base == "ragle.db.bak" || strings.HasPrefix(base, "ragle.db.")
+	return base == "raglex.db" || base == "raglex.db.bak" || strings.HasPrefix(base, "raglex.db.")
 }

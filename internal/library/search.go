@@ -5,10 +5,10 @@ import (
 
 	"go.etcd.io/bbolt"
 
-	"ragle/internal/ai/embed"
-	"ragle/internal/db"
-	"ragle/internal/model"
-	"ragle/internal/thumbnail"
+	"raglex/internal/ai/embed"
+	"raglex/internal/db"
+	"raglex/internal/model"
+	"raglex/internal/thumbnail"
 )
 
 // VisualMatch is a ranked reverse-image or color search hit.

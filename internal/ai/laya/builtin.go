@@ -5,8 +5,8 @@ import (
 	"sort"
 	"strings"
 
-	"ragle/internal/ai/embed"
-	"ragle/internal/model"
+	"raglex/internal/ai/embed"
+	"raglex/internal/model"
 )
 
 // ClassifyBuiltIn performs 100% in-app offline classification when an external

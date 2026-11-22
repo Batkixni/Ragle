@@ -7,7 +7,7 @@ import (
 
 	gui "github.com/egoist/mygo/ui"
 
-	"ragle/internal/model"
+	"raglex/internal/model"
 )
 
 type cardRevealKey struct {

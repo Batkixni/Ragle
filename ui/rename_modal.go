@@ -12,7 +12,7 @@ import (
 	"github.com/egoist/mygo/transfer"
 	gui "github.com/egoist/mygo/ui"
 
-	"ragle/internal/library"
+	"raglex/internal/library"
 )
 
 func (a *App) openRenameModal(ids []string) {

@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"ragle/internal/model"
+	"raglex/internal/model"
 )
 
 func TestAssetStacksLifecycleAndAutoGroup(t *testing.T) {

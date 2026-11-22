@@ -1,4 +1,4 @@
-// Package updater checks GitHub Releases for newer versions of Ragle,
+// Package updater checks GitHub Releases for newer versions of Raglex,
 // verifies SHA-256 checksums when published, and performs an atomic
 // self-replacement of the running executable.
 package updater
@@ -24,11 +24,11 @@ import (
 )
 
 // Version is the application's current semantic version.
-// Override at build time with: -ldflags "-X ragle/internal/updater.Version=..."
+// Override at build time with: -ldflags "-X raglex/internal/updater.Version=..."
 var Version = "0.1.0"
 
 // DefaultRepo is the upstream GitHub repository slug ("owner/repo").
-const DefaultRepo = "Batkixni/Ragle"
+const DefaultRepo = "Batkixni/Raglex"
 
 // Release describes a downloadable GitHub Release matched to the current OS/arch.
 type Release struct {
@@ -64,7 +64,7 @@ type Client struct {
 
 // NewClient constructs an updater client with sensible defaults.
 func NewClient(includeBeta bool) *Client {
-	token := strings.TrimSpace(os.Getenv("RAGLE_GITHUB_TOKEN"))
+	token := strings.TrimSpace(os.Getenv("RAGLEX_GITHUB_TOKEN"))
 	if token == "" {
 		token = strings.TrimSpace(os.Getenv("GITHUB_TOKEN"))
 	}
@@ -135,7 +135,7 @@ func (c *Client) newRequest(ctx context.Context, method, rawURL string, accept s
 	if accept != "" {
 		req.Header.Set("Accept", accept)
 	}
-	req.Header.Set("User-Agent", "Ragle/"+c.currentVersion())
+	req.Header.Set("User-Agent", "Raglex/"+c.currentVersion())
 	if c.Token != "" {
 		req.Header.Set("Authorization", "Bearer "+c.Token)
 	}
@@ -308,7 +308,7 @@ func matchPlatformAsset(assets []ghAsset, goos, goarch string) *ghAsset {
 				score += 16
 			}
 		}
-		if strings.HasPrefix(low, "ragle") {
+		if strings.HasPrefix(low, "raglex") {
 			score += 10
 		}
 
@@ -335,7 +335,7 @@ func findChecksumsURL(assets []ghAsset, useAPIURL bool) string {
 
 // DownloadAndApply downloads rel, verifies its checksum (if available),
 // extracts the executable when archived, and atomically replaces the currently
-// running Ragle binary.
+// running Raglex binary.
 func (c *Client) DownloadAndApply(ctx context.Context, rel *Release, onProgress func(Progress)) error {
 	exePath, err := os.Executable()
 	if err != nil {
@@ -358,7 +358,7 @@ func (c *Client) DownloadAndApplyTo(ctx context.Context, rel *Release, targetExe
 		}
 	}
 
-	tmpDir, err := os.MkdirTemp("", "ragle-update-*")
+	tmpDir, err := os.MkdirTemp("", "raglex-update-*")
 	if err != nil {
 		return err
 	}
@@ -366,7 +366,7 @@ func (c *Client) DownloadAndApplyTo(ctx context.Context, rel *Release, targetExe
 
 	dlName := rel.AssetName
 	if dlName == "" {
-		dlName = "ragle-update"
+		dlName = "raglex-update"
 	}
 	dlPath := filepath.Join(tmpDir, filepath.Base(dlName))
 
@@ -513,7 +513,7 @@ func extractExecutableFromZip(zipPath, dstDir, targetBase string) (string, error
 			continue
 		}
 		base := strings.ToLower(filepath.Base(f.Name))
-		if base == wantBase || base == "ragle.exe" || base == "ragle" {
+		if base == wantBase || base == "raglex.exe" || base == "raglex" {
 			chosen = f
 			break
 		}
@@ -522,7 +522,7 @@ func extractExecutableFromZip(zipPath, dstDir, targetBase string) (string, error
 		}
 	}
 	if chosen == nil {
-		return "", errors.New("no Ragle executable found inside release zip")
+		return "", errors.New("no Raglex executable found inside release zip")
 	}
 
 	rc, err := chosen.Open()

@@ -17,7 +17,7 @@ import (
 
 	"github.com/vmihailenco/msgpack/v5"
 
-	"ragle/internal/model"
+	"raglex/internal/model"
 )
 
 const (
@@ -25,7 +25,7 @@ const (
 	peerTTL     = 6 * time.Second
 )
 
-// Peer is another Ragle on the local network.
+// Peer is another Raglex on the local network.
 type Peer struct {
 	ID   string
 	Name string
@@ -92,11 +92,11 @@ func Start(opt Options) (*Node, error) {
 	tcp, ok := ln.Addr().(*net.TCPAddr)
 	if !ok {
 		_ = ln.Close()
-		return nil, errors.New("ragle: tcp address")
+		return nil, errors.New("raglex: tcp address")
 	}
 	name := opt.Name
 	if name == "" {
-		name = "Ragle"
+		name = "Raglex"
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	n := &Node{
@@ -232,7 +232,7 @@ func (n *Node) Send(ctx context.Context, addr string, b Bundle, files map[string
 		return sendErr(err)
 	}
 	if kind != frameAccept {
-		return errors.New("ragle: expected accept")
+		return errors.New("raglex: expected accept")
 	}
 	yes, err := accepted(payload)
 	if err != nil {
@@ -244,7 +244,7 @@ func (n *Node) Send(ctx context.Context, addr string, b Bundle, files map[string
 	for _, file := range b.Files {
 		path := files[file.Hash]
 		if path == "" {
-			return fmt.Errorf("ragle: missing file %s", file.Name)
+			return fmt.Errorf("raglex: missing file %s", file.Name)
 		}
 		if err := sendFile(conn, file, path); err != nil {
 			return sendErr(err)
@@ -342,7 +342,7 @@ func (n *Node) receive(conn net.Conn) error {
 		return err
 	}
 	if kind != frameHello {
-		return errors.New("ragle: expected hello")
+		return errors.New("raglex: expected hello")
 	}
 	var greet hello
 	if err := msgpack.Unmarshal(payload, &greet); err != nil {
@@ -353,7 +353,7 @@ func (n *Node) receive(conn net.Conn) error {
 		return err
 	}
 	if kind != frameMeta {
-		return errors.New("ragle: expected meta")
+		return errors.New("raglex: expected meta")
 	}
 	var bundle Bundle
 	if err := msgpack.Unmarshal(payload, &bundle); err != nil {
@@ -396,7 +396,7 @@ func (n *Node) receive(conn net.Conn) error {
 		case frameEnd:
 			if n.commit == nil {
 				cleanup()
-				return errors.New("ragle: nowhere to store the project")
+				return errors.New("raglex: nowhere to store the project")
 			}
 			if _, err := n.commit(bundle, paths); err != nil {
 				cleanup()
@@ -419,18 +419,18 @@ func (n *Node) receive(conn net.Conn) error {
 			}
 		default:
 			cleanup()
-			return errors.New("ragle: unexpected frame")
+			return errors.New("raglex: unexpected frame")
 		}
 	}
 }
 
 func (n *Node) takeFile(r io.Reader, hdr fileHeader) (string, error) {
 	if hdr.Size < 0 {
-		return "", errors.New("ragle: bad file size")
+		return "", errors.New("raglex: bad file size")
 	}
 	if n.take == nil {
 		_, _ = io.Copy(io.Discard, io.LimitReader(r, hdr.Size))
-		return "", errors.New("ragle: nowhere to store the file")
+		return "", errors.New("raglex: nowhere to store the file")
 	}
 	sum := sha256.New()
 	body := io.TeeReader(io.LimitReader(r, hdr.Size), sum)
@@ -448,7 +448,7 @@ func (n *Node) takeFile(r io.Reader, hdr fileHeader) (string, error) {
 		if path != "" {
 			_ = os.Remove(path)
 		}
-		return "", errors.New("ragle: file hash mismatch")
+		return "", errors.New("raglex: file hash mismatch")
 	}
 	return path, nil
 }
@@ -578,7 +578,7 @@ func listenUDP(port int) (*net.UDPConn, error) {
 	conn, ok := pc.(*net.UDPConn)
 	if !ok {
 		_ = pc.Close()
-		return nil, errors.New("ragle: udp address")
+		return nil, errors.New("raglex: udp address")
 	}
 	return conn, nil
 }

@@ -11,7 +11,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"ragle/internal/model"
+	"raglex/internal/model"
 )
 
 func writePNG(t *testing.T, path string, mark byte) {

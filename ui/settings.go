@@ -11,8 +11,8 @@ import (
 	"github.com/egoist/mygo"
 	gui "github.com/egoist/mygo/ui"
 
-	"ragle/internal/model"
-	"ragle/internal/updater"
+	"raglex/internal/model"
+	"raglex/internal/updater"
 )
 
 const (
@@ -153,7 +153,7 @@ func (a *App) exportDatabaseBackup() {
 	win := a.win
 	lib := a.lib
 	title := a.t("settings.exportBackup")
-	defName := fmt.Sprintf("ragle-backup-%s.db", time.Now().Format("20060102-1504"))
+	defName := fmt.Sprintf("raglex-backup-%s.db", time.Now().Format("20060102-1504"))
 	go func() {
 		dst, err := mygo.Dialog.Save(mygo.SaveDialogOptions{
 			Parent:      win,
@@ -320,7 +320,7 @@ func (a *App) settingsModal(c *gui.Context) {
 
 					gui.Column(c).Padding(0, 10).Gap(2).Children(func() {
 						gui.Row(c).Gap(6).AlignItems(gui.Center).Children(func() {
-							gui.Text(c, "Ragle v"+updater.Version).FontSize(11).Bold().TextColor(a.pal.inkMuted).SingleLine()
+							gui.Text(c, "Raglex v"+updater.Version).FontSize(11).Bold().TextColor(a.pal.inkMuted).SingleLine()
 							if a.updateAvailable || a.updateInstalled {
 								gui.Box(c).Size(7, 7).Radius(radiusPill).Background(gui.Hex("#10B981"))
 							}
@@ -770,7 +770,7 @@ func (a *App) settingsDatabaseTab(c *gui.Context) {
 	// Storage & Statistics card.
 	a.settingsGroup(c, a.t("settings.dbStorage"), func() {
 		st := a.dbStats
-		a.settingsKVRow(c, a.t("settings.dbFile"), fmt.Sprintf("%s  (ragle.db · v%s)", formatBytes(st.DBBytes), model.SchemaVersion))
+		a.settingsKVRow(c, a.t("settings.dbFile"), fmt.Sprintf("%s  (raglex.db · v%s)", formatBytes(st.DBBytes), model.SchemaVersion))
 		a.settingsKVRow(c, a.t("settings.dbFilesDir"), fmt.Sprintf("%s  (%d)", formatBytes(st.FilesBytes), st.FilesCount))
 		a.settingsKVRow(c, a.t("settings.dbThumbsDir"), fmt.Sprintf("%s  (%d)", formatBytes(st.ThumbsBytes), st.ThumbsCount))
 		a.settingsKVRow(c, a.t("settings.dbCounts"), fmt.Sprintf(

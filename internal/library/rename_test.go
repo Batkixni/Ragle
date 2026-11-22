@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"ragle/internal/model"
+	"raglex/internal/model"
 )
 
 func makeTestPNGBytes(t *testing.T, w, h int, c color.RGBA) []byte {

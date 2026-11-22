@@ -7,12 +7,12 @@ import (
 
 	"go.etcd.io/bbolt"
 
-	"ragle/internal/db"
-	"ragle/internal/model"
+	"raglex/internal/db"
+	"raglex/internal/model"
 )
 
 // ErrNeedTag means a new project was given no tag.
-var ErrNeedTag = errors.New("ragle: a project needs a tag")
+var ErrNeedTag = errors.New("raglex: a project needs a tag")
 
 // Store uses the library database.
 type Store struct {

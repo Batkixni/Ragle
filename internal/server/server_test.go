@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"ragle/internal/library"
-	"ragle/internal/project"
+	"raglex/internal/library"
+	"raglex/internal/project"
 )
 
 func makePNG(t *testing.T, w, h int, c color.RGBA) []byte {
@@ -82,7 +82,7 @@ func TestUnifiedServerAPIWebAndSignaling(t *testing.T) {
 	// 3. Mutating route WITH token imports asset and triggers OnChange.
 	req, _ := http.NewRequest(http.MethodPost, base+"/api/v1/import/base64", bytes.NewReader(payload))
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Ragle-Token", "secret123")
+	req.Header.Set("X-Raglex-Token", "secret123")
 	resp, err = http.DefaultClient.Do(req)
 	if err != nil || resp.StatusCode != http.StatusCreated {
 		t.Fatalf("expected 201 on import, got %v %v", resp.StatusCode, err)

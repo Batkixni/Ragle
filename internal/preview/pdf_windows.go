@@ -40,10 +40,10 @@ function AwaitAct($act) {
   $task.Wait()
 }
 
-$pdfPath = $env:RAGLE_PDF_PATH
-$outPath = $env:RAGLE_PDF_OUT
-$pageIdx = [uint32]$env:RAGLE_PDF_PAGE
-$maxEdge = [double]$env:RAGLE_PDF_MAX
+$pdfPath = $env:RAGLEX_PDF_PATH
+$outPath = $env:RAGLEX_PDF_OUT
+$pageIdx = [uint32]$env:RAGLEX_PDF_PAGE
+$maxEdge = [double]$env:RAGLEX_PDF_MAX
 
 $file = AwaitOp ([Windows.Storage.StorageFile]::GetFileFromPathAsync($pdfPath)) ([Windows.Storage.StorageFile])
 $doc = AwaitOp ([Windows.Data.Pdf.PdfDocument]::LoadFromFileAsync($file)) ([Windows.Data.Pdf.PdfDocument])
@@ -89,7 +89,7 @@ func renderPDFNative(path string, pageIndex int, maxEdge int) (*image.RGBA, int,
 	if err != nil {
 		return nil, 0, err
 	}
-	tmpDir, err := os.MkdirTemp("", "ragle-pdf-*")
+	tmpDir, err := os.MkdirTemp("", "raglex-pdf-*")
 	if err != nil {
 		return nil, 0, err
 	}
@@ -99,10 +99,10 @@ func renderPDFNative(path string, pageIndex int, maxEdge int) (*image.RGBA, int,
 	cmd := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", winrtPDFScript)
 	hideCmd(cmd)
 	cmd.Env = append(os.Environ(),
-		"RAGLE_PDF_PATH="+absPath,
-		"RAGLE_PDF_OUT="+outPNG,
-		"RAGLE_PDF_PAGE="+strconv.Itoa(pageIndex),
-		"RAGLE_PDF_MAX="+strconv.Itoa(maxEdge),
+		"RAGLEX_PDF_PATH="+absPath,
+		"RAGLEX_PDF_OUT="+outPNG,
+		"RAGLEX_PDF_PAGE="+strconv.Itoa(pageIndex),
+		"RAGLEX_PDF_MAX="+strconv.Itoa(maxEdge),
 	)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout

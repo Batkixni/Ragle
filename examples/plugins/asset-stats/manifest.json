@@ -2,8 +2,8 @@
   "id": "asset-stats",
   "name": "Asset Resolution & Palette Report",
   "version": "0.1.0",
-  "description": "Example Ragle plugin: summarizes selected assets' resolution and suggests an aspect-ratio tag (Portrait / Landscape / Square).",
-  "author": "Ragle",
+  "description": "Example Raglex plugin: summarizes selected assets' resolution and suggests an aspect-ratio tag (Portrait / Landscape / Square).",
+  "author": "Raglex",
   "command": ["python", "./run.py"],
   "hooks": ["context_menu", "batch_action"],
   "permissions": ["read_library", "write_tags"]

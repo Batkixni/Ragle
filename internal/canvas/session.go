@@ -6,11 +6,11 @@ import (
 	"sort"
 	"time"
 
-	"ragle/internal/model"
+	"raglex/internal/model"
 )
 
 // ErrNeedTwo means Group was asked to wrap fewer than two objects.
-var ErrNeedTwo = errors.New("ragle: select two objects to group them")
+var ErrNeedTwo = errors.New("raglex: select two objects to group them")
 
 // FlushDelay is the longest a dirty board waits before it should be written.
 const FlushDelay = 400 * time.Millisecond

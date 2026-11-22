@@ -10,12 +10,12 @@ import (
 
 	"go.etcd.io/bbolt"
 
-	"ragle/internal/db"
-	"ragle/internal/model"
+	"raglex/internal/db"
+	"raglex/internal/model"
 )
 
 // ErrStackTooSmall means fewer than 2 valid assets were supplied to form a stack.
-var ErrStackTooSmall = errors.New("ragle: at least 2 assets are required to create a stack")
+var ErrStackTooSmall = errors.New("raglex: at least 2 assets are required to create a stack")
 
 // ListStacks returns all asset stacks sorted newest first.
 func (l *Library) ListStacks() ([]model.Stack, error) {

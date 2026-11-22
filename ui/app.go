@@ -1,4 +1,4 @@
-// Package ui is the Ragle window: welcome, library, project, and board.
+// Package ui is the Raglex window: welcome, library, project, and board.
 package ui
 
 import (
@@ -18,21 +18,21 @@ import (
 	"github.com/egoist/mygo"
 	gui "github.com/egoist/mygo/ui"
 
-	"ragle/internal/ai/laya"
-	"ragle/internal/canvas"
-	"ragle/internal/config"
-	"ragle/internal/db"
-	"ragle/internal/i18n"
-	"ragle/internal/library"
-	"ragle/internal/model"
-	"ragle/internal/plugin"
-	"ragle/internal/preview"
-	"ragle/internal/project"
-	"ragle/internal/server"
-	"ragle/internal/share"
-	"ragle/internal/thumbnail"
-	"ragle/internal/updater"
-	"ragle/internal/watcher"
+	"raglex/internal/ai/laya"
+	"raglex/internal/canvas"
+	"raglex/internal/config"
+	"raglex/internal/db"
+	"raglex/internal/i18n"
+	"raglex/internal/library"
+	"raglex/internal/model"
+	"raglex/internal/plugin"
+	"raglex/internal/preview"
+	"raglex/internal/project"
+	"raglex/internal/server"
+	"raglex/internal/share"
+	"raglex/internal/thumbnail"
+	"raglex/internal/updater"
+	"raglex/internal/watcher"
 )
 
 type screen int
@@ -512,7 +512,7 @@ func Run() error {
 	}
 	mygo.App.WhenReady(func() {
 		a.win = mygo.NewWindow(mygo.WindowOptions{
-			Title:             "Ragle",
+			Title:             "Raglex",
 			Width:             1360,
 			Height:            860,
 			MinWidth:          980,

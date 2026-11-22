@@ -59,7 +59,7 @@ func RenderPDFPage(path string, pageIndex int, maxEdge int) (*image.RGBA, int, e
 }
 
 func renderPDFWithPdftoppm(bin, path string, pageIndex, maxEdge int) (*image.RGBA, int, error) {
-	tmpDir, err := os.MkdirTemp("", "ragle-pdf-*")
+	tmpDir, err := os.MkdirTemp("", "raglex-pdf-*")
 	if err != nil {
 		return nil, 0, err
 	}
@@ -84,7 +84,7 @@ func renderPDFWithPdftoppm(bin, path string, pageIndex, maxEdge int) (*image.RGB
 }
 
 func renderPDFWithMutool(bin, path string, pageIndex, maxEdge int) (*image.RGBA, int, error) {
-	tmpDir, err := os.MkdirTemp("", "ragle-pdf-*")
+	tmpDir, err := os.MkdirTemp("", "raglex-pdf-*")
 	if err != nil {
 		return nil, 0, err
 	}

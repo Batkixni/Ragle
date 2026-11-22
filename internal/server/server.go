@@ -1,6 +1,6 @@
-// Package server provides Ragle's unified HTTP server shared by both the
+// Package server provides Raglex's unified HTTP server shared by both the
 // desktop app's built-in server and the standalone headless VPS CLI
-// (cmd/ragle-server). It serves:
+// (cmd/raglex-server). It serves:
 //   - Local Companion REST API (/api/v1/...) for browser extensions, plugins, & MCP
 //   - Web Gallery & Interactive Board Viewer (/, /project/..., /board/...)
 //   - Embedded WebRTC Pairing Signaling (/healthz, /v1/rooms/...)
@@ -24,11 +24,11 @@ import (
 	"sync"
 	"time"
 
-	"ragle/internal/library"
-	"ragle/internal/model"
-	"ragle/internal/project"
-	"ragle/internal/share"
-	"ragle/internal/thumbnail"
+	"raglex/internal/library"
+	"raglex/internal/model"
+	"raglex/internal/project"
+	"raglex/internal/share"
+	"raglex/internal/thumbnail"
 )
 
 const (
@@ -36,7 +36,7 @@ const (
 	maxImportMB = 64 << 20
 )
 
-// Options configures a Ragle server instance.
+// Options configures a Raglex server instance.
 type Options struct {
 	Library     *library.Library // optional: when nil, runs signaling-only mode
 	Projects    *project.Store   // optional
@@ -221,7 +221,7 @@ func (s *Server) notifyChanged() {
 }
 
 func (s *Server) registerRoutes() {
-	// Embedded WebRTC Signaling routes (drop-in compatible with cmd/ragle-signal).
+	// Embedded WebRTC Signaling routes (drop-in compatible with cmd/raglex-signal).
 	s.mux.Handle("/healthz", s.signal)
 	s.mux.Handle("/v1/rooms", s.signal)
 	s.mux.Handle("/v1/rooms/", s.signal)
@@ -252,7 +252,7 @@ func (s *Server) withCORS(next http.Handler) http.Handler {
 		if origin != "" {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Vary", "Origin")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Ragle-Token")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Raglex-Token")
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		}
 		if r.Method == http.MethodOptions {
@@ -266,7 +266,7 @@ func (s *Server) withCORS(next http.Handler) http.Handler {
 func (s *Server) requireToken(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if s.token != "" {
-			got := strings.TrimSpace(r.Header.Get("X-Ragle-Token"))
+			got := strings.TrimSpace(r.Header.Get("X-Raglex-Token"))
 			if got == "" {
 				auth := strings.TrimSpace(r.Header.Get("Authorization"))
 				if strings.HasPrefix(strings.ToLower(auth), "bearer ") {
@@ -296,7 +296,7 @@ func (s *Server) requireLibrary(w http.ResponseWriter) bool {
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	resp := map[string]any{
 		"ok":        true,
-		"app":       "ragle",
+		"app":       "raglex",
 		"signaling": true,
 		"library":   s.lib != nil,
 	}

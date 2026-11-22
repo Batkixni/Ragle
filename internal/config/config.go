@@ -77,7 +77,7 @@ func BoolOr(p *bool, def bool) bool {
 // BoolPtr returns a pointer to v for optional JSON fields.
 func BoolPtr(v bool) *bool { return &v }
 
-// Path is os.UserConfigDir()/Ragle/config.json.
+// Path is os.UserConfigDir()/Raglex/config.json.
 func Path() (string, error) {
 	if pathOverride != "" {
 		return pathOverride, nil
@@ -86,7 +86,7 @@ func Path() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, "Ragle", "config.json"), nil
+	return filepath.Join(dir, "Raglex", "config.json"), nil
 }
 
 // pathOverride is set by tests.

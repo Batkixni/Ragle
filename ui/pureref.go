@@ -7,8 +7,8 @@ import (
 	"github.com/egoist/mygo"
 	gui "github.com/egoist/mygo/ui"
 
-	"ragle/internal/canvas"
-	"ragle/internal/model"
+	"raglex/internal/canvas"
+	"raglex/internal/model"
 )
 
 // openPureRefWindow opens (or focuses) a PureRef-style Always-on-Top floating
@@ -34,9 +34,9 @@ func (a *App) openPureRefWindow() {
 		a.pureRefZoom = 1
 	}
 
-	title := "Ragle Ref"
+	title := "Raglex Ref"
 	if a.boardName != "" {
-		title = "Ragle Ref · " + a.boardName
+		title = "Raglex Ref · " + a.boardName
 	}
 	w := mygo.NewWindow(mygo.WindowOptions{
 		Title:             title,

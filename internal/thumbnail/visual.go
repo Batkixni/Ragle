@@ -11,7 +11,7 @@ import (
 
 	"github.com/disintegration/imaging"
 
-	"ragle/internal/model"
+	"raglex/internal/model"
 )
 
 // ExtractVisualFromImage computes 64-bit pHash, 64-bit dHash, and a 5-color

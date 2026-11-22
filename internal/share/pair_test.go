@@ -14,9 +14,9 @@ import (
 	"github.com/pion/webrtc/v4"
 	"go.etcd.io/bbolt"
 
-	"ragle/internal/db"
-	"ragle/internal/model"
-	"ragle/internal/project"
+	"raglex/internal/db"
+	"raglex/internal/model"
+	"raglex/internal/project"
 )
 
 func newTestSignaling(t *testing.T, ttl time.Duration) (*SignalingServer, *httptest.Server) {
@@ -92,7 +92,7 @@ func TestPairTransferWithFilesAndDedup(t *testing.T) {
 	dst := openLib(t)
 
 	// Multi-chunk file (> 32 KiB) to verify chunked offset transfer + SHA-256 verification.
-	bigBody := bytes.Repeat([]byte("RAGLE-E2E-CHUNK-DATA-0123456789!"), 3500) // ~112 KiB
+	bigBody := bytes.Repeat([]byte("RAGLEX-E2E-CHUNK-DATA-0123456789!"), 3500) // ~112 KiB
 	dupBody := []byte("already-in-receiver-library")
 
 	tag, err := src.CreateTag("Concept")

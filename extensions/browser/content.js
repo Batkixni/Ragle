@@ -5,7 +5,7 @@
   function ensureDropZone() {
     if (dropZone) return dropZone;
     const el = document.createElement("div");
-    el.id = "ragle-drop-capsule";
+    el.id = "raglex-drop-capsule";
     el.style.cssText = [
       "position:fixed",
       "left:50%",
@@ -26,12 +26,12 @@
       "gap:10px",
       "transition:opacity 180ms ease,transform 220ms cubic-bezier(.16,1,.3,1),background 150ms ease"
     ].join(";");
-    el.innerHTML = `<span style="width:10px;height:10px;border-radius:99px;background:#FF5C33;display:inline-block"></span><span id="ragle-drop-label">Drop to save to Ragle</span>`;
+    el.innerHTML = `<span style="width:10px;height:10px;border-radius:99px;background:#FF5C33;display:inline-block"></span><span id="raglex-drop-label">Drop to save to Raglex</span>`;
     el.addEventListener("dragover", (e) => {
       e.preventDefault();
       el.style.background = "#FF5C33";
     });
-    el.addEventListener("dragleave", () => {
+    el.addEventListener("draglexave", () => {
       el.style.background = "#18181B";
     });
     el.addEventListener("drop", (e) => {
@@ -42,8 +42,8 @@
         hideDropZone();
         return;
       }
-      const lbl = el.querySelector("#ragle-drop-label");
-      if (lbl) lbl.textContent = "Saving to Ragle…";
+      const lbl = el.querySelector("#raglex-drop-label");
+      if (lbl) lbl.textContent = "Saving to Raglex…";
       chrome.runtime.sendMessage(
         {
           type: "IMPORT_URL",
@@ -55,7 +55,7 @@
         },
         (resp) => {
           if (lbl) {
-            lbl.textContent = resp?.ok ? "Saved to Ragle ✓" : `Failed: ${resp?.error || "Check Ragle Server"}`;
+            lbl.textContent = resp?.ok ? "Saved to Raglex ✓" : `Failed: ${resp?.error || "Check Raglex Server"}`;
           }
           setTimeout(hideDropZone, 1400);
         }
@@ -68,8 +68,8 @@
 
   function showDropZone() {
     const el = ensureDropZone();
-    const lbl = el.querySelector("#ragle-drop-label");
-    if (lbl) lbl.textContent = "Drop to save to Ragle";
+    const lbl = el.querySelector("#raglex-drop-label");
+    if (lbl) lbl.textContent = "Drop to save to Raglex";
     el.style.pointerEvents = "auto";
     el.style.opacity = "1";
     el.style.transform = "translateX(-50%) translateY(0)";

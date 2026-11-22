@@ -6,7 +6,7 @@ import (
 	"os"
 	"time"
 
-	"ragle/internal/updater"
+	"raglex/internal/updater"
 )
 
 func (a *App) updaterClient() *updater.Client {
@@ -160,7 +160,7 @@ func (a *App) applyUpdateNow() {
 	}()
 }
 
-// restartToApplyUpdate relaunches the freshly installed Ragle binary and exits.
+// restartToApplyUpdate relaunches the freshly installed Raglex binary and exits.
 func (a *App) restartToApplyUpdate() {
 	if err := updater.Relaunch(); err != nil {
 		a.notify(fmt.Sprintf(a.t("update.failed"), err.Error()))

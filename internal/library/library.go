@@ -16,23 +16,23 @@ import (
 
 	"go.etcd.io/bbolt"
 
-	"ragle/internal/db"
-	"ragle/internal/model"
-	"ragle/internal/thumbnail"
+	"raglex/internal/db"
+	"raglex/internal/model"
+	"raglex/internal/thumbnail"
 )
 
 // ErrSymlink means the operating system refused to create a link.
 // The source file is left where it was.
-var ErrSymlink = errors.New("ragle: symlink failed")
+var ErrSymlink = errors.New("raglex: symlink failed")
 
 // ErrEmptyName means a tag name was blank.
-var ErrEmptyName = errors.New("ragle: empty name")
+var ErrEmptyName = errors.New("raglex: empty name")
 
 // ErrDuplicateName means a tag with that name already exists.
-var ErrDuplicateName = errors.New("ragle: tag already exists")
+var ErrDuplicateName = errors.New("raglex: tag already exists")
 
 // ErrTagCycle means moving a tag under itself or one of its own descendants.
-var ErrTagCycle = errors.New("ragle: tag cannot be its own ancestor")
+var ErrTagCycle = errors.New("raglex: tag cannot be its own ancestor")
 
 // Filter selects assets. An empty TagID lists the whole library.
 // Kind is image, video, other, or empty. MinRating of 0 does not filter.
@@ -434,7 +434,7 @@ func (l *Library) TryRelink(path string) (bool, error) {
 		}
 		err := l.DB.Update(func(tx *bbolt.Tx) error {
 			if other, ok := db.AssetIDByPath(tx, path); ok && other != a.ID {
-				return fmt.Errorf("ragle: path already belongs to another asset")
+				return fmt.Errorf("raglex: path already belongs to another asset")
 			}
 			cur, err := db.GetAsset(tx, a.ID)
 			if err != nil {

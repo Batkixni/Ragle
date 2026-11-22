@@ -10,8 +10,8 @@ import (
 
 	gui "github.com/egoist/mygo/ui"
 
-	"ragle/internal/config"
-	"ragle/internal/share"
+	"raglex/internal/config"
+	"raglex/internal/share"
 )
 
 func (a *App) startShare() {
@@ -20,7 +20,7 @@ func (a *App) startShare() {
 		if host, err := os.Hostname(); err == nil && host != "" {
 			name = host
 		} else {
-			name = "Ragle"
+			name = "Raglex"
 		}
 	}
 	win := a.win
@@ -243,7 +243,7 @@ func (a *App) startPairSend() {
 	}
 	name, err := os.Hostname()
 	if err != nil || name == "" {
-		name = "Ragle"
+		name = "Raglex"
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	a.mu.Lock()

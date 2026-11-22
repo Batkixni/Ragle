@@ -8,8 +8,8 @@ import (
 
 	gui "github.com/egoist/mygo/ui"
 
-	"ragle/internal/canvas"
-	"ragle/internal/model"
+	"raglex/internal/canvas"
+	"raglex/internal/model"
 )
 
 // projectView renders a calm Arc UI editorial layout:

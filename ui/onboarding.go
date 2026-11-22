@@ -78,7 +78,7 @@ func (a *App) onboardingModal(c *gui.Context) {
 					if bm := a.brandLogo(); bm != nil {
 						gui.Image(c, bm).Size(20, 20).Fit(gui.Contain)
 					}
-					gui.Text(c, "Ragle · "+a.t("onboarding.open")).FontSize(13).Bold()
+					gui.Text(c, "Raglex · "+a.t("onboarding.open")).FontSize(13).Bold()
 					gui.Spacer(c)
 
 					// Quick language switch right in onboarding so users can read in zh-Hant or EN.

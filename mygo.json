@@ -1,8 +1,8 @@
 {
-  "name": "Ragle",
-  "identifier": "dev.ragle.app",
+  "name": "Raglex",
+  "identifier": "dev.raglex.app",
   "version": "0.1.0",
   "out": "build",
   "icon": "Logo.png",
-  "main": "./cmd/ragle"
+  "main": "./cmd/raglex"
 }

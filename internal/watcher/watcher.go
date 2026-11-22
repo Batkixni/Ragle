@@ -9,7 +9,7 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 
-	"ragle/internal/library"
+	"raglex/internal/library"
 )
 
 const debounce = 500 * time.Millisecond

@@ -5,7 +5,7 @@ import (
 
 	gui "github.com/egoist/mygo/ui"
 
-	"ragle/internal/model"
+	"raglex/internal/model"
 )
 
 func (a *App) styledDialog(c *gui.Context, key string, open *bool, w, h float32, fn func(panel gui.Element)) {

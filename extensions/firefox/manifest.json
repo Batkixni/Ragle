@@ -1,11 +1,11 @@
 {
   "manifest_version": 3,
-  "name": "Ragle Web Clipper",
+  "name": "Raglex Web Clipper",
   "version": "0.2.0",
-  "description": "Drag-to-save images, capture screenshots, and batch-collect visual references directly into your local Ragle library.",
+  "description": "Drag-to-save images, capture screenshots, and batch-collect visual references directly into your local Raglex library.",
   "browser_specific_settings": {
     "gecko": {
-      "id": "ragle-web-clipper@ragle.dev",
+      "id": "raglex-web-clipper@raglex.dev",
       "strict_min_version": "109.0"
     }
   },
@@ -32,6 +32,6 @@
   ],
   "action": {
     "default_popup": "popup.html",
-    "default_title": "Ragle Web Clipper"
+    "default_title": "Raglex Web Clipper"
   }
 }

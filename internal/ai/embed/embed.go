@@ -1,4 +1,4 @@
-// Package embed implements Ragle's built-in, zero-dependency local visual
+// Package embed implements Raglex's built-in, zero-dependency local visual
 // embedding engine (128-dim L2-normalized OKLab spatial + gradient + color
 // histogram + frequency descriptor). It runs completely inside the app binary
 // with no external server, GPU, or Python runtime required.

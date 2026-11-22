@@ -3,7 +3,7 @@ package db
 import (
 	"go.etcd.io/bbolt"
 
-	"ragle/internal/model"
+	"raglex/internal/model"
 )
 
 // PutTag writes a tag. Name uniqueness is enforced by the caller.

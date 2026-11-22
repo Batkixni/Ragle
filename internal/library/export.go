@@ -12,7 +12,7 @@ import (
 
 	"github.com/disintegration/imaging"
 
-	"ragle/internal/model"
+	"raglex/internal/model"
 )
 
 // ExportOptions controls batch file export and image conversion.
@@ -34,7 +34,7 @@ type ExportResult struct {
 // converting image formats while preserving original files in the library.
 func (l *Library) ExportBatch(assetIDs []string, opts ExportOptions) (ExportResult, error) {
 	if strings.TrimSpace(opts.DestDir) == "" {
-		return ExportResult{}, fmt.Errorf("ragle: destination directory is required")
+		return ExportResult{}, fmt.Errorf("raglex: destination directory is required")
 	}
 	if err := os.MkdirAll(opts.DestDir, 0o755); err != nil {
 		return ExportResult{}, err

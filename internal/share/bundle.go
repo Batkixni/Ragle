@@ -13,8 +13,8 @@ import (
 
 	"go.etcd.io/bbolt"
 
-	"ragle/internal/db"
-	"ragle/internal/model"
+	"raglex/internal/db"
+	"raglex/internal/model"
 )
 
 // sharedTagName is the tag a received project gets when it arrived with none.
@@ -175,7 +175,7 @@ func Apply(d *db.DB, b Bundle, paths map[string]string) (string, error) {
 	for hash, path := range paths {
 		sum, err := hashFile(path)
 		if err != nil || sum != hash {
-			return "", errors.New("ragle: file hash mismatch")
+			return "", errors.New("raglex: file hash mismatch")
 		}
 	}
 	var projectID string
@@ -221,7 +221,7 @@ func Apply(d *db.DB, b Bundle, paths map[string]string) (string, error) {
 		assetMap := map[string]string{}
 		for _, snap := range b.Assets {
 			if snap.Asset.Hash == "" {
-				return errors.New("ragle: asset hash required")
+				return errors.New("raglex: asset hash required")
 			}
 			if existing, ok := db.AssetIDByHash(tx, snap.Asset.Hash); ok {
 				assetMap[snap.Asset.ID] = existing
@@ -366,7 +366,7 @@ func SaveFile(dir, name string, r io.Reader) (string, error) {
 	}
 	_, _ = io.Copy(io.Discard, r)
 	if last == nil {
-		last = errors.New("ragle: could not name file")
+		last = errors.New("raglex: could not name file")
 	}
 	return "", last
 }

@@ -1,4 +1,4 @@
-module ragle
+module raglex
 
 go 1.27.3
 

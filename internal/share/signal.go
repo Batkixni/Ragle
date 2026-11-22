@@ -17,10 +17,10 @@ import (
 
 // Pairing error sentinels.
 var (
-	ErrRoomNotFound = errors.New("ragle: pairing code not found or expired")
-	ErrRoomClaimed  = errors.New("ragle: pairing code already used")
-	ErrBadCode      = errors.New("ragle: invalid pairing code")
-	ErrNoSignaling  = errors.New("ragle: signaling server URL is empty")
+	ErrRoomNotFound = errors.New("raglex: pairing code not found or expired")
+	ErrRoomClaimed  = errors.New("raglex: pairing code already used")
+	ErrBadCode      = errors.New("raglex: invalid pairing code")
+	ErrNoSignaling  = errors.New("raglex: signaling server URL is empty")
 )
 
 // codeAlphabet omits ambiguous characters (0, 1, I, L, O).
@@ -442,14 +442,14 @@ func (c *SignalingClient) CreateRoom(ctx context.Context, offerSDP, senderName s
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusCreated {
-		return "", "", fmt.Errorf("ragle: signaling create failed (%d)", resp.StatusCode)
+		return "", "", fmt.Errorf("raglex: signaling create failed (%d)", resp.StatusCode)
 	}
 	var out createRoomResp
 	if err := json.NewDecoder(io.LimitReader(resp.Body, maxSignalBody)).Decode(&out); err != nil {
 		return "", "", err
 	}
 	if out.Code == "" || out.Token == "" {
-		return "", "", errors.New("ragle: invalid signaling response")
+		return "", "", errors.New("raglex: invalid signaling response")
 	}
 	return FormatCode(out.Code), out.Token, nil
 }
@@ -484,7 +484,7 @@ func (c *SignalingClient) GetOffer(ctx context.Context, code string) (string, st
 	case http.StatusConflict:
 		return "", "", ErrRoomClaimed
 	default:
-		return "", "", fmt.Errorf("ragle: signaling offer failed (%d)", resp.StatusCode)
+		return "", "", fmt.Errorf("raglex: signaling offer failed (%d)", resp.StatusCode)
 	}
 }
 
@@ -516,7 +516,7 @@ func (c *SignalingClient) SubmitAnswer(ctx context.Context, code, answerSDP stri
 	case http.StatusConflict:
 		return ErrRoomClaimed
 	default:
-		return fmt.Errorf("ragle: signaling answer failed (%d)", resp.StatusCode)
+		return fmt.Errorf("raglex: signaling answer failed (%d)", resp.StatusCode)
 	}
 }
 
@@ -560,7 +560,7 @@ func (c *SignalingClient) WaitAnswer(ctx context.Context, code, token string) (s
 		case http.StatusNotFound:
 			return "", ErrRoomNotFound
 		default:
-			return "", fmt.Errorf("ragle: signaling wait failed (%d)", status)
+			return "", fmt.Errorf("raglex: signaling wait failed (%d)", status)
 		}
 	}
 }

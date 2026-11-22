@@ -13,7 +13,7 @@ async function getConfig() {
 async function importImageURL({ url, sourceUrl, sourceTitle, tagIds }) {
   const cfg = await getConfig();
   const headers = { "Content-Type": "application/json" };
-  if (cfg.token) headers["X-Ragle-Token"] = cfg.token;
+  if (cfg.token) headers["X-Raglex-Token"] = cfg.token;
   const tags = tagIds && tagIds.length ? tagIds : (cfg.defaultTagId ? [cfg.defaultTagId] : []);
   const resp = await fetch(`${cfg.serverUrl}/api/v1/import/url`, {
     method: "POST",
@@ -30,11 +30,11 @@ async function importImageURL({ url, sourceUrl, sourceTitle, tagIds }) {
   return data;
 }
 
-async function captureVisibleToRagle(tab, tagIds) {
+async function captureVisibleToRaglex(tab, tagIds) {
   const cfg = await getConfig();
   const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, { format: "png" });
   const headers = { "Content-Type": "application/json" };
-  if (cfg.token) headers["X-Ragle-Token"] = cfg.token;
+  if (cfg.token) headers["X-Raglex-Token"] = cfg.token;
   const tags = tagIds && tagIds.length ? tagIds : (cfg.defaultTagId ? [cfg.defaultTagId] : []);
   const safeTitle = (tab.title || "capture").replace(/[^a-zA-Z0-9_\u4e00-\u9fff-]+/g, "_").slice(0, 48);
   const resp = await fetch(`${cfg.serverUrl}/api/v1/import/base64`, {
@@ -55,30 +55,30 @@ async function captureVisibleToRagle(tab, tagIds) {
 
 chrome.runtime.onInstalled.addListener(() => {
   chrome.contextMenus.create({
-    id: "ragle-save-image",
-    title: "Save Image to Ragle",
+    id: "raglex-save-image",
+    title: "Save Image to Raglex",
     contexts: ["image"]
   });
   chrome.contextMenus.create({
-    id: "ragle-capture-tab",
-    title: "Capture Screenshot to Ragle",
+    id: "raglex-capture-tab",
+    title: "Capture Screenshot to Raglex",
     contexts: ["page"]
   });
 });
 
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   try {
-    if (info.menuItemId === "ragle-save-image" && info.srcUrl) {
+    if (info.menuItemId === "raglex-save-image" && info.srcUrl) {
       await importImageURL({
         url: info.srcUrl,
         sourceUrl: info.pageUrl || tab?.url || "",
         sourceTitle: tab?.title || ""
       });
-    } else if (info.menuItemId === "ragle-capture-tab" && tab) {
-      await captureVisibleToRagle(tab, []);
+    } else if (info.menuItemId === "raglex-capture-tab" && tab) {
+      await captureVisibleToRaglex(tab, []);
     }
   } catch (err) {
-    console.error("[Ragle Clipper]", err);
+    console.error("[Raglex Clipper]", err);
   }
 });
 
@@ -93,7 +93,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     chrome.tabs.query({ active: true, currentWindow: true }, async (tabs) => {
       try {
         if (!tabs[0]) throw new Error("No active tab");
-        const res = await captureVisibleToRagle(tabs[0], msg.tagIds || []);
+        const res = await captureVisibleToRaglex(tabs[0], msg.tagIds || []);
         sendResponse({ ok: true, res });
       } catch (err) {
         sendResponse({ ok: false, error: err.message });

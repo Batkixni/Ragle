@@ -41,7 +41,7 @@ type RuntimeStatus struct {
 }
 
 // RuntimeManager downloads, starts, stops, and pulls models for the open-source
-// Ollaya/Laya runtime directly inside Ragle with zero terminal commands.
+// Ollaya/Laya runtime directly inside Raglex with zero terminal commands.
 type RuntimeManager struct {
 	rootDir string
 	baseURL string
@@ -51,13 +51,13 @@ type RuntimeManager struct {
 	cancel context.CancelFunc
 }
 
-// NewRuntimeManager creates a manager storing binaries under rootDir (e.g. UserConfigDir/Ragle/runtime/ollaya).
+// NewRuntimeManager creates a manager storing binaries under rootDir (e.g. UserConfigDir/Raglex/runtime/ollaya).
 func NewRuntimeManager(rootDir, baseURL string) *RuntimeManager {
 	if strings.TrimSpace(rootDir) == "" {
 		if cfgDir, err := os.UserConfigDir(); err == nil {
-			rootDir = filepath.Join(cfgDir, "Ragle", "runtime", "ollaya")
+			rootDir = filepath.Join(cfgDir, "Raglex", "runtime", "ollaya")
 		} else {
-			rootDir = filepath.Join(os.TempDir(), "ragle-ollaya")
+			rootDir = filepath.Join(os.TempDir(), "raglex-ollaya")
 		}
 	}
 	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
@@ -196,7 +196,7 @@ func (m *RuntimeManager) DownloadBinary(ctx context.Context, onProgress func(pct
 	if err != nil {
 		return err
 	}
-	req.Header.Set("User-Agent", "Ragle/0.2")
+	req.Header.Set("User-Agent", "Raglex/0.2")
 	resp, err := httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("download ollaya failed: %w", err)
@@ -252,7 +252,7 @@ func (m *RuntimeManager) DownloadBinary(ctx context.Context, onProgress func(pct
 	}
 }
 
-// Start launches `ollaya serve` managed by Ragle and waits until the HTTP daemon
+// Start launches `ollaya serve` managed by Raglex and waits until the HTTP daemon
 // responds (up to 15s). If an external Ollaya daemon is already listening on
 // BaseURL, Start succeeds without spawning a duplicate.
 func (m *RuntimeManager) Start(ctx context.Context) error {
@@ -349,7 +349,7 @@ func resolveOllayaReleaseAsset(ctx context.Context) (string, string, error) {
 	httpClient := &http.Client{Timeout: 10 * time.Second}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, ollayaReleasesAPI, nil)
 	if err == nil {
-		req.Header.Set("User-Agent", "Ragle/0.2")
+		req.Header.Set("User-Agent", "Raglex/0.2")
 		req.Header.Set("Accept", "application/vnd.github+json")
 		if resp, err := httpClient.Do(req); err == nil {
 			defer resp.Body.Close()

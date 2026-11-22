@@ -12,10 +12,10 @@ import (
 
 	"github.com/disintegration/imaging"
 
-	"ragle/internal/ai/embed"
-	"ragle/internal/db"
-	"ragle/internal/model"
-	"ragle/internal/preview"
+	"raglex/internal/ai/embed"
+	"raglex/internal/db"
+	"raglex/internal/model"
+	"raglex/internal/preview"
 )
 
 const longEdge = 512

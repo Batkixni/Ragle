@@ -78,7 +78,7 @@ func TestFontSpecimenRendering(t *testing.T) {
 	if fontPath == "" {
 		t.Skip("no system TTF font found for rendering test")
 	}
-	img, info, err := RenderFontSpecimen(fontPath, "Ragle 0123456789", 40, 720, 420, color.RGBA{250, 250, 250, 255}, color.RGBA{18, 18, 20, 255})
+	img, info, err := RenderFontSpecimen(fontPath, "Raglex 0123456789", 40, 720, 420, color.RGBA{250, 250, 250, 255}, color.RGBA{18, 18, 20, 255})
 	if err != nil {
 		t.Fatalf("RenderFontSpecimen failed: %v", err)
 	}

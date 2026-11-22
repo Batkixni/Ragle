@@ -45,28 +45,28 @@ jobs:
           mkdir -p dist
 
           # macOS Apple Silicon & Intel (.app bundles)
-          (cd build/release/darwin-arm64 && zip -r ../../../dist/Ragle-darwin-arm64.zip Ragle.app)
-          (cd build/release/darwin-amd64 && zip -r ../../../dist/Ragle-darwin-amd64.zip Ragle.app)
+          (cd build/release/darwin-arm64 && zip -r ../../../dist/Raglex-darwin-arm64.zip Raglex.app)
+          (cd build/release/darwin-amd64 && zip -r ../../../dist/Raglex-darwin-amd64.zip Raglex.app)
 
           # Windows x64 & ARM64
-          cp build/release/windows-amd64/Ragle.exe dist/Ragle-windows-amd64.exe
-          (cd build/release/windows-amd64 && zip -r ../../../dist/Ragle-windows-amd64.zip Ragle.exe)
-          cp build/release/windows-arm64/Ragle.exe dist/Ragle-windows-arm64.exe
-          (cd build/release/windows-arm64 && zip -r ../../../dist/Ragle-windows-arm64.zip Ragle.exe)
+          cp build/release/windows-amd64/Raglex.exe dist/Raglex-windows-amd64.exe
+          (cd build/release/windows-amd64 && zip -r ../../../dist/Raglex-windows-amd64.zip Raglex.exe)
+          cp build/release/windows-arm64/Raglex.exe dist/Raglex-windows-arm64.exe
+          (cd build/release/windows-arm64 && zip -r ../../../dist/Raglex-windows-arm64.zip Raglex.exe)
 
           # Linux x64 & ARM64 (tar.gz + deb + rpm)
           find build/release/linux-amd64 -maxdepth 1 \( -name '*.tar.gz' -o -name '*.deb' -o -name '*.rpm' \) -exec cp {} dist/ \;
           find build/release/linux-arm64 -maxdepth 1 \( -name '*.tar.gz' -o -name '*.deb' -o -name '*.rpm' \) -exec cp {} dist/ \;
 
           # Browser Companion Extension
-          (cd extensions/browser && zip -r ../../dist/ragle-browser-extension.zip .)
+          (cd extensions/browser && zip -r ../../dist/raglex-browser-extension.zip .)
 
-          # Standalone CLI binaries (ragle-server & ragle-mcp)
+          # Standalone CLI binaries (raglex-server & raglex-mcp)
           for pair in "windows amd64 .exe" "windows arm64 .exe" "darwin arm64 " "darwin amd64 " "linux amd64 " "linux arm64 "; do
             set -- $pair
-            GOOS=$1 GOARCH=$2 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o "build/cli/$1-$2/ragle-server$3" ./cmd/ragle-server
-            GOOS=$1 GOARCH=$2 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o "build/cli/$1-$2/ragle-mcp$3" ./cmd/ragle-mcp
-            (cd "build/cli/$1-$2" && zip -r "../../../dist/ragle-cli-$1-$2.zip" .)
+            GOOS=$1 GOARCH=$2 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o "build/cli/$1-$2/raglex-server$3" ./cmd/raglex-server
+            GOOS=$1 GOARCH=$2 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o "build/cli/$1-$2/raglex-mcp$3" ./cmd/raglex-mcp
+            (cd "build/cli/$1-$2" && zip -r "../../../dist/raglex-cli-$1-$2.zip" .)
           done
 
           (cd dist && sha256sum * > SHA256SUMS.txt)

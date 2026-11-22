@@ -12,11 +12,11 @@ import (
 
 	gui "github.com/egoist/mygo/ui"
 
-	"ragle/internal/canvas"
-	"ragle/internal/i18n"
-	"ragle/internal/library"
-	"ragle/internal/model"
-	"ragle/internal/project"
+	"raglex/internal/canvas"
+	"raglex/internal/i18n"
+	"raglex/internal/library"
+	"raglex/internal/model"
+	"raglex/internal/project"
 )
 
 func TestLanguageToggleChangesWelcome(t *testing.T) {
@@ -229,9 +229,9 @@ func makeArtBitmap(w, h int, c1, c2 color.RGBA) *gui.Bitmap {
 }
 
 func TestRenderScreenshots(t *testing.T) {
-	outDir := os.Getenv("RAGLE_SNAPSHOT_DIR")
+	outDir := os.Getenv("RAGLEX_SNAPSHOT_DIR")
 	if outDir == "" {
-		t.Skip("set RAGLE_SNAPSHOT_DIR to render screenshots")
+		t.Skip("set RAGLEX_SNAPSHOT_DIR to render screenshots")
 	}
 	_ = os.MkdirAll(outDir, 0o755)
 

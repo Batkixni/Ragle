@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"ragle/internal/library"
-	"ragle/internal/project"
+	"raglex/internal/library"
+	"raglex/internal/project"
 )
 
 func testPNG(t *testing.T, c color.RGBA) []byte {
@@ -51,7 +51,7 @@ func TestMCPStdioToolsAndResources(t *testing.T) {
 		`{"jsonrpc":"2.0","id":2,"method":"tools/list"}`,
 		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"search_assets","arguments":{"color":"#FF5C33"}}}`,
 		`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"create_board","arguments":{"name":"MCP Mood","asset_ids":["` + a.ID + `"]}}}`,
-		`{"jsonrpc":"2.0","id":5,"method":"resources/read","params":{"uri":"ragle://library/summary"}}`,
+		`{"jsonrpc":"2.0","id":5,"method":"resources/read","params":{"uri":"raglex://library/summary"}}`,
 	}, "\n") + "\n"
 
 	var out bytes.Buffer

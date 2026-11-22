@@ -1,14 +1,14 @@
-# Ragle `AGENT.md` — 產品規格、架構基準與演進路線圖
+# Raglex `AGENT.md` — 產品規格、架構基準與演進路線圖
 
-本文件為 **Ragle** 的唯一真實規格（Source of Truth）與工程實作基準。
-Ragle 是以 **Go + MyGo Native UI** 開發的開源、本地優先（Local-First）創作者數位資產管理、檔案工作流與靈感白板工具，核心資料層採用 **bbolt**。
+本文件為 **Raglex** 的唯一真實規格（Source of Truth）與工程實作基準。
+Raglex 是以 **Go + MyGo Native UI** 開發的開源、本地優先（Local-First）創作者數位資產管理、檔案工作流與靈感白板工具，核心資料層採用 **bbolt**。
 視覺與互動規範請搭配閱讀 [DESIGN.md](./DESIGN.md)。
 
 ---
 
 ## 一、專案目的與核心原則
 
-Ragle 要同時解決創作者的三個痛點：**檔案怎麼安全管理**、**靈感怎麼跨專案重複引用**、以及**如何無痛串接現代 AI 與跨裝置分享**。
+Raglex 要同時解決創作者的三個痛點：**檔案怎麼安全管理**、**靈感怎麼跨專案重複引用**、以及**如何無痛串接現代 AI 與跨裝置分享**。
 
 ### 核心原則
 1. **本地優先，離線完整可用**：核心圖庫、檔案管理、標籤、專案、白板與純演算法搜圖（色系 / 感知雜湊）不依賴雲端服務。
@@ -21,7 +21,7 @@ Ragle 要同時解決創作者的三個痛點：**檔案怎麼安全管理**、*
 
 ## 二、核心資料層級
 
-Ragle 的概念層級為五個正交模組：
+Raglex 的概念層級為五個正交模組：
 
 1. **母庫（Assets）**：所有素材的索引或實體檔案，採 ULID 識別碼與 SHA-256 去重；附帶縮圖、尺寸/時長、主色盤（Palette）、感知雜湊（pHash/dHash）、可選向量嵌入（Embedding）與來源中繼資料（URL / 頁面標題 / 備註）。
 2. **階層標籤（Tags）**：支援多層母標籤 / 子標籤樹狀結構與自訂顏色（設定可切換彩色或純淨模式），同時用於分類素材與組織專案。
@@ -41,11 +41,11 @@ Ragle 的概念層級為五個正交模組：
 ### 1. 資料層與核心引擎（`internal/db`, `model`, `library`, `project`, `canvas`, `thumbnail`, `watcher`, `config`, `i18n`）
 - **bbolt 單檔交易儲存**：Schema v1，全索引採 `parentID/childID` 前綴掃描（`assets`, `assets_by_hash`, `assets_by_path`, `tags`, `asset_tags`, `tag_assets`, `projects`, `project_tags`, `tag_projects`, `project_assets`, `asset_projects`, `boards`, `boards_by_project`, `placements`, `placements_by_board`, `placements_by_asset`）。
 - **階層標籤**：`Tag` 支援 `ParentID`、`Color`，自動偵測並避免循環父子關係，支援樹狀展開/收合與繼承篩選。
-- **四種存放策略**：`index`、`symlink`、`move`、`copy`；啟動與刪除前自動透過 `tx.WriteTo` 寫出 `ragle.db.bak`，損毀時可於歡迎頁一鍵還原。
+- **四種存放策略**：`index`、`symlink`、`move`、`copy`；啟動與刪除前自動透過 `tx.WriteTo` 寫出 `raglex.db.bak`，損毀時可於歡迎頁一鍵還原。
 - **檔案監聽與重連**：`fsnotify` 追蹤移動與遺失檔案（標記 `missing`），支援以 SHA-256 自動重新連結。
 - **縮圖與影片播放**：非同步雙 worker 生成縮圖；支援 `ffmpeg` 影片抽幀與應用內影片 / GIF 預覽播放（`ui/video.go`）。
 
-### 2. 分享基礎（`internal/share`, `cmd/ragle-signal`）
+### 2. 分享基礎（`internal/share`, `cmd/raglex-signal`）
 - **區域網分享**：UDP 廣播（port `47321`，`RGL1`）自動發現 ＋ TCP 傳送專案副本與素材實體（接收確認 ＋ SHA-256 去重）。
 - **跨網配對碼 E2E 分享**：基於 `pion/webrtc/v4` DTLS 加密 DataChannel 與輕量 HTTP 長輪詢信令（6 碼 `XXX-XXX` 配對碼，32 KiB 分塊與背壓）。
 
@@ -67,7 +67,7 @@ Ragle 的概念層級為五個正交模組：
 - 依 `.agents/skills/mygo-maintenance/SKILL.md` 完成升級、`mygo vet .` 驗證與全量回歸測試。
 
 ### 階段 12：檔案管理器能力（Batch File Manager）
-將 Ragle 升級為創作者日常主力檔案管理工具：
+將 Raglex 升級為創作者日常主力檔案管理工具：
 1. **批量重新命名引擎（`internal/library/rename.go`）**
    - 規則管線可任意組合：
      - **模板命名**：`{name}`、`{ext}`、`{index:03}`、`{date:YYYYMMDD}`、`{w}x{h}`、`{tag}`、`{project}`、`{rating}`
@@ -116,10 +116,10 @@ Ragle 的概念層級為五個正交模組：
 
 #### 第 3 層：Laya + Ollaya 開源本地決策分類引擎（Open-Source Local System-1 AI，選配）
 - **為何選用 Laya（搭配 Ollaya 本地執行環境）而非閉源雲端 API？**
-  - Ragle 是純本地優先的開源專案，AI 分類不應綁定任何閉源付費 API。
+  - Raglex 是純本地優先的開源專案，AI 分類不應綁定任何閉源付費 API。
   - **Laya**（`convaiinnovations/laya`，~421M 參數開源權重，ModernBERT-large 架構）是非自回歸決策模型，在一般 CPU / GPU 上只需約 **33ms** 即可於**單次前向推論**內對「輸入上下文＋候選選項清單 / 規則」輸出**校準後的機率分布、分數或布林判斷**，不逐字生成廢話、不亂造垃圾標籤。
   - 透過開源本地伺服器 **Ollaya**（`ollaya-dev/ollaya`，支援 `/v1/decisions` 與 `/v1/systemone` 標準端點），使用者可一鍵在本機離線執行 `laya`（文字/檔名/來源 URL/視覺描述與中繼資料決策）或相容的開源視覺決策模型（如基於 Qwen-VL 的 Vev）。
-- **在 Ragle 中的四大落地場景（`internal/ai/laya`）**：
+- **在 Raglex 中的四大落地場景（`internal/ai/laya`）**：
   1. **匯入自動歸類（Closed-Set Auto-Tagging）**：結合檔名、來源標題/URL、主色特徵與選配視覺摘要，將使用者母庫現有的階層標籤樹作為候選選項送入 Laya，依信心度門檻分流——高於 `0.80` 自動套用、`0.45–0.80` 列為待確認建議標籤（絕不亂建雜亂標籤）。
   2. **條件式智慧檢索與重排（Rerank & Policy Filter）**：先用第 1/2 層 pHash / 色彩 / Embeddings 粗篩出 Top-50 候選，再由 Laya 執行精準條件篩選與重排（例：「海報排版且偏暗色，排除人像攝影」）。
   3. **專案歸屬建議**：匯入新素材時，依既有專案名稱與說明評估該素材最可能屬於哪個專案。
@@ -127,22 +127,22 @@ Ragle 的概念層級為五個正交模組：
 - **統一開源介面抽象（Provider Agnostic）**：
   - 預設對接本機 **Ollaya**（`http://127.0.0.1:11435` 或使用者自訂位址，完全離線私密），同時相容任何 `/v1/decisions` / `/v1/systemone` 決策端點；使用者可在偏好設定頁一鍵測試連線、設定模型名稱與信心門檻。
 
-### 階段 15：統一內建伺服器＋獨立 CLI（`internal/server` + `cmd/ragle-server`）
+### 階段 15：統一內建伺服器＋獨立 CLI（`internal/server` + `cmd/raglex-server`）
 將原本分散的分享、信令、瀏覽器串接與插件通訊收斂到同一套伺服器核心：
 
 1. **雙形態部署（100% 共用 `internal/server`）**
-   - **App 內建伺服器**：在 Ragle 視窗內一鍵啟動/關閉、自訂監聽位址（預設 `127.0.0.1:41595` 供本機插件/瀏覽器使用；可額外開啟 `0.0.0.0:<port>` 供區網/外網分享），內建 QR Code 與存取狀態監控。
-   - **獨立 Headless CLI（`cmd/ragle-server`）**：無 GUI 單一執行檔（Linux / Windows / macOS / Docker），可直接部署至 VPS（配合 Caddy / Nginx 自動 HTTPS）。
+   - **App 內建伺服器**：在 Raglex 視窗內一鍵啟動/關閉、自訂監聽位址（預設 `127.0.0.1:41595` 供本機插件/瀏覽器使用；可額外開啟 `0.0.0.0:<port>` 供區網/外網分享），內建 QR Code 與存取狀態監控。
+   - **獨立 Headless CLI（`cmd/raglex-server`）**：無 GUI 單一執行檔（Linux / Windows / macOS / Docker），可直接部署至 VPS（配合 Caddy / Nginx 自動 HTTPS）。
 2. **伺服器四大能力**
    - **Web 分享檢視器（免安裝瀏覽器直開）**：將單一專案、標籤集或白板產生唯讀 / 密碼保護 / 限時連結（`/s/<token>`），網頁端提供響應式圖庫、大圖檢視、互動縮放白板與原檔下載（可選開啟「外部上傳收集箱」與「白板審圖批註」）。
-   - **內嵌信令與中繼服務**：吸收原有 `cmd/ragle-signal`，App 內建即具備配對碼信令能力，VPS 版同時作為跨網穩定信令/中繼節點。
-   - **Push-to-VPS 同步**：桌面版可將指定專案或白板一鍵發佈到自己架設的 `ragle-server` VPS，即時更新公開作品集或客戶審圖頁。
+   - **內嵌信令與中繼服務**：吸收原有 `cmd/raglex-signal`，App 內建即具備配對碼信令能力，VPS 版同時作為跨網穩定信令/中繼節點。
+   - **Push-to-VPS 同步**：桌面版可將指定專案或白板一鍵發佈到自己架設的 `raglex-server` VPS，即時更新公開作品集或客戶審圖頁。
    - **Local Companion REST / WebSocket API（`/api/v1/...`）**：提供給瀏覽器擴充、外部插件與自動化腳本使用（具一次性配對 Token 與權限控管）。
 
-### 階段 16：Ragle MCP Server（`internal/mcp` + `cmd/ragle-mcp`）
-讓 Claude、Antigravity、Cursor 等 AI Coding / Creative Agent 直接操作你的本地 Ragle 母庫：
+### 階段 16：Raglex MCP Server（`internal/mcp` + `cmd/raglex-mcp`）
+讓 Claude、Antigravity、Cursor 等 AI Coding / Creative Agent 直接操作你的本地 Raglex 母庫：
 - **雙傳輸模式**：
-  - **Stdio 模式（`cmd/ragle-mcp --library <path>`）**：零網路開銷，直接給桌面 AI 用戶端掛載；若 Ragle 主程式正開啟同一母庫，自動轉發至 Local API 避免 `bbolt` 鎖檔衝突。
+  - **Stdio 模式（`cmd/raglex-mcp --library <path>`）**：零網路開銷，直接給桌面 AI 用戶端掛載；若 Raglex 主程式正開啟同一母庫，自動轉發至 Local API 避免 `bbolt` 鎖檔衝突。
   - **Streamable HTTP / SSE 模式**：直接掛載於 `internal/server` 的 `/mcp` 端點（需 Bearer Token 驗證）。
 - **核心 MCP Tools**：
   - 檢索：`search_assets`（關鍵字 / 標籤 / 顏色 HEX / 評分 / 尺寸 / 語意）、`find_similar_assets`（以圖搜圖）、`get_asset_detail`、`list_tags`、`list_projects`、`list_boards`。
@@ -150,12 +150,12 @@ Ragle 的概念層級為五個正交模組：
   - 白板：`create_board`、`place_assets_on_board`（支援自動網格 / 瀑布排版座標計算）、`add_board_note`。
   - 智慧：`classify_assets_with_laya`（呼叫本機 Ollaya / Laya 模型對指定素材回傳分類機率與建議標籤）。
 - **核心 MCP Resources**：
-  - `ragle://library/summary`（母庫統計、標籤樹、專案列表）
-  - `ragle://asset/{id}`（素材完整中繼資料與本機路徑）
-  - `ragle://board/{id}`（白板佈局 JSON 描述）
+  - `raglex://library/summary`（母庫統計、標籤樹、專案列表）
+  - `raglex://asset/{id}`（素材完整中繼資料與本機路徑）
+  - `raglex://board/{id}`（白板佈局 JSON 描述）
 
 ### 階段 17：瀏覽器配套擴充（`extensions/browser/`，Manifest V3）
-支援 Chrome / Edge / Brave / Firefox，透過配對 Token 連線至 Ragle Local Companion API：
+支援 Chrome / Edge / Brave / Firefox，透過配對 Token 連線至 Raglex Local Companion API：
 - **拖曳存圖（Drag-to-Save）**：拖曳網頁圖片即浮出快速目標選擇器（直接丟進指定標籤 / 專案 / 白板）。
 - **右鍵收集與截圖**：收集單圖、影片/GIF、區域截圖、可視範圍截圖、整頁長截圖。
 - **批次抓圖器（Batch Page Grabber）**：自動解析當前頁面所有高解析原圖（含尺寸過濾與勾選），一次匯入母庫。
@@ -195,15 +195,15 @@ Ragle 的概念層級為五個正交模組：
 ## 六、程式碼目錄藍圖（現有＋v2 規劃）
 
 ```text
-ragle/
+raglex/
 ├── AGENT.md                 # 本規格書（架構與功能路線圖）
 ├── DESIGN.md                # 視覺、色彩、動態與 UX 設計規範
 ├── Logo.png                 # 512x512 深黑灰底＋#FF5C33 圖騰 App Icon
 ├── cmd/
-│   ├── ragle/               # 桌面原生主程式（MyGo GUI）
-│   ├── ragle-server/        # [v2] 獨立無頭伺服器 CLI（VPS Host / Web Viewer / Signal）
-│   ├── ragle-mcp/           # [v2] 獨立 Stdio MCP Server 入口
-│   └── ragle-signal/        # [現有] 輕量信令（後續併入 internal/server 並保留相容）
+│   ├── raglex/               # 桌面原生主程式（MyGo GUI）
+│   ├── raglex-server/        # [v2] 獨立無頭伺服器 CLI（VPS Host / Web Viewer / Signal）
+│   ├── raglex-mcp/           # [v2] 獨立 Stdio MCP Server 入口
+│   └── raglex-signal/        # [現有] 輕量信令（後續併入 internal/server 並保留相容）
 ├── internal/
 │   ├── db/                  # bbolt 開啟、自動遷移、備份與交易輔助
 │   ├── model/               # 核心資料結構與 msgpack 序列化
@@ -230,4 +230,4 @@ ragle/
 
 1. **MyGo 生命週期紀律**：遵循 `.agents/skills/mygo-maintenance/SKILL.md`；絕不跨 frame 或跨 goroutine 持有 `ui.Element` 或 `*ui.Context`；所有非同步回呼透過 `win.Update(...)` 回到 UI 執行緒；全域快捷鍵必須在 `View(c)` 根層級註冊。
 2. **單一交易一致性**：所有涉及主資料與輔助索引的寫入，必須在同一個 `db.Update` 交易中完成；破壞性操作前一律觸發資料庫備份。
-3. **驗證門檻**：每次里程碑提交前必須通過 `go tool mygo vet .`、`CGO_ENABLED=0 go test -count=1 ./...`，並針對重大 UI 改動以 `RAGLE_SNAPSHOT_DIR` 產出截圖做視覺審查。
+3. **驗證門檻**：每次里程碑提交前必須通過 `go tool mygo vet .`、`CGO_ENABLED=0 go test -count=1 ./...`，並針對重大 UI 改動以 `RAGLEX_SNAPSHOT_DIR` 產出截圖做視覺審查。

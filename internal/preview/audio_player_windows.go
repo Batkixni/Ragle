@@ -41,7 +41,7 @@ func OpenAudioPlayer(path string) (*AudioPlayer, error) {
 	ext := strings.ToLower(filepath.Ext(path))
 	if ext == ".ogg" || ext == ".flac" || ext == ".opus" {
 		if ffmpeg, err := exec.LookPath("ffmpeg"); err == nil {
-			f, ferr := os.CreateTemp("", "ragle-audio-*.wav")
+			f, ferr := os.CreateTemp("", "raglex-audio-*.wav")
 			if ferr == nil {
 				tempWav = f.Name()
 				_ = f.Close()
@@ -57,7 +57,7 @@ func OpenAudioPlayer(path string) (*AudioPlayer, error) {
 		}
 	}
 
-	alias := fmt.Sprintf("ragle_aud_%d", mciAliasSeq.Add(1))
+	alias := fmt.Sprintf("raglex_aud_%d", mciAliasSeq.Add(1))
 	quoted := strings.ReplaceAll(playPath, `"`, "")
 	openCmd := fmt.Sprintf(`open "%s" type mpegvideo alias %s`, quoted, alias)
 	if strings.EqualFold(filepath.Ext(playPath), ".wav") {

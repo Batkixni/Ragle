@@ -1,4 +1,4 @@
-// Package plugin discovers, validates, and executes Ragle external plugins.
+// Package plugin discovers, validates, and executes Raglex external plugins.
 // Each plugin lives in <library>/plugins/<id>/manifest.json and communicates
 // via structured JSON over stdin/stdout (language-agnostic: Go, Python, Node,
 // Rust, or shell scripts).
@@ -18,10 +18,10 @@ import (
 	"sync"
 	"time"
 
-	"ragle/internal/model"
+	"raglex/internal/model"
 )
 
-// Manifest describes an installed Ragle plugin.
+// Manifest describes an installed Raglex plugin.
 type Manifest struct {
 	ID          string   `json:"id"`
 	Name        string   `json:"name"`

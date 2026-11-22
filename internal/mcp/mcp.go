@@ -1,6 +1,6 @@
-// Package mcp implements Ragle's Model Context Protocol (MCP) JSON-RPC 2.0
+// Package mcp implements Raglex's Model Context Protocol (MCP) JSON-RPC 2.0
 // server for AI agents (Claude, Antigravity, Cursor). It serves identical
-// tools and resources over both Stdio (cmd/ragle-mcp) and HTTP (/mcp on
+// tools and resources over both Stdio (cmd/raglex-mcp) and HTTP (/mcp on
 // internal/server).
 package mcp
 
@@ -13,13 +13,13 @@ import (
 	"net/http"
 	"strings"
 
-	"ragle/internal/ai/laya"
-	"ragle/internal/library"
-	"ragle/internal/model"
-	"ragle/internal/project"
+	"raglex/internal/ai/laya"
+	"raglex/internal/library"
+	"raglex/internal/model"
+	"raglex/internal/project"
 )
 
-// Server handles MCP JSON-RPC 2.0 requests against an open Ragle library.
+// Server handles MCP JSON-RPC 2.0 requests against an open Raglex library.
 type Server struct {
 	lib      *library.Library
 	projects *project.Store
@@ -134,7 +134,7 @@ func (s *Server) handle(ctx context.Context, req rpcRequest) *rpcResponse {
 			Result: map[string]any{
 				"protocolVersion": "2024-11-05",
 				"serverInfo": map[string]string{
-					"name":    "ragle-mcp",
+					"name":    "raglex-mcp",
 					"version": "0.2.0",
 				},
 				"capabilities": map[string]any{
@@ -176,8 +176,8 @@ func (s *Server) handle(ctx context.Context, req rpcRequest) *rpcResponse {
 			Result: map[string]any{
 				"resources": []map[string]string{
 					{
-						"uri":         "ragle://library/summary",
-						"name":        "Ragle Library Summary",
+						"uri":         "raglex://library/summary",
+						"name":        "Raglex Library Summary",
 						"description": "Counts of assets, tags, projects, and standalone boards in the open library",
 						"mimeType":    "application/json",
 					},
@@ -189,7 +189,7 @@ func (s *Server) handle(ctx context.Context, req rpcRequest) *rpcResponse {
 			URI string `json:"uri"`
 		}
 		_ = json.Unmarshal(req.Params, &p)
-		if p.URI == "ragle://library/summary" {
+		if p.URI == "raglex://library/summary" {
 			summary := s.librarySummary()
 			raw, _ := json.MarshalIndent(summary, "", "  ")
 			return &rpcResponse{
@@ -247,7 +247,7 @@ func (s *Server) callTool(ctx context.Context, rawParams json.RawMessage) (any, 
 		return nil, err
 	}
 	if s.lib == nil {
-		return nil, fmt.Errorf("ragle library is not open")
+		return nil, fmt.Errorf("raglex library is not open")
 	}
 
 	switch call.Name {
@@ -552,7 +552,7 @@ func toolSchemas() []map[string]any {
 	return []map[string]any{
 		{
 			"name":        "search_assets",
-			"description": "Search Ragle library assets by keyword, tag name/ID, dominant hex color (#RRGGBB), or minimum star rating.",
+			"description": "Search Raglex library assets by keyword, tag name/ID, dominant hex color (#RRGGBB), or minimum star rating.",
 			"inputSchema": map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -579,7 +579,7 @@ func toolSchemas() []map[string]any {
 		},
 		{
 			"name":        "list_tags",
-			"description": "List all hierarchical tags in the Ragle library.",
+			"description": "List all hierarchical tags in the Raglex library.",
 			"inputSchema": map[string]any{"type": "object", "properties": map[string]any{}},
 		},
 		{
@@ -616,7 +616,7 @@ func toolSchemas() []map[string]any {
 		},
 		{
 			"name":        "list_boards",
-			"description": "List standalone moodboards and projects in Ragle.",
+			"description": "List standalone moodboards and projects in Raglex.",
 			"inputSchema": map[string]any{"type": "object", "properties": map[string]any{}},
 		},
 		{

@@ -105,7 +105,7 @@ func (a *App) welcome(c *gui.Context) {
 					if bm := a.brandLogo(); bm != nil {
 						gui.Image(c, bm).Size(15, 15).Fit(gui.Contain)
 					}
-					gui.Text(c, "Ragle").FontSize(12).Bold().TextColor(a.pal.inkMuted)
+					gui.Text(c, "Raglex").FontSize(12).Bold().TextColor(a.pal.inkMuted)
 				})
 				a.windowControls(c)
 			})
@@ -125,7 +125,7 @@ func (a *App) welcome(c *gui.Context) {
 					gui.Image(c, bm).Size(68, 68).Fit(gui.Contain)
 				}
 				gui.Column(c).Gap(6).AlignItems(gui.Center).Children(func() {
-					gui.Text(c, "Ragle").FontSize(28).Bold().LetterSpacing(-0.5)
+					gui.Text(c, "Raglex").FontSize(28).Bold().LetterSpacing(-0.5)
 					gui.Text(c, a.t("shell.localFirst")).FontSize(12).TextColor(a.pal.inkMuted)
 				})
 				gui.Text(c, a.t("welcome.lead")).

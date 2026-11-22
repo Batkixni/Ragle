@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/screenshots/cover.png" alt="Ragle — Organize references. Build moodboards. Stay local." width="100%" />
+  <img src="docs/screenshots/cover.png" alt="Raglex — Organize references. Build moodboards. Stay local." width="100%" />
 </p>
 
 <p align="center">
@@ -8,8 +8,8 @@
 </p>
 
 <p align="center">
-  <a href="LICENSE"><img src="https://shieldcn.dev/github/license/Batkixni/Ragle.svg?variant=secondary" alt="License: MPL 2.0" /></a>
-  <a href="https://github.com/Batkixni/Ragle/stargazers"><img src="https://shieldcn.dev/github/stars/Batkixni/Ragle.svg?variant=secondary" alt="GitHub Stars" /></a>
+  <a href="LICENSE"><img src="https://shieldcn.dev/github/license/Batkixni/Raglex.svg?variant=secondary" alt="License: MPL 2.0" /></a>
+  <a href="https://github.com/Batkixni/Raglex/stargazers"><img src="https://shieldcn.dev/github/stars/Batkixni/Raglex.svg?variant=secondary" alt="GitHub Stars" /></a>
   <img src="https://shieldcn.dev/badge/Go-1.24+-00ADD8.svg" alt="Go 1.24+" />
   <img src="https://shieldcn.dev/badge/UI-MyGo_Native-FF5C33.svg" alt="MyGo Native UI" />
   <img src="https://shieldcn.dev/badge/Platform-macOS_%7C_Windows_%7C_Linux-3F3F46.svg" alt="Platforms" />
@@ -23,9 +23,9 @@
 
 ---
 
-## 為什麼選擇 Ragle？
+## 為什麼選擇 Raglex？
 
-**Ragle** 結合了原生桌面軟體的極致速度、Eagle 等級的視覺素材管理體驗，以及 PureRef 風格的置頂參考白板——**零 Electron 負擔**、**完全離線可用**，所有索引與標籤都儲存在你本機的單一 `bbolt` 資料庫中，檔案主權 100% 歸你所有。
+**Raglex** 結合了原生桌面軟體的極致速度、Eagle 等級的視覺素材管理體驗，以及 PureRef 風格的置頂參考白板——**零 Electron 負擔**、**完全離線可用**，所有索引與標籤都儲存在你本機的單一 `bbolt` 資料庫中，檔案主權 100% 歸你所有。
 
 採用 **Go** 與 **[MyGo Native UI](https://github.com/egoist/mygo)**（`CGO_ENABLED=0`）打造，跨平台支援 **macOS（Apple Silicon & Intel）**、**Windows（x64 & ARM64）** 與 **Linux（x64 & ARM64）**，免安裝即開即用。
 
@@ -34,12 +34,12 @@
 ## 核心功能
 
 ### 視覺資料庫與版本堆疊（Asset Stacks）
-- **四種彈性匯入模式**：支援 **索引（原地不動）**、**軟連結**、**移動**、**複製**，內建檔案變更即時監控與自動備份還原（`ragle.db.bak`）。
+- **四種彈性匯入模式**：支援 **索引（原地不動）**、**軟連結**、**移動**、**複製**，內建檔案變更即時監控與自動備份還原（`raglex.db.bak`）。
 - **三種質感排版**：一鍵切換 **Bento 拼接**、**瀑布流 Masonry** 與 **等比格狀 Grid**，搭配滑順縮放、多層彩色標籤樹、評分篩選與滑鼠拖拉框選多選。
 - **版本堆疊（`Ctrl+G`）**：將同一張海報的 `v1 / v2 / v3 / final` 或角色多角度視圖折疊為單張卡片，保持資料庫乾淨清爽；也支援透過 `Ctrl+T` 一鍵 **自動堆疊相似版本**，點開即可並排檢視或在預覽頁即時 A/B 切換版本。
 
 ### 設計師原生格式預覽
-免切換外部軟體，直接在 Ragle 內嵌大圖視窗檢視創作原生格式：
+免切換外部軟體，直接在 Raglex 內嵌大圖視窗檢視創作原生格式：
 - **字體（`.ttf` / `.otf`）**：支援即時 **自訂預覽文字**、`24pt / 36pt / 48pt / 72pt` 字級切換、完整大小寫與數字字樣瀑布流，並於列表顯示該字體實際渲染的 `Aa` 縮圖。
 - **音訊（`.wav` / `.mp3` / `.flac` / `.ogg` / `.m4a` / `.aac`）**：96 條 **互動式波形條** 點擊跳轉進度、原生直接試聽播放與音量調整，列表自動產生波形縮圖。
 - **SVG 向量無損檢視（`.svg`）**：GPU 原生向量繪製，支援 **25%～800% 無損放大**，可一鍵切換 **透明棋盤格背景**。
@@ -58,8 +58,8 @@
 ### 本地 AI、以圖搜圖與開放生態
 - **內建離線視覺搜尋**：純 Go 128 維視覺向量 Embedding、64-bit pHash/dHash 感知相似比對與 5 色 OKLab 色彩搜尋，無需連網即可使用。
 - **App 內一鍵部署 Laya / Ollaya**：在 **偏好設定 → AI 與模型** 即可免終端機一鍵下載、背景啟動與管理本地開源 Laya 決策模型（`laya:multilingual`、`laya`、`winnow:e4b`）。
-- **內建分享伺服器與 VPS CLI（`ragle-server`）**：在 App 內一鍵啟動區域網路網頁藝廊與互動白板分享，亦提供獨立命令列版本方便部署至 VPS。
-- **MCP Server（`ragle-mcp`）**：透過 Stdio 或 HTTP（`/mcp`）讓 AI 助手直接查詢、標記與搜尋你的 Ragle 素材庫。
+- **內建分享伺服器與 VPS CLI（`raglex-server`）**：在 App 內一鍵啟動區域網路網頁藝廊與互動白板分享，亦提供獨立命令列版本方便部署至 VPS。
+- **MCP Server（`raglex-mcp`）**：透過 Stdio 或 HTTP（`/mcp`）讓 AI 助手直接查詢、標記與搜尋你的 Raglex 素材庫。
 - **瀏覽器配套擴充套件（`extensions/browser/`）**：支援拖拉存圖浮動膠囊、右鍵抓圖、網頁截圖與整頁批次擷取。
 - **插件系統與 GitHub 自動更新**：支援任意語言撰寫本機插件（[`examples/plugins/`](examples/plugins/)），內建 GitHub Releases 自動更新與 SHA-256 完整性驗證。
 
@@ -88,10 +88,10 @@
 
 | 作業系統 | 架構 | 發行格式 |
 | :--- | :--- | :--- |
-| **macOS** | Apple Silicon (`darwin/arm64`) | `Ragle-darwin-arm64.zip`（`.app` 應用程式包） |
-| **macOS** | Intel x86_64 (`darwin/amd64`) | `Ragle-darwin-amd64.zip`（`.app` 應用程式包） |
-| **Windows** | x64 (`windows/amd64`) | `Ragle-windows-amd64.zip` / `.exe` |
-| **Windows** | ARM64 (`windows/arm64`) | `Ragle-windows-arm64.zip` / `.exe` |
+| **macOS** | Apple Silicon (`darwin/arm64`) | `Raglex-darwin-arm64.zip`（`.app` 應用程式包） |
+| **macOS** | Intel x86_64 (`darwin/amd64`) | `Raglex-darwin-amd64.zip`（`.app` 應用程式包） |
+| **Windows** | x64 (`windows/amd64`) | `Raglex-windows-amd64.zip` / `.exe` |
+| **Windows** | ARM64 (`windows/arm64`) | `Raglex-windows-arm64.zip` / `.exe` |
 | **Linux** | x64 (`linux/amd64`) | `.tar.gz`、`.deb`、`.rpm`、`PKGBUILD` |
 | **Linux** | ARM64 (`linux/arm64`) | `.tar.gz`、`.deb`、`.rpm`、`PKGBUILD` |
 
@@ -105,7 +105,7 @@
 
 ```bash
 # 直接啟動桌面開發版
-go run ./cmd/ragle
+go run ./cmd/raglex
 
 # 編譯目前平台桌面版
 CGO_ENABLED=0 go tool mygo build -skip-installer
@@ -115,8 +115,8 @@ CGO_ENABLED=0 go tool mygo build -skip-installer -skip-dmg -skip-notarize \
   -platform "darwin/arm64,darwin/amd64,windows/amd64,windows/arm64,linux/amd64,linux/arm64"
 
 # 編譯獨立伺服器 CLI 與 MCP Server
-CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o ragle-server ./cmd/ragle-server
-CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o ragle-mcp ./cmd/ragle-mcp
+CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o raglex-server ./cmd/raglex-server
+CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o raglex-mcp ./cmd/raglex-mcp
 
 # 執行靜態檢查與完整測試
 go tool mygo vet .

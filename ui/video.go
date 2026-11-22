@@ -11,7 +11,7 @@ import (
 
 	gui "github.com/egoist/mygo/ui"
 
-	"ragle/internal/thumbnail"
+	"raglex/internal/thumbnail"
 )
 
 const (

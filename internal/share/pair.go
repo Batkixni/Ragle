@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	dcLabel       = "ragle-share"
+	dcLabel       = "raglex-share"
 	dcChunkSize   = 32 << 10  // 32 KiB per SCTP message
 	dcLowWater    = 256 << 10 // 256 KiB
 	dcHighWater   = 1 << 20   // 1 MiB
@@ -209,7 +209,7 @@ func PairSend(ctx context.Context, opt PairOptions, bundle Bundle, files map[str
 	}
 	senderName := opt.Name
 	if senderName == "" {
-		senderName = "Ragle"
+		senderName = "Raglex"
 	}
 
 	pc, err := webrtc.NewPeerConnection(opt.webrtcConfig())
@@ -242,7 +242,7 @@ func PairSend(ctx context.Context, opt PairOptions, bundle Bundle, files map[str
 
 	localDesc := pc.LocalDescription()
 	if localDesc == nil {
-		return errors.New("ragle: missing local description")
+		return errors.New("raglex: missing local description")
 	}
 	code, token, err := client.CreateRoom(ctx, localDesc.SDP, senderName)
 	if err != nil {
@@ -286,7 +286,7 @@ func PairSend(ctx context.Context, opt PairOptions, bundle Bundle, files map[str
 		return err
 	}
 	if len(metaRaw) > maxMetaBytes {
-		return errors.New("ragle: bundle metadata too large")
+		return errors.New("raglex: bundle metadata too large")
 	}
 	for off := 0; off < len(metaRaw); off += dcChunkSize {
 		end := off + dcChunkSize
@@ -315,7 +315,7 @@ func PairSend(ctx context.Context, opt PairOptions, bundle Bundle, files map[str
 		return errors.New(resp.Error)
 	}
 	if resp.Type != dcAccept {
-		return errors.New("ragle: expected accept frame")
+		return errors.New("raglex: expected accept frame")
 	}
 	if !resp.Accept {
 		return ErrDeclined
@@ -345,7 +345,7 @@ func PairSend(ctx context.Context, opt PairOptions, bundle Bundle, files map[str
 		return errors.New(ack.Error)
 	}
 	if ack.Type != dcAck {
-		return errors.New("ragle: expected ack frame")
+		return errors.New("raglex: expected ack frame")
 	}
 	return nil
 }
@@ -457,7 +457,7 @@ func PairReceive(
 
 	localDesc := pc.LocalDescription()
 	if localDesc == nil {
-		return "", errors.New("ragle: missing local answer")
+		return "", errors.New("raglex: missing local answer")
 	}
 	if err := client.SubmitAnswer(ctx, code, localDesc.SDP); err != nil {
 		return "", err
@@ -481,14 +481,14 @@ func PairReceive(
 		return "", err
 	}
 	if helloMsg.Type != dcHello {
-		return "", errors.New("ragle: expected hello frame")
+		return "", errors.New("raglex: expected hello frame")
 	}
 	from := helloMsg.Name
 	if from == "" {
 		from = senderName
 	}
 	if from == "" {
-		from = "Ragle"
+		from = "Raglex"
 	}
 
 	var metaBuf bytes.Buffer
@@ -502,15 +502,15 @@ func PairReceive(
 		case dcMetaChunk:
 			if expectedMeta < 0 {
 				if m.Size < 0 || m.Size > maxMetaBytes {
-					return "", errors.New("ragle: bad metadata size")
+					return "", errors.New("raglex: bad metadata size")
 				}
 				expectedMeta = m.Size
 			}
 			if m.Offset != int64(metaBuf.Len()) {
-				return "", errors.New("ragle: metadata offset mismatch")
+				return "", errors.New("raglex: metadata offset mismatch")
 			}
 			if int64(metaBuf.Len())+int64(len(m.Data)) > maxMetaBytes {
-				return "", errors.New("ragle: metadata too large")
+				return "", errors.New("raglex: metadata too large")
 			}
 			metaBuf.Write(m.Data)
 		case dcMetaDone:
@@ -522,7 +522,7 @@ func PairReceive(
 			}
 			goto metaReady
 		default:
-			return "", fmt.Errorf("ragle: unexpected frame %q during metadata", m.Type)
+			return "", fmt.Errorf("raglex: unexpected frame %q during metadata", m.Type)
 		}
 	}
 
@@ -577,9 +577,9 @@ metaReady:
 
 	openActive := func(hash, name string, size int64) error {
 		if size < 0 {
-			return errors.New("ragle: bad file size")
+			return errors.New("raglex: bad file size")
 		}
-		tmp, err := os.CreateTemp("", "ragle-pair-*")
+		tmp, err := os.CreateTemp("", "raglex-pair-*")
 		if err != nil {
 			return err
 		}
@@ -612,11 +612,11 @@ metaReady:
 			}
 			if cur.hash != m.Hash {
 				cleanup()
-				return "", errors.New("ragle: interleaved file hash")
+				return "", errors.New("raglex: interleaved file hash")
 			}
 			if m.Offset != cur.written {
 				cleanup()
-				return "", errors.New("ragle: file offset mismatch")
+				return "", errors.New("raglex: file offset mismatch")
 			}
 			if len(m.Data) > 0 {
 				if _, err := cur.tmp.Write(m.Data); err != nil {
@@ -635,13 +635,13 @@ metaReady:
 			}
 			if cur.hash != m.Hash || cur.written != m.Size || cur.hasher() != cur.hash {
 				cleanup()
-				_ = pipe.send(ctx, dcMsg{Type: dcError, Error: "ragle: file hash mismatch"})
+				_ = pipe.send(ctx, dcMsg{Type: dcError, Error: "raglex: file hash mismatch"})
 				time.Sleep(dcFlushGrace)
-				return "", errors.New("ragle: file hash mismatch")
+				return "", errors.New("raglex: file hash mismatch")
 			}
 			if take == nil {
 				cleanup()
-				return "", errors.New("ragle: nowhere to store the file")
+				return "", errors.New("raglex: nowhere to store the file")
 			}
 			if _, err := cur.tmp.Seek(0, io.SeekStart); err != nil {
 				cleanup()
@@ -668,7 +668,7 @@ metaReady:
 			}
 			if commit == nil {
 				cleanup()
-				return "", errors.New("ragle: nowhere to store the project")
+				return "", errors.New("raglex: nowhere to store the project")
 			}
 			id, err := commit(bundle, paths)
 			if err != nil {
@@ -682,7 +682,7 @@ metaReady:
 			return id, nil
 		default:
 			cleanup()
-			return "", fmt.Errorf("ragle: unexpected frame %q", m.Type)
+			return "", fmt.Errorf("raglex: unexpected frame %q", m.Type)
 		}
 	}
 }

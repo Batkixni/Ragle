@@ -1,8 +1,8 @@
-# Contributing to Ragle / 參與貢獻指南
+# Contributing to Raglex / 參與貢獻指南
 
-Thank you for your interest in contributing to **Ragle**! Whether you are fixing a bug, improving UI polish, adding a format previewer, writing a plugin, or improving documentation, every contribution helps make Ragle better for creators.
+Thank you for your interest in contributing to **Raglex**! Whether you are fixing a bug, improving UI polish, adding a format previewer, writing a plugin, or improving documentation, every contribution helps make Raglex better for creators.
 
-感謝你對 **Ragle** 的支持！無論是修復錯誤、優化介面體驗、新增設計師格式預覽、開發插件或完善文件，我們都非常歡迎你的參與。
+感謝你對 **Raglex** 的支持！無論是修復錯誤、優化介面體驗、新增設計師格式預覽、開發插件或完善文件，我們都非常歡迎你的參與。
 
 ---
 
@@ -20,17 +20,17 @@ Thank you for your interest in contributing to **Ragle**! Whether you are fixing
 ## Development Setup
 
 ### Prerequisites
-- **Go 1.24+** (Ragle builds with `CGO_ENABLED=0`, so no C compiler is required)
+- **Go 1.24+** (Raglex builds with `CGO_ENABLED=0`, so no C compiler is required)
 - **Git**
 - Optional: `ffmpeg` on `PATH` for video frame extraction & OGG/FLAC audio waveform decoding
 
 ### Clone & Run
 ```bash
-git clone https://github.com/Batkixni/Ragle.git
-cd Ragle
+git clone https://github.com/Batkixni/Raglex.git
+cd Raglex
 
 # Run the native desktop app
-go run ./cmd/ragle
+go run ./cmd/raglex
 
 # Verify static checks & all tests
 go tool mygo vet .
@@ -42,12 +42,12 @@ CGO_ENABLED=0 go test -count=1 ./...
 ## Project Architecture
 
 ```text
-Ragle/
+Raglex/
 ├── cmd/
-│   ├── ragle/          # Native desktop app entry point (MyGo)
-│   ├── ragle-server/   # Standalone headless LAN/VPS gallery & share server CLI
-│   ├── ragle-mcp/      # Model Context Protocol (MCP) server (Stdio)
-│   └── ragle-signal/   # Optional lightweight WebRTC pairing relay
+│   ├── raglex/          # Native desktop app entry point (MyGo)
+│   ├── raglex-server/   # Standalone headless LAN/VPS gallery & share server CLI
+│   ├── raglex-mcp/      # Model Context Protocol (MCP) server (Stdio)
+│   └── raglex-signal/   # Optional lightweight WebRTC pairing relay
 ├── internal/
 │   ├── model/          # Core data records (Asset, Stack, Tag, Project, Board, Placement)
 │   ├── db/             # bbolt database buckets, indexes, atomic backups
@@ -60,7 +60,7 @@ Ragle/
 │   ├── mcp/            # JSON-RPC MCP tool & resource handlers
 │   ├── plugin/         # Local plugin discovery & execution manager
 │   ├── updater/        # GitHub Releases SemVer checker, SHA-256 verifier & self-updater
-│   ├── config/         # User preference persistence (<UserConfigDir>/Ragle/config.json)
+│   ├── config/         # User preference persistence (<UserConfigDir>/Raglex/config.json)
 │   └── i18n/           # Bilingual Traditional Chinese (zh-Hant) & English catalog
 ├── ui/                 # MyGo native views, animations, PureRef floating window, UI tests
 ├── extensions/browser/ # Chrome / Edge MV3 Browser Companion Extension
@@ -71,7 +71,7 @@ Ragle/
 
 ## Coding & MyGo UI Guidelines
 
-Ragle uses **[MyGo Native UI](https://github.com/egoist/mygo)** (`v0.10.0`). Please keep these key rules in mind when modifying `ui/`:
+Raglex uses **[MyGo Native UI](https://github.com/egoist/mygo)** (`v0.10.0`). Please keep these key rules in mind when modifying `ui/`:
 
 1. **Never store `ui.Element` or `*ui.Context`**: Elements expire after each build pass. Store persistent app state, widget state, or `ui.Handle` on `App` instead.
 2. **Keep I/O off the UI thread**: Perform file reads, decoding, network requests, and database writes in goroutines and publish UI updates asynchronously through `win.Update(func() { ... })`. Always check `a.isClosed()` inside `win.Update`.
@@ -102,7 +102,7 @@ Use `ui.NewTester(a.View, width, height)` in `ui/interaction_test.go` to simulat
 ### Visual Snapshots (Optional)
 You can capture rendered UI screenshots locally to inspect visual changes:
 ```bash
-RAGLE_SNAPSHOT_DIR=/tmp/ragle-snaps CGO_ENABLED=0 go test -count=1 ./ui -run TestViewSnapshots
+RAGLEX_SNAPSHOT_DIR=/tmp/raglex-snaps CGO_ENABLED=0 go test -count=1 ./ui -run TestViewSnapshots
 ```
 
 ---
@@ -120,4 +120,4 @@ RAGLE_SNAPSHOT_DIR=/tmp/ragle-snaps CGO_ENABLED=0 go test -count=1 ./ui -run Tes
 
 ## License (MPL-2.0)
 
-By contributing to Ragle, you agree that your contributions will be licensed under the **[Mozilla Public License 2.0 (MPL-2.0)](LICENSE)**.
+By contributing to Raglex, you agree that your contributions will be licensed under the **[Mozilla Public License 2.0 (MPL-2.0)](LICENSE)**.

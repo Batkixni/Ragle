@@ -1,5 +1,5 @@
-// Command ragle-signal runs a lightweight, self-hostable signaling server
-// for Ragle WebRTC pairing-code transfers.
+// Command raglex-signal runs a lightweight, self-hostable signaling server
+// for Raglex WebRTC pairing-code transfers.
 package main
 
 import (
@@ -12,7 +12,7 @@ import (
 	"syscall"
 	"time"
 
-	"ragle/internal/share"
+	"raglex/internal/share"
 )
 
 func main() {
@@ -39,7 +39,7 @@ func main() {
 		_ = srv.Shutdown(shutCtx)
 	}()
 
-	log.Printf("ragle-signal listening on %s (room TTL %s)", *addr, *ttl)
+	log.Printf("raglex-signal listening on %s (room TTL %s)", *addr, *ttl)
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatal(err)
 	}

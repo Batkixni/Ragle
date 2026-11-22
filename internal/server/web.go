@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"strings"
 
-	"ragle/internal/library"
-	"ragle/internal/model"
+	"raglex/internal/library"
+	"raglex/internal/model"
 )
 
 const webBaseCSS = `
@@ -48,7 +48,7 @@ func (s *Server) handleWebIndex(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if s.lib == nil {
-		fmt.Fprintf(w, `<!doctype html><html><head><meta charset="utf-8"><title>Ragle Server</title><style>%s</style></head><body><header><div class="brand"><span class="dot"></span>Ragle Signaling Server</div></header><main><h1>Signaling Active</h1><p class="sub">Running in headless WebRTC signaling-only mode. Point Ragle clients to this URL for pairing-code E2E sharing.</p></main></body></html>`, webBaseCSS)
+		fmt.Fprintf(w, `<!doctype html><html><head><meta charset="utf-8"><title>Raglex Server</title><style>%s</style></head><body><header><div class="brand"><span class="dot"></span>Raglex Signaling Server</div></header><main><h1>Signaling Active</h1><p class="sub">Running in headless WebRTC signaling-only mode. Point Raglex clients to this URL for pairing-code E2E sharing.</p></main></body></html>`, webBaseCSS)
 		return
 	}
 	q := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("q")))
@@ -61,8 +61,8 @@ func (s *Server) handleWebIndex(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var b strings.Builder
-	fmt.Fprintf(&b, `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Ragle · Web Library</title><style>%s</style></head><body>`, webBaseCSS)
-	fmt.Fprintf(&b, `<header><a class="brand" href="/"><span class="dot"></span>Ragle</a><span class="pill">%d assets</span><form method="get" action="/"><input class="search" name="q" value="%s" placeholder="Search assets…"></form></header><main>`, len(assets), html.EscapeString(q))
+	fmt.Fprintf(&b, `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Raglex · Web Library</title><style>%s</style></head><body>`, webBaseCSS)
+	fmt.Fprintf(&b, `<header><a class="brand" href="/"><span class="dot"></span>Raglex</a><span class="pill">%d assets</span><form method="get" action="/"><input class="search" name="q" value="%s" placeholder="Search assets…"></form></header><main>`, len(assets), html.EscapeString(q))
 
 	if len(projs) > 0 {
 		b.WriteString(`<h2>Projects</h2><div class="chips">`)
@@ -115,8 +115,8 @@ func (s *Server) handleWebProject(w http.ResponseWriter, r *http.Request) {
 
 	var b strings.Builder
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	fmt.Fprintf(&b, `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>%s · Ragle</title><style>%s</style></head><body>`, html.EscapeString(proj.Name), webBaseCSS)
-	fmt.Fprintf(&b, `<header><a class="brand" href="/"><span class="dot"></span>Ragle</a><a class="pill" href="/">← Library</a></header><main><h1>%s</h1>`, html.EscapeString(proj.Name))
+	fmt.Fprintf(&b, `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>%s · Raglex</title><style>%s</style></head><body>`, html.EscapeString(proj.Name), webBaseCSS)
+	fmt.Fprintf(&b, `<header><a class="brand" href="/"><span class="dot"></span>Raglex</a><a class="pill" href="/">← Library</a></header><main><h1>%s</h1>`, html.EscapeString(proj.Name))
 	if proj.Description != "" {
 		fmt.Fprintf(&b, `<p class="sub">%s</p>`, html.EscapeString(proj.Description))
 	}
@@ -150,7 +150,7 @@ func (s *Server) handleWebBoard(w http.ResponseWriter, r *http.Request) {
 
 	var b strings.Builder
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	fmt.Fprintf(&b, `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>%s · Board · Ragle</title><style>%s
+	fmt.Fprintf(&b, `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>%s · Board · Raglex</title><style>%s
 	#stage{position:relative;width:100vw;height:calc(100vh - 56px);overflow:hidden;background:#141416;background-image:radial-gradient(rgba(255,255,255,.08) 1px,transparent 1px);background-size:24px 24px;cursor:grab;}
 	#world{position:absolute;left:0;top:0;transform-origin:0 0;}
 	.pl{position:absolute;transform-origin:center center;border-radius:10px;overflow:hidden;box-shadow:0 12px 32px rgba(0,0,0,.4);}
@@ -161,7 +161,7 @@ func (s *Server) handleWebBoard(w http.ResponseWriter, r *http.Request) {
 	if board.ProjectID != "" {
 		backHref = "/project/" + html.EscapeString(board.ProjectID)
 	}
-	fmt.Fprintf(&b, `<header><a class="brand" href="/"><span class="dot"></span>Ragle</a><a class="pill" href="%s">← Back</a><span class="pill">%s · %d items</span></header>`, backHref, html.EscapeString(board.Name), len(placements))
+	fmt.Fprintf(&b, `<header><a class="brand" href="/"><span class="dot"></span>Raglex</a><a class="pill" href="%s">← Back</a><span class="pill">%s · %d items</span></header>`, backHref, html.EscapeString(board.Name), len(placements))
 	b.WriteString(`<div id="stage"><div id="world">`)
 	for _, pl := range placements {
 		sc := pl.ScaleOrOne()

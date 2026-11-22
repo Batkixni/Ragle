@@ -8,7 +8,7 @@ import (
 
 	gui "github.com/egoist/mygo/ui"
 
-	"ragle/internal/model"
+	"raglex/internal/model"
 )
 
 func (a *App) shell(c *gui.Context) {
@@ -302,7 +302,7 @@ func (a *App) withAnimatedInspector(c *gui.Context, key string, mainContent func
 func (a *App) libraryTitle() string {
 	title := filepath.Base(a.cfg.LibraryPath)
 	if title == "" || title == "." {
-		return "Ragle"
+		return "Raglex"
 	}
 	return title
 }

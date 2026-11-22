@@ -14,7 +14,7 @@ func renderPDFNative(path string, pageIndex int, maxEdge int) (*image.RGBA, int,
 	// macOS QuickLook fallback for first page when pdftoppm/mutool aren't installed.
 	if pageIndex == 0 {
 		if bin, err := exec.LookPath("qlmanage"); err == nil {
-			tmpDir, err := os.MkdirTemp("", "ragle-pdf-*")
+			tmpDir, err := os.MkdirTemp("", "raglex-pdf-*")
 			if err != nil {
 				return nil, 0, err
 			}

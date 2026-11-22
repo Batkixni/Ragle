@@ -1,9 +1,9 @@
-// Command ragle-mcp runs Ragle's Model Context Protocol (MCP) server over Stdio
+// Command raglex-mcp runs Raglex's Model Context Protocol (MCP) server over Stdio
 // for AI clients such as Claude Desktop, Antigravity, and Cursor.
 //
 // Usage:
 //
-//	ragle-mcp -library /path/to/library
+//	raglex-mcp -library /path/to/library
 package main
 
 import (
@@ -12,14 +12,14 @@ import (
 	"log"
 	"os"
 
-	"ragle/internal/config"
-	"ragle/internal/library"
-	"ragle/internal/mcp"
-	"ragle/internal/project"
+	"raglex/internal/config"
+	"raglex/internal/library"
+	"raglex/internal/mcp"
+	"raglex/internal/project"
 )
 
 func main() {
-	libPath := flag.String("library", "", "Path to a Ragle library folder (defaults to config.json library_path)")
+	libPath := flag.String("library", "", "Path to a Raglex library folder (defaults to config.json library_path)")
 	layaURL := flag.String("laya-url", "", "Local Ollaya/Laya endpoint URL")
 	layaMod := flag.String("laya-model", "", "Laya decision model name")
 	flag.Parse()
@@ -30,7 +30,7 @@ func main() {
 		path = cfg.LibraryPath
 	}
 	if path == "" {
-		log.Fatalf("ragle-mcp: pass -library <path> or open a library in Ragle first")
+		log.Fatalf("raglex-mcp: pass -library <path> or open a library in Raglex first")
 	}
 	url := *layaURL
 	if url == "" {
@@ -43,7 +43,7 @@ func main() {
 
 	lib, err := library.Open(path)
 	if err != nil {
-		log.Fatalf("ragle-mcp: open library %s: %v", path, err)
+		log.Fatalf("raglex-mcp: open library %s: %v", path, err)
 	}
 	defer lib.Close()
 
@@ -54,6 +54,6 @@ func main() {
 		LayaModel: mod,
 	})
 	if err := srv.ServeStdio(context.Background(), os.Stdin, os.Stdout); err != nil {
-		log.Fatalf("ragle-mcp: %v", err)
+		log.Fatalf("raglex-mcp: %v", err)
 	}
 }

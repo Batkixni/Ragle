@@ -7,7 +7,7 @@ import (
 	"io"
 )
 
-// DiscoveryPort is the UDP port every Ragle instance binds for presence.
+// DiscoveryPort is the UDP port every Raglex instance binds for presence.
 const DiscoveryPort = 47321
 
 const magic = "RGL1"
@@ -23,13 +23,13 @@ const (
 )
 
 // ErrDeclined means the receiver chose not to take the project.
-var ErrDeclined = errors.New("ragle: declined")
+var ErrDeclined = errors.New("raglex: declined")
 
 // ErrClosed means the share node has stopped.
-var ErrClosed = errors.New("ragle: share closed")
+var ErrClosed = errors.New("raglex: share closed")
 
 // ErrInterrupted means the connection ended before the transfer finished.
-var ErrInterrupted = errors.New("ragle: transfer interrupted")
+var ErrInterrupted = errors.New("raglex: transfer interrupted")
 
 type hello struct {
 	Name string `msgpack:"name"`
@@ -53,14 +53,14 @@ func readMagic(r io.Reader) error {
 		return err
 	}
 	if string(buf) != magic {
-		return errors.New("ragle: bad share magic")
+		return errors.New("raglex: bad share magic")
 	}
 	return nil
 }
 
 func writeFrame(w io.Writer, kind byte, payload []byte) error {
 	if len(payload) > maxFrame {
-		return errors.New("ragle: frame too large")
+		return errors.New("raglex: frame too large")
 	}
 	var hdr [5]byte
 	hdr[0] = kind
@@ -82,7 +82,7 @@ func readFrame(r io.Reader) (byte, []byte, error) {
 	}
 	n := binary.BigEndian.Uint32(hdr[1:])
 	if n > maxFrame {
-		return 0, nil, errors.New("ragle: frame too large")
+		return 0, nil, errors.New("raglex: frame too large")
 	}
 	if n == 0 {
 		return hdr[0], nil, nil
@@ -104,7 +104,7 @@ func writeAccept(w io.Writer, yes bool) error {
 
 func accepted(payload []byte) (bool, error) {
 	if len(payload) != 1 || (payload[0] != 'Y' && payload[0] != 'N') {
-		return false, fmt.Errorf("ragle: bad accept")
+		return false, fmt.Errorf("raglex: bad accept")
 	}
 	return payload[0] == 'Y', nil
 }

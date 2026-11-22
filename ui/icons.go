@@ -33,7 +33,7 @@ var appIconBitmap = func() *gui.Bitmap {
 }()
 
 // logoBitmapDark inverts dark-ink pixels to crisp pure white while preserving alpha,
-// so the monochrome Ragle emblem stays razor-sharp in dark mode.
+// so the monochrome Raglex emblem stays razor-sharp in dark mode.
 var logoBitmapDark = func() *gui.Bitmap {
 	src, err := png.Decode(bytes.NewReader(logoPNG))
 	if err != nil {
@@ -65,7 +65,7 @@ var logoBitmapDark = func() *gui.Bitmap {
 	return bm
 }()
 
-// brandLogo returns the pure solid monochrome Ragle mark (white in dark mode,
+// brandLogo returns the pure solid monochrome Raglex mark (white in dark mode,
 // black in light mode) for top-left chrome and headers.
 func (a *App) brandLogo() *gui.Bitmap {
 	if a.dark && logoBitmapDark != nil {

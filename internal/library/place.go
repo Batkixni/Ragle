@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"ragle/internal/model"
+	"raglex/internal/model"
 )
 
 func placeFile(filesDir, src, mode string) (string, error) {
@@ -38,7 +38,7 @@ func placeFile(filesDir, src, mode string) (string, error) {
 		}
 		return dest, nil
 	default:
-		return "", fmt.Errorf("ragle: unknown storage mode %q", mode)
+		return "", fmt.Errorf("raglex: unknown storage mode %q", mode)
 	}
 }
 

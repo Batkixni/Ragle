@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"ragle/internal/model"
+	"raglex/internal/model"
 )
 
 func item(id string, x, y, w, h, scale, rot float64, parent string) model.Placement {

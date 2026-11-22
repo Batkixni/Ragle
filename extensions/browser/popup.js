@@ -53,7 +53,7 @@ document.getElementById("capture").addEventListener("click", async () => {
   msgEl.textContent = "Capturing…";
   const tagIds = tagEl.value ? [tagEl.value] : [];
   chrome.runtime.sendMessage({ type: "CAPTURE_TAB", tagIds }, (resp) => {
-    msgEl.textContent = resp?.ok ? "Screenshot saved to Ragle ✓" : `Error: ${resp?.error}`;
+    msgEl.textContent = resp?.ok ? "Screenshot saved to Raglex ✓" : `Error: ${resp?.error}`;
   });
 });
 

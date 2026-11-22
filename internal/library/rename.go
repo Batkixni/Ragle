@@ -13,12 +13,12 @@ import (
 
 	"go.etcd.io/bbolt"
 
-	"ragle/internal/db"
-	"ragle/internal/model"
+	"raglex/internal/db"
+	"raglex/internal/model"
 )
 
 // ErrRenameConflict means one or more target filenames collide or are invalid.
-var ErrRenameConflict = errors.New("ragle: rename conflict")
+var ErrRenameConflict = errors.New("raglex: rename conflict")
 
 // RenameSpec defines a composable batch-rename pipeline.
 type RenameSpec struct {
@@ -237,7 +237,7 @@ func (l *Library) ApplyBatchRename(assetIDs []string, spec RenameSpec) (model.Re
 		if !row.WillRenameDisk {
 			continue
 		}
-		tmp := filepath.Join(filepath.Dir(row.OldPath), fmt.Sprintf(".ragle_ren_%s_%s", row.AssetID, filepath.Base(row.OldPath)))
+		tmp := filepath.Join(filepath.Dir(row.OldPath), fmt.Sprintf(".raglex_ren_%s_%s", row.AssetID, filepath.Base(row.OldPath)))
 		moves = append(moves, diskMove{oldPath: row.OldPath, tmpPath: tmp, newPath: row.NewPath})
 	}
 
@@ -329,7 +329,7 @@ func (l *Library) UndoLastBatchRename() (int, error) {
 		if _, err := os.Stat(e.NewPath); err != nil {
 			continue
 		}
-		tmp := filepath.Join(filepath.Dir(e.NewPath), fmt.Sprintf(".ragle_undo_%s_%s", e.AssetID, filepath.Base(e.NewPath)))
+		tmp := filepath.Join(filepath.Dir(e.NewPath), fmt.Sprintf(".raglex_undo_%s_%s", e.AssetID, filepath.Base(e.NewPath)))
 		moves = append(moves, diskMove{oldPath: e.NewPath, tmpPath: tmp, newPath: e.OldPath})
 	}
 	if err := executeTwoPhaseDiskRename(moves); err != nil {
@@ -402,7 +402,7 @@ func (l *Library) UpdateAssetMeta(id, notes, sourceURL, sourceTitle string) (mod
 // source metadata and tags.
 func (l *Library) ImportBytes(filename string, data []byte, tagIDs []string, sourceURL, sourceTitle string) (model.Asset, bool, error) {
 	if len(data) == 0 {
-		return model.Asset{}, false, errors.New("ragle: empty payload")
+		return model.Asset{}, false, errors.New("raglex: empty payload")
 	}
 	name := sanitizeFileStem(strings.TrimSuffix(filepath.Base(filename), filepath.Ext(filename)))
 	ext := filepath.Ext(filename)
@@ -412,7 +412,7 @@ func (l *Library) ImportBytes(filename string, data []byte, tagIDs []string, sou
 	if ext == "" {
 		ext = ".png"
 	}
-	tmpDir, err := os.MkdirTemp("", "ragle-clip-*")
+	tmpDir, err := os.MkdirTemp("", "raglex-clip-*")
 	if err != nil {
 		return model.Asset{}, false, err
 	}
@@ -426,7 +426,7 @@ func (l *Library) ImportBytes(filename string, data []byte, tagIDs []string, sou
 		if item.Err != nil {
 			return model.Asset{}, false, item.Err
 		}
-		return model.Asset{}, false, errors.New("ragle: import failed")
+		return model.Asset{}, false, errors.New("raglex: import failed")
 	}
 	if sourceURL != "" || sourceTitle != "" {
 		_, _ = l.UpdateAssetMeta(item.AssetID, "", sourceURL, sourceTitle)

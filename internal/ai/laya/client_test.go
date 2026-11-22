@@ -7,7 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"ragle/internal/model"
+	"raglex/internal/model"
 )
 
 func TestClassifyAssetTagsWithNormativeOllaya(t *testing.T) {

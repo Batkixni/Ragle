@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"ragle/internal/mcp"
-	"ragle/internal/plugin"
-	"ragle/internal/server"
+	"raglex/internal/mcp"
+	"raglex/internal/plugin"
+	"raglex/internal/server"
 )
 
 func (a *App) serverPortValue() int {
@@ -110,7 +110,7 @@ func (a *App) buildMCPConfigJSON() string {
 	}
 	cfg := map[string]any{
 		"mcpServers": map[string]any{
-			"ragle": map[string]any{
+			"raglex": map[string]any{
 				"url": url,
 				"headers": map[string]string{
 					"Authorization": "Bearer " + a.ensureServerToken(),

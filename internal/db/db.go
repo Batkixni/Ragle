@@ -15,12 +15,12 @@ import (
 	"github.com/vmihailenco/msgpack/v5"
 	"go.etcd.io/bbolt"
 
-	"ragle/internal/model"
+	"raglex/internal/model"
 )
 
 const (
-	fileName = "ragle.db"
-	bakName  = "ragle.db.bak"
+	fileName = "raglex.db"
+	bakName  = "raglex.db.bak"
 	filesDir = "files"
 	thumbDir = "thumbs"
 
@@ -77,14 +77,14 @@ var allBuckets = [][]byte{
 }
 
 // ErrCorrupt means the database file could not be opened. A sibling
-// ragle.db.bak may still be restorable.
-var ErrCorrupt = errors.New("ragle: database cannot be opened")
+// raglex.db.bak may still be restorable.
+var ErrCorrupt = errors.New("raglex: database cannot be opened")
 
 // ErrBusy means another process holds the database.
-var ErrBusy = errors.New("ragle: database is in use")
+var ErrBusy = errors.New("raglex: database is in use")
 
 // ErrNotFound means the record or index entry is absent.
-var ErrNotFound = errors.New("ragle: not found")
+var ErrNotFound = errors.New("raglex: not found")
 
 // DB is one open library.
 type DB struct {
@@ -105,11 +105,11 @@ func (d *DB) FilesDir() string { return filepath.Join(d.root, filesDir) }
 // ThumbsDir holds generated previews.
 func (d *DB) ThumbsDir() string { return filepath.Join(d.root, thumbDir) }
 
-// BackupPath is the sibling automatic backup file (ragle.db.bak).
+// BackupPath is the sibling automatic backup file (raglex.db.bak).
 func (d *DB) BackupPath() string { return filepath.Join(d.root, bakName) }
 
 // Open opens or creates a library in root. A successful open writes a
-// snapshot to ragle.db.bak so a later failed open can restore it.
+// snapshot to raglex.db.bak so a later failed open can restore it.
 func Open(root string) (*DB, error) {
 	if err := os.MkdirAll(filepath.Join(root, filesDir), 0o755); err != nil {
 		return nil, err
@@ -149,7 +149,7 @@ func (d *DB) init() error {
 			return meta.Put([]byte(schemaKey), []byte(model.SchemaVersion))
 		}
 		if string(cur) != model.SchemaVersion {
-			return fmt.Errorf("ragle: library schema %s is newer than this build", cur)
+			return fmt.Errorf("raglex: library schema %s is newer than this build", cur)
 		}
 		return nil
 	})
@@ -174,7 +174,7 @@ func (d *DB) View(fn func(tx *bbolt.Tx) error) error {
 	return d.bolt.View(fn)
 }
 
-// Backup writes a consistent copy to ragle.db.bak. bbolt keeps the file
+// Backup writes a consistent copy to raglex.db.bak. bbolt keeps the file
 // open, so the copy comes from the transaction rather than from copying
 // the live file.
 func (d *DB) Backup() error {
@@ -205,13 +205,13 @@ func (d *DB) BackupTo(dst string) error {
 	return replaceFile(tmp, dst)
 }
 
-// HasBackup reports whether ragle.db.bak exists beside the library.
+// HasBackup reports whether raglex.db.bak exists beside the library.
 func HasBackup(root string) bool {
 	_, err := os.Stat(filepath.Join(root, bakName))
 	return err == nil
 }
 
-// Restore replaces ragle.db with ragle.db.bak. The database must be closed.
+// Restore replaces raglex.db with raglex.db.bak. The database must be closed.
 func Restore(root string) error {
 	src := filepath.Join(root, bakName)
 	in, err := os.Open(src)
