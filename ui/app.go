@@ -119,7 +119,9 @@ type App struct {
 	tagRecursiveCounts map[string]int
 	expandedTags       map[string]bool
 	allAssets          []model.Asset
+	allAssetIdx        map[string]int
 	assets             []model.Asset
+	assetIdx           map[string]int
 	assetByID          map[string]model.Asset
 	assetTags          map[string][]model.Tag
 	tagCounts          map[string]int
@@ -140,6 +142,8 @@ type App struct {
 	sortBy          int
 	layoutMode      string // "bento", "masonry", "grid"
 	grid            gui.GridState
+	bentoScroll     gui.ScrollState
+	masonryScroll   gui.ScrollState
 	assetIndex      int
 	anchorIndex     int
 	selectedIDs     map[string]bool
@@ -371,9 +375,11 @@ type App struct {
 	fontSizeBuf        float64
 	flushArmed         bool
 
-	bitmaps map[string]*gui.Bitmap
-	loading map[string]bool
-	queued  map[string]bool
+	bitmaps     map[string]*gui.Bitmap
+	bitmapOrder []string
+	bitmapSem   chan struct{}
+	loading     map[string]bool
+	queued      map[string]bool
 
 	askOpen    bool
 	askTitle   string
@@ -466,8 +472,11 @@ func NewApp() *App {
 		boardDrawerOpen:      true,
 		boardInspectorOpen:   true,
 		bitmaps:              map[string]*gui.Bitmap{},
+		bitmapSem:            make(chan struct{}, 6),
 		loading:              map[string]bool{},
 		queued:               map[string]bool{},
+		allAssetIdx:          map[string]int{},
+		assetIdx:             map[string]int{},
 		tagByID:              map[string]model.Tag{},
 		tagChildren:          map[string][]model.Tag{},
 		tagRecursiveCounts:   map[string]int{},
@@ -825,8 +834,12 @@ func (a *App) attach(lib *library.Library, root string) {
 	a.project = model.Project{}
 	a.previewOpen = false
 	a.bitmaps = map[string]*gui.Bitmap{}
+	a.bitmapOrder = nil
 	a.loading = map[string]bool{}
 	a.queued = map[string]bool{}
+	if purged, err := lib.PurgeAuxiliarySidecars(); err == nil && purged > 0 {
+		a.notify(fmt.Sprintf("已自動清理 %d 個輔助附屬檔 (metadata.json / thumbnail)", purged))
+	}
 	a.reload()
 	if a.serverAutoStart {
 		a.startBuiltInServer()
@@ -868,35 +881,35 @@ func (a *App) reload() {
 	if a.lib == nil {
 		return
 	}
-	tags, err := a.lib.Tags()
+	snap, err := a.lib.LoadCatalogSnapshot()
 	if err != nil {
 		a.status = err.Error()
 		return
 	}
-	a.tags = tags
+	a.tags = snap.Tags
 	a.rebuildTagTree()
 
-	all, err := a.lib.List(library.Filter{})
-	if err != nil {
-		a.status = err.Error()
-		return
-	}
+	all := snap.Assets
 	a.allAssets = all
 	a.allAssetsCount = len(all)
+	a.allAssetIdx = make(map[string]int, len(all))
 	a.assetByID = make(map[string]model.Asset, len(all))
-	a.assetTags = make(map[string][]model.Tag, len(all))
-	a.tagCounts = make(map[string]int, len(tags))
-	a.tagRecursiveCounts = make(map[string]int, len(tags))
+	a.assetTags = snap.AssetTags
+	if a.assetTags == nil {
+		a.assetTags = make(map[string][]model.Tag)
+	}
+	a.tagCounts = make(map[string]int, len(a.tags))
+	a.tagRecursiveCounts = make(map[string]int, len(a.tags))
 	a.untaggedCount = 0
 	a.missingCount = 0
 
-	for _, asset := range all {
+	for i, asset := range all {
+		a.allAssetIdx[asset.ID] = i
 		a.assetByID[asset.ID] = asset
 		if asset.Missing {
 			a.missingCount++
 		}
-		atags, _ := a.lib.AssetTags(asset.ID)
-		a.assetTags[asset.ID] = atags
+		atags := a.assetTags[asset.ID]
 		if len(atags) == 0 {
 			a.untaggedCount++
 		}
@@ -910,25 +923,18 @@ func (a *App) reload() {
 				walk = a.tagByID[walk].ParentID
 			}
 		}
-		if asset.ThumbnailPath != "" {
-			a.ensureBitmap(asset.ID, asset.ThumbnailPath)
-		} else if model.IsSVG(asset.Mime, asset.Path) && !asset.Missing {
-			a.loadSVGThumbAsync(asset.ID, asset.Path)
-		} else {
+		// Only queue background thumbnail generation for assets missing a thumbnail
+		// or visual features; actual bitmap decoding into RAM happens lazily when a card is visible!
+		if !asset.Missing && !model.IsSVG(asset.Mime, asset.Path) {
 			a.queueThumb(asset)
 		}
 	}
 
-	// Load Asset Stacks metadata.
-	if stacks, serr := a.lib.ListStacks(); serr == nil {
-		a.stacks = stacks
-		a.stackByID = make(map[string]model.Stack, len(stacks))
-		for _, st := range stacks {
-			a.stackByID[st.ID] = st
-		}
-	} else {
-		a.stacks = nil
-		a.stackByID = map[string]model.Stack{}
+	// Load Asset Stacks metadata from the same snapshot.
+	a.stacks = snap.Stacks
+	a.stackByID = make(map[string]model.Stack, len(snap.Stacks))
+	for _, st := range snap.Stacks {
+		a.stackByID[st.ID] = st
 	}
 	if a.openStackID != "" {
 		if _, ok := a.stackByID[a.openStackID]; !ok {
@@ -1167,13 +1173,15 @@ func (a *App) applyFilters() {
 	}
 
 	a.assets = out
+	a.assetIdx = make(map[string]int, len(out))
+	for i, item := range out {
+		a.assetIdx[item.ID] = i
+	}
 	if selectedID != "" {
-		a.assetIndex = -1
-		for i, item := range a.assets {
-			if item.ID == selectedID {
-				a.assetIndex = i
-				break
-			}
+		if idx, ok := a.assetIdx[selectedID]; ok {
+			a.assetIndex = idx
+		} else {
+			a.assetIndex = -1
 		}
 	} else if a.assetIndex >= len(a.assets) {
 		a.assetIndex = -1
@@ -1364,44 +1372,100 @@ func (a *App) onThumb(id string) {
 		return
 	}
 	a.assetByID[id] = asset
-	for i := range a.allAssets {
-		if a.allAssets[i].ID == id {
-			a.allAssets[i] = asset
-		}
+	if idx, ok := a.allAssetIdx[id]; ok && idx >= 0 && idx < len(a.allAssets) && a.allAssets[idx].ID == id {
+		a.allAssets[idx] = asset
 	}
-	for i := range a.assets {
-		if a.assets[i].ID == id {
-			a.assets[i] = asset
-		}
+	if idx, ok := a.assetIdx[id]; ok && idx >= 0 && idx < len(a.assets) && a.assets[idx].ID == id {
+		a.assets[idx] = asset
 	}
 	for i := range a.projectAssets {
 		if a.projectAssets[i].ID == id {
 			a.projectAssets[i] = asset
+			break
 		}
 	}
-	if asset.ThumbnailPath != "" {
-		a.ensureBitmap(id, asset.ThumbnailPath)
+	// Do NOT eagerly decode the bitmap here; if the card is currently visible in
+	// the viewport, assetCard() will request ensureBitmap on the next frame.
+}
+
+const maxCachedBitmaps = 480
+
+func (a *App) storeBitmap(id string, bm *gui.Bitmap) {
+	if bm == nil || id == "" {
+		return
 	}
+	if _, exists := a.bitmaps[id]; !exists {
+		if len(a.bitmapOrder) >= maxCachedBitmaps {
+			dropCount := 64
+			if dropCount > len(a.bitmapOrder) {
+				dropCount = len(a.bitmapOrder)
+			}
+			for i := 0; i < dropCount; i++ {
+				oldID := a.bitmapOrder[i]
+				if oldID != a.previewAssetID && oldID != a.inspectorAssetID && !a.selectedIDs[oldID] {
+					delete(a.bitmaps, oldID)
+				}
+			}
+			a.bitmapOrder = append([]string(nil), a.bitmapOrder[dropCount:]...)
+		}
+		a.bitmapOrder = append(a.bitmapOrder, id)
+	}
+	a.bitmaps[id] = bm
+}
+
+// requestCardBitmap lazily loads or prioritizes thumbnail generation for a
+// visible card inside the viewport.
+func (a *App) requestCardBitmap(asset model.Asset) *gui.Bitmap {
+	if bm := a.bitmaps[asset.ID]; bm != nil {
+		return bm
+	}
+	if asset.Missing {
+		return nil
+	}
+	if asset.ThumbnailPath != "" {
+		a.ensureBitmap(asset.ID, asset.ThumbnailPath)
+		return nil
+	}
+	if model.IsSVG(asset.Mime, asset.Path) {
+		a.loadSVGThumbAsync(asset.ID, asset.Path)
+		return nil
+	}
+	if a.thumbs != nil {
+		a.thumbs.Prioritize(asset.ID)
+	}
+	return nil
 }
 
 func (a *App) ensureBitmap(id, path string) {
 	if path == "" || a.bitmaps[id] != nil || a.loading[id] || a.win == nil {
 		return
 	}
+	if a.bitmapSem == nil {
+		a.bitmapSem = make(chan struct{}, 6)
+	}
+	// Non-blocking concurrency guard: only decode up to 6 thumbnails at once.
+	// Visible cards still waiting will automatically re-request on subsequent frames.
+	select {
+	case a.bitmapSem <- struct{}{}:
+	default:
+		return
+	}
 	a.loading[id] = true
 	win := a.win
 	go func() {
+		defer func() { <-a.bitmapSem }()
 		data, err := os.ReadFile(path)
+		var bm *gui.Bitmap
+		var decErr error
+		if err == nil {
+			bm, decErr = gui.DecodeBitmap(data)
+		}
 		win.Update(func() {
 			delete(a.loading, id)
-			if a.lib == nil || err != nil {
+			if a.lib == nil || err != nil || decErr != nil || bm == nil {
 				return
 			}
-			bm, decErr := gui.DecodeBitmap(data)
-			if decErr != nil {
-				return
-			}
-			a.bitmaps[id] = bm
+			a.storeBitmap(id, bm)
 		})
 	}()
 }
@@ -1829,8 +1893,7 @@ func isIgnoredImportFile(name string) bool {
 	if strings.HasPrefix(name, ".") {
 		return true
 	}
-	low := strings.ToLower(name)
-	return low == "thumbs.db" || low == "desktop.ini" || low == ".ds_store"
+	return library.IsAuxiliarySidecarFile(name)
 }
 
 func expandImportPaths(paths []string, recursive, ignoreHidden bool) []string {

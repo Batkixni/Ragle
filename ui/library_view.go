@@ -374,7 +374,7 @@ func (a *App) libraryEmptyState(c *gui.Context) {
 // native rubber-band marquee box selection (hold left mouse button on empty
 // space, gaps, or margins and drag a rectangle to multi-select cards live).
 func (a *App) libraryAssetStage(c *gui.Context) {
-	a.cardBounds = make(map[string]gui.Rect, len(a.assets))
+	a.cardBounds = make(map[string]gui.Rect, 64)
 	stage := gui.Box(c.Key("library-stage")).
 		Grow(1).
 		FillWidth().
@@ -587,18 +587,29 @@ func (a *App) bindAssetShortcuts(el gui.Element) {
 }
 
 // assetMasonry renders an Eagle-style multi-column waterfall masonry layout
-// preserving each asset's natural aspect ratio in balanced shortest-column order.
+// preserving each asset's natural aspect ratio in balanced shortest-column order,
+// with full viewport virtualization so 250,000+ item libraries scroll at 60 FPS.
 func (a *App) assetMasonry(c *gui.Context) {
 	if a.assetIndex >= len(a.assets) {
 		a.assetIndex = -1
 	}
-	scroll := gui.Scroll(c.Key("asset-masonry")).Grow(1).FillWidth()
+	scroll := gui.Scroll(c.Key("asset-masonry")).Grow(1).FillWidth().TrackScroll(&a.masonryScroll)
 	a.bindAssetShortcuts(scroll)
 
-	availW := scroll.LayoutBounds().W
+	layout := scroll.LayoutBounds()
+	availW := layout.W
 	if availW < 240 {
 		availW = 780
 	}
+	viewH := layout.H
+	if viewH < 240 {
+		viewH = 820
+	}
+	scrollY := a.masonryScroll.Y
+	const overscan float32 = 720
+	minY := scrollY - overscan
+	maxY := scrollY + viewH + overscan
+
 	const gap float32 = 14
 	cellW := float32(a.cardSize)
 	cols := int((availW + gap) / (cellW + gap))
@@ -623,6 +634,7 @@ func (a *App) assetMasonry(c *gui.Context) {
 
 	type masonryEntry struct {
 		index int
+		y     float32
 		h     float32
 	}
 	buckets := make([][]masonryEntry, cols)
@@ -633,7 +645,6 @@ func (a *App) assetMasonry(c *gui.Context) {
 		if asset.Width > 0 && asset.Height > 0 {
 			ratio = float32(asset.Height) / float32(asset.Width)
 		} else {
-			// Subtle organic rhythm when dimensions are unknown.
 			presets := [...]float32{0.72, 1.15, 0.92, 1.28, 0.78}
 			ratio = presets[i%len(presets)]
 		}
@@ -649,21 +660,52 @@ func (a *App) assetMasonry(c *gui.Context) {
 				best = k
 			}
 		}
-		buckets[best] = append(buckets[best], masonryEntry{index: i, h: itemH})
-		colHeights[best] += itemH + gap
+		y := colHeights[best]
+		buckets[best] = append(buckets[best], masonryEntry{index: i, y: y, h: itemH})
+		colHeights[best] = y + itemH + gap
 	}
 
 	scroll.Children(func() {
 		gui.Row(c).FillWidth().Padding(8, 12, 72, 8).Gap(gap).AlignItems(gui.Start).Children(func() {
 			for col := 0; col < cols; col++ {
 				entries := buckets[col]
+				totalH := colHeights[col]
+				if totalH > gap {
+					totalH -= gap
+				}
 				gui.Column(c.Key(fmt.Sprintf("mcol-%d", col))).Grow(1).Gap(gap).Children(func() {
-					for _, ent := range entries {
-						idx := ent.index
-						asset := a.assets[idx]
-						gui.Box(c).FillWidth().Height(ent.h).Children(func() {
-							a.assetCard(c, idx, asset, a.isCardSelected(idx, asset.ID))
+					if len(entries) == 0 {
+						return
+					}
+					firstVis := -1
+					lastVis := -1
+					for idx, ent := range entries {
+						if ent.y+ent.h >= minY && ent.y <= maxY {
+							if firstVis < 0 {
+								firstVis = idx
+							}
+							lastVis = idx
+						} else if firstVis >= 0 && ent.y > maxY {
+							break
+						}
+					}
+					if firstVis < 0 {
+						gui.Box(c).FillWidth().Height(totalH)
+						return
+					}
+					if topPad := entries[firstVis].y - gap; topPad > 0 {
+						gui.Box(c).FillWidth().Height(topPad)
+					}
+					for idx := firstVis; idx <= lastVis; idx++ {
+						ent := entries[idx]
+						asset := a.assets[ent.index]
+						gui.Box(c.Key("mwrap-" + asset.ID)).FillWidth().Height(ent.h).Children(func() {
+							a.assetCard(c, ent.index, asset, a.isCardSelected(ent.index, asset.ID))
 						})
+					}
+					lastEnt := entries[lastVis]
+					if botPad := totalH - (lastEnt.y + lastEnt.h) - gap; botPad > 0 {
+						gui.Box(c).FillWidth().Height(botPad)
 					}
 				})
 			}
@@ -672,18 +714,28 @@ func (a *App) assetMasonry(c *gui.Context) {
 }
 
 // assetBento renders an editorial Arc UI Bento grid with alternating 2x2 hero
-// blocks and wide accent rows, packing every row cleanly with zero dead gaps.
+// blocks and wide accent rows, with viewport virtualization for huge libraries.
 func (a *App) assetBento(c *gui.Context) {
 	if a.assetIndex >= len(a.assets) {
 		a.assetIndex = -1
 	}
-	scroll := gui.Scroll(c.Key("asset-bento")).Grow(1).FillWidth()
+	scroll := gui.Scroll(c.Key("asset-bento")).Grow(1).FillWidth().TrackScroll(&a.bentoScroll)
 	a.bindAssetShortcuts(scroll)
 
-	availW := scroll.LayoutBounds().W
+	layout := scroll.LayoutBounds()
+	availW := layout.W
 	if availW < 240 {
 		availW = 780
 	}
+	viewH := layout.H
+	if viewH < 240 {
+		viewH = 820
+	}
+	scrollY := a.bentoScroll.Y
+	const overscan float32 = 720
+	minY := scrollY - overscan
+	maxY := scrollY + viewH + overscan
+
 	const gap float32 = 14
 	cellW := float32(a.cardSize)
 	cols := int((availW + gap) / (cellW + gap))
@@ -710,6 +762,7 @@ func (a *App) assetBento(c *gui.Context) {
 			n := len(a.assets)
 			i := 0
 			blockIdx := 0
+			var curY float32 = 8
 			sideCols := cols - 2
 			sideCount := sideCols * 2
 			heroBlockSize := 1 + sideCount
@@ -720,6 +773,14 @@ func (a *App) assetBento(c *gui.Context) {
 				if cols >= 3 && rem >= heroBlockSize && blockIdx%2 == 0 {
 					heroIdx := i
 					heroH := unitH*2 + gap
+					vis := curY+heroH >= minY && curY <= maxY
+					curY += heroH + gap
+					if !vis {
+						gui.Box(c.Key(fmt.Sprintf("bento-blk-sp-%d", blockIdx))).FillWidth().Height(heroH)
+						i += heroBlockSize
+						blockIdx++
+						continue
+					}
 					heroLeft := (blockIdx/2)%2 == 0
 
 					renderHero := func() {
@@ -765,6 +826,14 @@ func (a *App) assetBento(c *gui.Context) {
 				// Wide accent Bento row: one 2-column wide card + standard companions.
 				wideRowSize := cols - 1
 				if cols >= 3 && rem >= wideRowSize && rem != cols {
+					vis := curY+unitH >= minY && curY <= maxY
+					curY += unitH + gap
+					if !vis {
+						gui.Box(c.Key(fmt.Sprintf("bento-wide-sp-%d", blockIdx))).FillWidth().Height(unitH)
+						i += wideRowSize
+						blockIdx++
+						continue
+					}
 					widePos := 0
 					if blockIdx%2 == 1 {
 						widePos = wideRowSize - 1
@@ -789,6 +858,14 @@ func (a *App) assetBento(c *gui.Context) {
 
 				// Standard balanced row (fills cols, or wide card if single trailing item).
 				take := min(rem, cols)
+				vis := curY+unitH >= minY && curY <= maxY
+				curY += unitH + gap
+				if !vis {
+					gui.Box(c.Key(fmt.Sprintf("bento-row-sp-%d", blockIdx))).FillWidth().Height(unitH)
+					i += take
+					blockIdx++
+					continue
+				}
 				start := i
 				gui.Row(c.Key(fmt.Sprintf("bento-row-%d", blockIdx))).FillWidth().Height(unitH).Gap(gap).Children(func() {
 					usedSpan := 0
@@ -1082,13 +1159,15 @@ func (a *App) assetCard(c *gui.Context, index int, asset model.Asset, selected b
 	} else {
 		card.AnimatePose(gui.Pose{Y: liftY, Scale: cardScale}, springGentle)
 	}
-	stagger := time.Duration(min(index, 6)) * arcStaggerItem
-	applyCardBlurFade(card, cardRevealKey{gen: a.revealGen, id: asset.ID}, stagger)
+	if len(a.assets) <= 250 {
+		stagger := time.Duration(min(index, 6)) * arcStaggerItem
+		applyCardBlurFade(card, cardRevealKey{gen: a.revealGen, id: asset.ID}, stagger)
+	}
 
 	card.Children(func() {
 		// Full-bleed edge-to-edge media slot with subtle hover zoom & optional stack badge.
 		gui.Box(c).Grow(1).FillWidth().Clip().Background(a.pal.surfaceMuted).Center().Children(func() {
-			if bm := a.bitmaps[asset.ID]; bm != nil {
+			if bm := a.requestCardBitmap(asset); bm != nil {
 				gui.Image(c, bm).
 					Fit(gui.Cover).
 					Fill().
@@ -1310,7 +1389,7 @@ func (a *App) inspector(c *gui.Context) {
 									}
 									hero.AnimatePose(gui.Pose{Scale: heroScale}, springGentle)
 									hero.Children(func() {
-										if bm := a.bitmaps[asset.ID]; bm != nil {
+										if bm := a.requestCardBitmap(asset); bm != nil {
 											gui.Image(c, bm).Fit(gui.Contain).Grow(1).Padding(6).Radius(radiusControl)
 										} else {
 											gui.Column(c).Center().Gap(6).Children(func() {

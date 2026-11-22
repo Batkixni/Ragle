@@ -240,7 +240,7 @@ func (a *App) pureRefView(c *gui.Context) {
 								p.Text(dst.X+8, dst.Y+8, item.Text, fs, a.pal.ink)
 								return
 							}
-							if bm := a.bitmaps[item.AssetID]; bm != nil {
+							if bm := a.requestCardBitmap(a.assetByID[item.AssetID]); bm != nil {
 								p.Image(bm, dst, gui.Contain)
 							} else {
 								p.Fill(dst, a.pal.surfaceMuted, 4)

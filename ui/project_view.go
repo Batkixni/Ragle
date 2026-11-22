@@ -434,7 +434,7 @@ func (a *App) paintBoardMiniPreview(p *gui.Painter, r gui.Rect, items []model.Pl
 						p.Fill(gui.Rect{X: rect.X + 4, Y: rect.Y + rect.H/2 - 1.5, W: barW, H: 3}, gui.RGBA(a.ink.R, a.ink.G, a.ink.B, 0.45), 1.5)
 					}
 				default:
-					if bm := a.bitmaps[it.AssetID]; bm != nil {
+					if bm := a.requestCardBitmap(a.assetByID[it.AssetID]); bm != nil {
 						p.Image(bm, rect, gui.Contain)
 					} else {
 						p.Fill(rect, a.pal.surfaceMuted, 3)
@@ -514,7 +514,7 @@ func (a *App) projectAssetCard(c *gui.Context, index int, item model.Asset) {
 			Center().
 			OnClick(func() { a.openPreview(item) })
 		thumb.Children(func() {
-			if bm := a.bitmaps[item.ID]; bm != nil {
+			if bm := a.requestCardBitmap(item); bm != nil {
 				gui.Image(c, bm).Fit(gui.Cover).Fill().AnimatePose(gui.Pose{Scale: imgScale}, springGentle)
 			} else {
 				gui.Text(c, a.assetExt(item)).FontSize(11).Bold().TextColor(a.pal.inkMuted)

@@ -78,5 +78,23 @@ func skipLibraryFile(path, root string) bool {
 		return true
 	}
 	base := filepath.Base(path)
-	return base == "raglex.db" || base == "raglex.db.bak" || strings.HasPrefix(base, "raglex.db.")
+	if base == "raglex.db" || base == "raglex.db.bak" || strings.HasPrefix(base, "raglex.db.") {
+		return true
+	}
+	return IsAuxiliarySidecarFile(base)
+}
+
+// IsAuxiliarySidecarFile reports whether base is an Eagle or OS auxiliary sidecar
+// file (such as metadata.json, mtime.json, tags.json, or *_thumbnail.png) that
+// should not be imported as a user creative asset.
+func IsAuxiliarySidecarFile(base string) bool {
+	low := strings.ToLower(strings.TrimSpace(base))
+	switch low {
+	case "metadata.json", "mtime.json", "tags.json", "saved-filters.json", "actions.json", "thumbs.db", "desktop.ini", ".ds_store":
+		return true
+	}
+	if strings.HasSuffix(low, "_thumbnail.png") || strings.HasSuffix(low, "_thumbnail.jpg") || strings.HasSuffix(low, "_thumbnail.webp") {
+		return true
+	}
+	return false
 }

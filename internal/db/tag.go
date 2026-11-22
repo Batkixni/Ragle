@@ -61,6 +61,30 @@ func TagsOfAsset(tx *bbolt.Tx, assetID string) ([]string, error) {
 	return collectIDs(tx.Bucket(BucketAssetTags), assetID+"/")
 }
 
+// AllAssetTagIDs scans the asset_tags bucket once and returns map[assetID][]tagID.
+func AllAssetTagIDs(tx *bbolt.Tx) (map[string][]string, error) {
+	out := make(map[string][]string)
+	b := tx.Bucket(BucketAssetTags)
+	if b == nil {
+		return out, nil
+	}
+	err := b.ForEach(func(k, _ []byte) error {
+		s := string(k)
+		for i := 0; i < len(s); i++ {
+			if s[i] == '/' {
+				assetID := s[:i]
+				tagID := s[i+1:]
+				if assetID != "" && tagID != "" {
+					out[assetID] = append(out[assetID], tagID)
+				}
+				break
+			}
+		}
+		return nil
+	})
+	return out, err
+}
+
 // AssetsOfTag lists asset IDs in a tag.
 func AssetsOfTag(tx *bbolt.Tx, tagID string) ([]string, error) {
 	return collectIDs(tx.Bucket(BucketTagAssets), tagID+"/")

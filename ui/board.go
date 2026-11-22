@@ -257,7 +257,7 @@ func (a *App) boardTray(c *gui.Context) {
 								AnimatePose(gui.Pose{Scale: scale}, springResponsive)
 							card.Children(func() {
 								gui.Box(c).Grow(1).FillWidth().Center().Clip().Children(func() {
-									if bm := a.bitmaps[item.ID]; bm != nil {
+									if bm := a.requestCardBitmap(item); bm != nil {
 										gui.Image(c, bm).Fit(gui.Contain).Grow(1).Radius(6)
 									} else {
 										gui.Text(c, a.assetExt(item)).FontSize(10).Bold().TextColor(a.pal.inkMuted)
@@ -875,7 +875,7 @@ func (a *App) paintItem(p *gui.Painter, origin gui.Rect, id string) {
 		case model.KindGroup:
 			p.Stroke(rect, a.accent, 4, 1)
 		default:
-			if bm := a.bitmaps[item.AssetID]; bm != nil {
+			if bm := a.requestCardBitmap(a.assetByID[item.AssetID]); bm != nil {
 				p.Image(bm, rect, gui.Contain)
 			} else {
 				p.Fill(rect, gui.RGBA(a.ink.R, a.ink.G, a.ink.B, 0.08), 4)

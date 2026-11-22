@@ -493,7 +493,111 @@ func (l *Library) WatchDirs() ([]string, error) {
 	return out, nil
 }
 
-// Import walks paths, applies mode, and writes one transaction per new file.
+// CatalogSnapshot holds the entire library catalog loaded in one bbolt read transaction.
+type CatalogSnapshot struct {
+	Tags      []model.Tag
+	Assets    []model.Asset
+	Stacks    []model.Stack
+	AssetTags map[string][]model.Tag
+}
+
+// LoadCatalogSnapshot loads all tags, assets, stacks, and asset-tag mappings in
+// a single bbolt read transaction (avoiding N+1 transactions on large libraries).
+func (l *Library) LoadCatalogSnapshot() (CatalogSnapshot, error) {
+	var snap CatalogSnapshot
+	err := l.DB.View(func(tx *bbolt.Tx) error {
+		tags, err := db.ListTags(tx)
+		if err != nil {
+			return err
+		}
+		assets, err := db.ListAssets(tx)
+		if err != nil {
+			return err
+		}
+		stacks, err := db.ListStacks(tx)
+		if err != nil {
+			return err
+		}
+		rawLinks, err := db.AllAssetTagIDs(tx)
+		if err != nil {
+			return err
+		}
+		tagByID := make(map[string]model.Tag, len(tags))
+		for _, tg := range tags {
+			tagByID[tg.ID] = tg
+		}
+		assetTags := make(map[string][]model.Tag, len(rawLinks))
+		for assetID, tids := range rawLinks {
+			list := make([]model.Tag, 0, len(tids))
+			for _, tid := range tids {
+				if tg, ok := tagByID[tid]; ok {
+					list = append(list, tg)
+				}
+			}
+			if len(list) > 0 {
+				assetTags[assetID] = list
+			}
+		}
+		snap = CatalogSnapshot{
+			Tags:      tags,
+			Assets:    assets,
+			Stacks:    stacks,
+			AssetTags: assetTags,
+		}
+		return nil
+	})
+	return snap, err
+}
+
+// PurgeAuxiliarySidecars removes any already-imported Eagle/system auxiliary files
+// (such as metadata.json and *_thumbnail.png) from the catalog in one batch transaction.
+func (l *Library) PurgeAuxiliarySidecars() (int, error) {
+	var toDelete []model.Asset
+	err := l.DB.View(func(tx *bbolt.Tx) error {
+		all, err := db.ListAssets(tx)
+		if err != nil {
+			return err
+		}
+		for _, a := range all {
+			if IsAuxiliarySidecarFile(filepath.Base(a.Path)) {
+				toDelete = append(toDelete, a)
+			}
+		}
+		return nil
+	})
+	if err != nil || len(toDelete) == 0 {
+		return 0, err
+	}
+	err = l.DB.Update(func(tx *bbolt.Tx) error {
+		for _, a := range toDelete {
+			if a.StackID != "" {
+				_ = detachAssetFromStackTx(tx, a.ID, a.StackID)
+			}
+			if err := db.DeleteAssetRecords(tx, a.ID); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return 0, err
+	}
+	for _, a := range toDelete {
+		if a.ThumbnailPath != "" {
+			_ = os.Remove(a.ThumbnailPath)
+		}
+		if a.StorageMode == model.StorageCopy || a.StorageMode == model.StorageMove {
+			_ = os.Remove(a.Path)
+		} else if a.StorageMode == model.StorageSymlink {
+			if fi, statErr := os.Lstat(a.Path); statErr == nil && fi.Mode()&os.ModeSymlink != 0 {
+				_ = os.Remove(a.Path)
+			}
+		}
+	}
+	return len(toDelete), nil
+}
+
+// Import walks paths, applies mode, and commits new files in batched transactions.
 // progress may be nil. A symlink failure is reported on that file and does
 // not copy it instead.
 func (l *Library) Import(ctx context.Context, paths []string, mode string, tagIDs []string, progress func(done, total int)) (Result, error) {
@@ -502,22 +606,147 @@ func (l *Library) Import(ctx context.Context, paths []string, mode string, tagID
 		return Result{}, err
 	}
 	var result Result
-	for i, path := range files {
+	if len(files) == 0 {
+		return result, nil
+	}
+
+	const batchSize = 128
+	type preparedItem struct {
+		abs      string
+		stored   string
+		sum      string
+		asset    model.Asset
+		existing string
+		err      error
+	}
+
+	for start := 0; start < len(files); start += batchSize {
 		if ctx.Err() != nil {
 			return result, ctx.Err()
 		}
-		item := l.importOne(path, mode, tagIDs)
-		result.Items = append(result.Items, item)
-		switch item.Status {
-		case "added":
-			result.Added++
-		case "existing":
-			result.Existing++
-		default:
-			result.Failed++
+		end := min(start+batchSize, len(files))
+		chunk := files[start:end]
+		prep := make([]preparedItem, len(chunk))
+
+		// Phase 1: hash & check existing in a single read transaction.
+		for i, rawPath := range chunk {
+			abs, err := cleanPath(rawPath)
+			if err != nil {
+				prep[i] = preparedItem{abs: rawPath, err: err}
+				continue
+			}
+			sum, err := hashFile(abs)
+			if err != nil {
+				prep[i] = preparedItem{abs: abs, err: err}
+				continue
+			}
+			prep[i] = preparedItem{abs: abs, sum: sum}
 		}
-		if progress != nil {
-			progress(i+1, len(files))
+
+		_ = l.DB.View(func(tx *bbolt.Tx) error {
+			for i := range prep {
+				if prep[i].err != nil {
+					continue
+				}
+				if id, ok := db.AssetIDByHash(tx, prep[i].sum); ok {
+					prep[i].existing = id
+					continue
+				}
+				if id, ok := db.AssetIDByPath(tx, prep[i].abs); ok {
+					prep[i].existing = id
+				}
+			}
+			return nil
+		})
+
+		// Phase 2: place new files & inspect dimensions outside the DB lock.
+		seenHashInBatch := map[string]string{}
+		for i := range prep {
+			p := &prep[i]
+			if p.err != nil || p.existing != "" {
+				continue
+			}
+			if dupID, ok := seenHashInBatch[p.sum]; ok {
+				p.existing = dupID
+				continue
+			}
+			stored, err := placeFile(l.DB.FilesDir(), p.abs, mode)
+			if err != nil {
+				p.err = err
+				continue
+			}
+			p.stored = stored
+			info := inspect(stored)
+			p.asset = model.Asset{
+				ID:          model.NewID(),
+				Path:        stored,
+				StorageMode: mode,
+				Hash:        p.sum,
+				Mime:        info.mime,
+				Width:       info.width,
+				Height:      info.height,
+				Duration:    info.duration,
+				CreatedAt:   time.Now().UTC(),
+			}
+			seenHashInBatch[p.sum] = p.asset.ID
+		}
+
+		// Phase 3: commit the entire chunk in a SINGLE bbolt write transaction!
+		_ = l.DB.Update(func(tx *bbolt.Tx) error {
+			for i := range prep {
+				p := &prep[i]
+				if p.err != nil {
+					continue
+				}
+				if p.existing != "" {
+					if err := linkTags(tx, p.existing, tagIDs); err != nil {
+						p.err = err
+					}
+					continue
+				}
+				if id, ok := db.AssetIDByHash(tx, p.sum); ok {
+					p.existing = id
+					if err := linkTags(tx, id, tagIDs); err != nil {
+						p.err = err
+					}
+					continue
+				}
+				if err := db.PutAsset(tx, p.asset); err != nil {
+					p.err = err
+					continue
+				}
+				if err := linkTags(tx, p.asset.ID, tagIDs); err != nil {
+					p.err = err
+				}
+			}
+			return nil
+		})
+
+		// Phase 4: tally results and undo any failed placements.
+		for i := range prep {
+			p := &prep[i]
+			var item Item
+			switch {
+			case p.err != nil:
+				if p.stored != "" {
+					undoPlace(mode, p.abs, p.stored)
+				}
+				item = Item{Path: p.abs, AssetID: p.existing, Status: "failed", Err: p.err}
+				result.Failed++
+			case p.existing != "":
+				if p.stored != "" {
+					undoPlace(mode, p.abs, p.stored)
+				}
+				item = Item{Path: p.abs, AssetID: p.existing, Status: "existing"}
+				result.Existing++
+			default:
+				item = Item{Path: p.stored, AssetID: p.asset.ID, Status: "added"}
+				result.Added++
+			}
+			result.Items = append(result.Items, item)
+			if progress != nil && ((start+i+1)%16 == 0 || start+i+1 == len(files)) {
+				progress(start+i+1, len(files))
+			}
 		}
 	}
 	return result, nil

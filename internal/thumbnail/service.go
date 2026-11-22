@@ -20,7 +20,7 @@ import (
 
 const longEdge = 512
 
-// Service fills ThumbnailPath in the background. At most two files are
+// Service fills ThumbnailPath in the background. At most four files are
 // encoded at once. onDone runs after a path is stored; it may be nil.
 type Service struct {
 	db     *db.DB
@@ -29,6 +29,11 @@ type Service struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
+
+	mu      sync.Mutex
+	pending []string
+	queued  map[string]bool
+	wake    chan struct{}
 }
 
 // Start launches the workers. Call Close before closing the database.
@@ -36,37 +41,87 @@ func Start(d *db.DB, onDone func(assetID string)) *Service {
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &Service{
 		db:     d,
-		jobs:   make(chan string, 64),
+		jobs:   make(chan string, 128),
 		onDone: onDone,
 		ctx:    ctx,
 		cancel: cancel,
+		queued: make(map[string]bool),
+		wake:   make(chan struct{}, 1),
 	}
-	for range 2 {
+	s.wg.Add(1)
+	go s.feeder()
+	for range 4 {
 		s.wg.Add(1)
 		go s.worker()
 	}
 	return s
 }
 
-// Enqueue asks for a preview of assetID. A full queue is drained from a
-// goroutine so the caller, including the UI thread, does not wait.
+func (s *Service) feeder() {
+	defer s.wg.Done()
+	for {
+		s.mu.Lock()
+		if len(s.pending) == 0 {
+			s.mu.Unlock()
+			select {
+			case <-s.ctx.Done():
+				return
+			case <-s.wake:
+				continue
+			}
+		}
+		id := s.pending[0]
+		s.pending[0] = ""
+		s.pending = s.pending[1:]
+		if len(s.pending) == 0 {
+			s.pending = nil
+		}
+		s.mu.Unlock()
+
+		select {
+		case <-s.ctx.Done():
+			return
+		case s.jobs <- id:
+		}
+	}
+}
+
+// Enqueue asks for a preview of assetID without ever blocking or spawning
+// unbounded goroutines even on 250,000+ item libraries.
 func (s *Service) Enqueue(assetID string) {
 	if s == nil || assetID == "" {
 		return
 	}
+	s.mu.Lock()
+	if s.queued[assetID] {
+		s.mu.Unlock()
+		return
+	}
+	s.queued[assetID] = true
+	s.pending = append(s.pending, assetID)
+	s.mu.Unlock()
 	select {
-	case <-s.ctx.Done():
-		return
-	case s.jobs <- assetID:
-		return
+	case s.wake <- struct{}{}:
 	default:
 	}
-	go func() {
-		select {
-		case <-s.ctx.Done():
-		case s.jobs <- assetID:
-		}
-	}()
+}
+
+// Prioritize moves or inserts assetID at the front of the pending queue so
+// currently visible viewport cards get their thumbnails generated first.
+func (s *Service) Prioritize(assetID string) {
+	if s == nil || assetID == "" {
+		return
+	}
+	s.mu.Lock()
+	if !s.queued[assetID] {
+		s.queued[assetID] = true
+		s.pending = append([]string{assetID}, s.pending...)
+	}
+	s.mu.Unlock()
+	select {
+	case s.wake <- struct{}{}:
+	default:
+	}
 }
 
 // Close stops the workers and waits for the current files to finish.
@@ -88,7 +143,11 @@ func (s *Service) worker() {
 			if s.ctx.Err() != nil {
 				return
 			}
-			if err := s.build(id); err != nil {
+			err := s.build(id)
+			s.mu.Lock()
+			delete(s.queued, id)
+			s.mu.Unlock()
+			if err != nil {
 				continue
 			}
 			if s.onDone != nil {

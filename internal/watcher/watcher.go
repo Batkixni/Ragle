@@ -55,8 +55,17 @@ func Start(lib *library.Library, onChange func()) (*Watcher, error) {
 	return w, nil
 }
 
-// Sync adds watches for the directories the library currently cares about.
+// Sync adds watches for the directories the library currently cares about,
+// capped at 256 directories so large indexed trees never exhaust OS handles.
 func (w *Watcher) Sync() error {
+	const maxWatchDirs = 256
+	w.mu.Lock()
+	if len(w.watched) >= maxWatchDirs {
+		w.mu.Unlock()
+		return nil
+	}
+	w.mu.Unlock()
+
 	dirs, err := w.lib.WatchDirs()
 	if err != nil {
 		return err
@@ -64,6 +73,9 @@ func (w *Watcher) Sync() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	for _, dir := range dirs {
+		if len(w.watched) >= maxWatchDirs {
+			break
+		}
 		if w.watched[dir] {
 			continue
 		}
