@@ -25,7 +25,7 @@ import (
 
 // Version is the application's current semantic version.
 // Override at build time with: -ldflags "-X raglex/internal/updater.Version=..."
-var Version = "0.1.3"
+var Version = "0.1.4"
 
 // DefaultRepo is the upstream GitHub repository slug ("owner/repo").
 const DefaultRepo = "Batkixni/Raglex"
