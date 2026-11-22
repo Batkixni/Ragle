@@ -16,9 +16,9 @@
 <p align="center">
   <a href="LICENSE"><img src="https://shieldcn.dev/github/license/Batkixni/Ragle.svg?variant=secondary" alt="License: MPL 2.0" /></a>
   <a href="https://github.com/Batkixni/Ragle/stargazers"><img src="https://shieldcn.dev/github/stars/Batkixni/Ragle.svg?variant=secondary" alt="GitHub Stars" /></a>
-  <img src="https://shieldcn.dev/badge/Go-1.24+-00ADD8.svg?variant=secondary" alt="Go 1.24+" />
-  <img src="https://shieldcn.dev/badge/UI-MyGo_Native-18181B.svg?variant=outline" alt="MyGo Native UI" />
-  <img src="https://shieldcn.dev/badge/Platform-macOS_%7C_Windows_%7C_Linux-52525B.svg?variant=outline" alt="Platforms" />
+  <img src="https://shieldcn.dev/badge/Go-1.24+-00ADD8.svg" alt="Go 1.24+" />
+  <img src="https://shieldcn.dev/badge/UI-MyGo_Native-FF5C33.svg" alt="MyGo Native UI" />
+  <img src="https://shieldcn.dev/badge/Platform-macOS_%7C_Windows_%7C_Linux-3F3F46.svg" alt="Platforms" />
 </p>
 
 <p align="center">
