@@ -1,565 +1,233 @@
-\*\*Ragle Agent.md\*\*
-
-
-
-本文件為 Ragle 的完整規格與實作指引。Ragle 是以 MyGo native UI 開發的開源本地優先素材工具，資料層使用 bbolt。母庫以標籤作為主要分類層級，專案隸屬於標籤之下，白版則隸屬於專案。
-
-
-
-\---
-
-
-
-\### 一、專案目的與意義
-
-
-
-Ragle 要解決的是素材「怎麼存」與「怎麼在不同工作中重複使用」這兩件事同時發生的問題。
-
-
-
-多數素材工具要么把檔案鎖進自己的庫裡用亂碼檔名，要么只提供一次性的白版而沒有可累積的母庫。創作者往往已經有自己的資料夾習慣，卻被迫在管理便利與檔案自由之間選擇。Ragle 讓使用者自己決定檔案進入系統的方式，同時提供一個以標籤分類、以專案組織、以白版排列的結構，讓同一批素材可以在不同專案中被引用而不產生多餘副本。
-
-
-
-它的意義在於把控制權留在使用者手上：存放方式自由、分類方式清楚、引用關係明確，且核心功能不依賴任何外部服務。開源與可自架是為了確保即使官方不再維護，工具仍然可用。
-
-
-
-\---
-
-
-
-\### 二、核心邏輯與層級
-
-
-
-Ragle 的結構分為四層：
-
-
-
-1\. \*\*母庫（Assets）\*\*  
-
-&#x20;  所有素材的實體或索引都在這裡。每個素材有唯一識別碼。匯入時決定存放策略（純索引、符號連結、移動、複製）。
-
-
-
-2\. \*\*標籤（Tags）\*\*  
-
-&#x20;  母庫的主要分類方式。標籤用來組織素材，也用來組織專案。一個素材可以有多個標籤；一個專案隸屬於一個或多個標籤。
-
-
-
-3\. \*\*專案（Projects）\*\*  
-
-&#x20;  專案放在標籤之下，代表一個具體的工作上下文。專案本身不持有素材檔案，只持有對母庫素材的引用。
-
-
-
-4\. \*\*白版（Boards）與放置（Placements）\*\*  
-
-&#x20;  每個專案可以有多個白版。白版上的每個物件是一筆 Placement，記錄「引用了哪個素材」以及「在畫布上的位置、縮放、旋轉、圖層」。
-
-
-
-這個層級讓分類（標籤）與工作（專案）分開，同時保證素材實體只存在於母庫。刪除專案只會移除該專案下的白版與放置記錄，不會刪除母庫中的素材。
-
-
-
-\---
-
-
-
-\### 三、產品屬性與原則
-
-
-
-\- 本地優先，核心功能離線完整可用。
-
-\- 存放策略由使用者在匯入時選擇，軟體不強制複製或改名。
-
-\- 標籤是母庫的第一層分類，專案隸屬於標籤。
-
-\- 專案與白版只引用素材，不擁有素材。
-
-\- 開源，同步與分享協議公開，可自架也可完全不使用。
-
-\- 單機體驗必須先完整，分享與雲端為附加能力。
-
-
-
-\---
-
-
-
-\### 四、功能規格
-
-
-
-\*\*母庫與標籤\*\*
-
-\- 匯入檔案或資料夾時選擇存放策略。
-
-\- 以標籤瀏覽與篩選素材。
-
-\- 素材可屬於多個標籤。
-
-\- 支援評分、格式篩選、縮圖與影片抽幀預覽。
-
-\- 外部檔案移動時以雜湊嘗試重新連結。
-
-
-
-\*\*專案\*\*
-
-\- 在特定標籤下建立專案。
-
-\- 專案可跨標籤歸屬（一個專案可屬於多個標籤）。
-
-\- 從母庫將素材引用進專案。
-
-
-
-\*\*白版\*\*
-
-\- 專案下可建立多個白版。
-
-\- 從母庫或專案已引用的素材拖曳至白版，建立 Placement。
-
-\- 支援移動、縮放、旋轉、調整圖層順序、文字註記、群組。
-
-\- 同一素材可出現在同一白版的多個位置，也可出現在不同專案的白版上。
-
-
-
-\*\*分享\*\*
-
-\- 同一區域網內自動發現，直接傳輸選定的專案（含其白版與引用）。
-
-\- 非同一區域網時以配對碼建立端對端加密通道後傳輸。
-
-\- 傳輸时可選擇是否包含素材實體檔案。
-
-
-
-\---
-
-
-
-\### 五、資料模型（bbolt）
-
-
-
-bbolt 為單檔鍵值儲存。所有資料以 bucket + 鍵值方式存放，關聯透過輔助索引維護。序列化建議使用 msgpack。
-
-
-
-\*\*主要 Bucket 與鍵設計\*\*
-
-
-
-\- `assets`  
-
-&#x20; key: `assetID`  
-
-&#x20; value: Asset 結構（path, storage\_mode, hash, mime, width, height, duration, thumbnail\_path, rating, created\_at）
-
-
-
-\- `assets\_by\_hash`  
-
-&#x20; key: `hash`  
-
-&#x20; value: `assetID`
-
-
-
-\- `assets\_by\_path`  
-
-&#x20; key: `path`  
-
-&#x20; value: `assetID`
-
-
-
-\- `tags`  
-
-&#x20; key: `tagID`  
-
-&#x20; value: Tag 結構（name, created\_at）
-
-
-
-\- `asset\_tags`  
-
-&#x20; key: `assetID/tagID`  
-
-&#x20; value: 空（表示該素材擁有此標籤）
-
-
-
-\- `tag\_assets`  
-
-&#x20; key: `tagID/assetID`  
-
-&#x20; value: 空（反向，用於列出某標籤下的所有素材）
-
-
-
-\- `projects`  
-
-&#x20; key: `projectID`  
-
-&#x20; value: Project 結構（name, description, created\_at）
-
-
-
-\- `project\_tags`  
-
-&#x20; key: `projectID/tagID`  
-
-&#x20; value: 空
-
-
-
-\- `tag\_projects`  
-
-&#x20; key: `tagID/projectID`  
-
-&#x20; value: 空（列出某標籤下的專案）
-
-
-
-\- `boards`  
-
-&#x20; key: `boardID`  
-
-&#x20; value: Board 結構（project\_id, name, created\_at）
-
-
-
-\- `boards\_by\_project`  
-
-&#x20; key: `projectID/boardID`  
-
-&#x20; value: 空
-
-
-
-\- `placements`  
-
-&#x20; key: `placementID`  
-
-&#x20; value: Placement 結構（board\_id, asset\_id, x, y, scale, rotation, z\_index, notes）
-
-
-
-\- `placements\_by\_board`  
-
-&#x20; key: `boardID/placementID`  
-
-&#x20; value: 空
-
-
-
-\- `placements\_by\_asset`  
-
-&#x20; key: `assetID/placementID`  
-
-&#x20; value: 空（查詢某素材被哪些地方引用）
-
-
-
-所有寫入必須在同一個 `db.Update` transaction 內同時更新主資料與相關索引。
-
-
-
-\---
-
-
-
-\### 六、技術架構與實作細節
-
-
-
-\*\*技術選型\*\*
-
-\- UI：MyGo native UI（`package ui`）
-
-\- 資料：bbolt
-
-\- 檔案監聽：fsnotify
-
-\- 縮圖：imaging + 外部 ffmpeg
-
-\- 區域網發現：mDNS 或 UDP 廣播
-
-\- 跨網傳輸：pion/webrtc + 輕量信令
-
-
-
-\*\*應用結構\*\*
-
-```
-
+# Ragle `AGENT.md` — 產品規格、架構基準與演進路線圖
+
+本文件為 **Ragle** 的唯一真實規格（Source of Truth）與工程實作基準。
+Ragle 是以 **Go + MyGo Native UI** 開發的開源、本地優先（Local-First）創作者數位資產管理、檔案工作流與靈感白板工具，核心資料層採用 **bbolt**。
+視覺與互動規範請搭配閱讀 [DESIGN.md](./DESIGN.md)。
+
+---
+
+## 一、專案目的與核心原則
+
+Ragle 要同時解決創作者的三個痛點：**檔案怎麼安全管理**、**靈感怎麼跨專案重複引用**、以及**如何無痛串接現代 AI 與跨裝置分享**。
+
+### 核心原則
+1. **本地優先，離線完整可用**：核心圖庫、檔案管理、標籤、專案、白板與純演算法搜圖（色系 / 感知雜湊）不依賴雲端服務。
+2. **檔案主權歸使用者**：匯入時由使用者選擇存放策略（`index` / `symlink` / `move` / `copy`），軟體不強制鎖檔或改寫原檔名；批量改名等磁碟操作一律提供即時預覽與 Undo。
+3. **引用與實體分離**：素材實體只存在母庫；專案與白板僅持有引用（Reference / Placement）。刪除專案或白板絕不刪除母庫檔案。
+4. **原生輕量，能力靠擴充**：主程式維持單一高速原生執行檔；重型格式預覽、進階工作流與 AI 模型透過統一 Local API 與插件系統熱插拔。
+5. **開源可自架**：分享、瀏覽器擴充、MCP 與伺服器協議全公開；App 內建一鍵開服，同時提供無 GUI 的獨立 CLI 版本給 VPS 長駐部署。
+
+---
+
+## 二、核心資料層級
+
+Ragle 的概念層級為五個正交模組：
+
+1. **母庫（Assets）**：所有素材的索引或實體檔案，採 ULID 識別碼與 SHA-256 去重；附帶縮圖、尺寸/時長、主色盤（Palette）、感知雜湊（pHash/dHash）、可選向量嵌入（Embedding）與來源中繼資料（URL / 頁面標題 / 備註）。
+2. **階層標籤（Tags）**：支援多層母標籤 / 子標籤樹狀結構與自訂顏色（設定可切換彩色或純淨模式），同時用於分類素材與組織專案。
+3. **專案（Projects）**：代表具體工作上下文，可隸屬於多個標籤；透過 `project_assets` 引用母庫素材，並可包含多個白板。
+4. **白板（Boards）與放置（Placements）**：
+   - **專案白板**：隸屬於特定專案（`project_id != ""`）。
+   - **獨立白板（Standalone Boards，v2 新增）**：不屬於任何專案（`project_id == ""`），可直接在側邊欄建立與開啟，並支援隨時移入專案或升級為新專案。
+   - 白板上的每個元素為一筆 Placement（圖片、文字、群組），記錄引用、位置、縮放、旋轉、圖層與註記。
+5. **擴充與連接層（Server / Plugin / Browser / MCP / AI）**：共用同一套核心服務層，對外提供 Local Companion API、Web 分享檢視、插件系統、MCP Server 與 Laya / Ollaya + Embedding 離線開源智慧引擎。
+
+---
+
+## 三、已完成實作現況（v0.1 — 階段 1 至 10）
+
+以下能力均已實作、通過 `mygo vet` 與自動化測試，為目前 `main` 分支基準：
+
+### 1. 資料層與核心引擎（`internal/db`, `model`, `library`, `project`, `canvas`, `thumbnail`, `watcher`, `config`, `i18n`）
+- **bbolt 單檔交易儲存**：Schema v1，全索引採 `parentID/childID` 前綴掃描（`assets`, `assets_by_hash`, `assets_by_path`, `tags`, `asset_tags`, `tag_assets`, `projects`, `project_tags`, `tag_projects`, `project_assets`, `asset_projects`, `boards`, `boards_by_project`, `placements`, `placements_by_board`, `placements_by_asset`）。
+- **階層標籤**：`Tag` 支援 `ParentID`、`Color`，自動偵測並避免循環父子關係，支援樹狀展開/收合與繼承篩選。
+- **四種存放策略**：`index`、`symlink`、`move`、`copy`；啟動與刪除前自動透過 `tx.WriteTo` 寫出 `ragle.db.bak`，損毀時可於歡迎頁一鍵還原。
+- **檔案監聽與重連**：`fsnotify` 追蹤移動與遺失檔案（標記 `missing`），支援以 SHA-256 自動重新連結。
+- **縮圖與影片播放**：非同步雙 worker 生成縮圖；支援 `ffmpeg` 影片抽幀與應用內影片 / GIF 預覽播放（`ui/video.go`）。
+
+### 2. 分享基礎（`internal/share`, `cmd/ragle-signal`）
+- **區域網分享**：UDP 廣播（port `47321`，`RGL1`）自動發現 ＋ TCP 傳送專案副本與素材實體（接收確認 ＋ SHA-256 去重）。
+- **跨網配對碼 E2E 分享**：基於 `pion/webrtc/v4` DTLS 加密 DataChannel 與輕量 HTTP 長輪詢信令（6 碼 `XXX-XXX` 配對碼，32 KiB 分塊與背壓）。
+
+### 3. 介面與體驗（`ui/`，目前 MyGo `v0.7.4`）
+- **無邊框整合標題列**：自訂 `— □ ×`（支援 Windows 11 Snap Layouts）與可拖曳標題區，零系統原生白條。
+- **視覺主題**：Arc UI 沉穩黑灰無邊框表層（深色 `#111111` / `#18181B`、淺色 `#FFFFFF` / `#F4F4F5`），預設品牌強調色 **`#FF5C33`**；支援設定頁自訂主題預設與四色覆寫。
+- **品牌識別**：Windows 執行檔與歡迎頁使用深黑灰底＋`#FF5C33` 中央圖騰的圓角方形 Icon（[Logo.png](./Logo.png) / [ui/app_icon.png](./ui/app_icon.png)）；App 左上角使用原版滿版純色黑白標誌（[ui/logo.png](./ui/logo.png)）。
+- **多排版與高效操作**：支援 **Bento / 瀑布流（Masonry）/ 網格（Grid）** 切換、滑鼠左鍵拖拉圈選（Marquee Selection）、`Ctrl`/`Shift` 多選與批次工具列、全域快捷鍵（`Ctrl+A` / `Ctrl+B` / `Ctrl+F` / `Ctrl+I` / `Ctrl+,` / `Space` / `Delete` / `0-5` / 方向鍵）。
+- **側邊欄與專案頁**：可收合側邊欄（`Ctrl+B` 與防擠壓寬度下限 `204–340px`）、窄視窗自適應頂部工具列、明確的向量展開箭頭與連續白色樹狀導引線、彈窗式標籤管理器、Arc Editorial 風格專案 Hero、白板即時縮圖預覽卡片、底部自動消失懸浮 Toast、五步驟首次啟動互動教學。
+
+---
+
+## 四、v2 演進規劃與完整功能規格
+
+> 所有新階段維持原則：**每一階段結束皆可離線獨立運作、通過 `mygo vet` 與單元/畫面測試、不破壞既有 `bbolt` 資料相容性（Schema 升級自動遷移）**。
+
+### 階段 11：MyGo 框架升級（`v0.7.4` → `v0.10.0`）
+- 檢查 `github.com/egoist/mygo` 自 `v0.8.0` 至 `v0.10.0` 的變更紀錄與新 API（特別評估：原生剪貼簿圖片讀寫、跨 App 檔案拖出、系統托盤、視窗置頂、Embedded WebView / 新元件）。
+- 依 `.agents/skills/mygo-maintenance/SKILL.md` 完成升級、`mygo vet .` 驗證與全量回歸測試。
+
+### 階段 12：檔案管理器能力（Batch File Manager）
+將 Ragle 升級為創作者日常主力檔案管理工具：
+1. **批量重新命名引擎（`internal/library/rename.go`）**
+   - 規則管線可任意組合：
+     - **模板命名**：`{name}`、`{ext}`、`{index:03}`、`{date:YYYYMMDD}`、`{w}x{h}`、`{tag}`、`{project}`、`{rating}`
+     - **尋找與取代**：支援純文字、忽略大小寫、正規表達式（Regex）
+     - **格式整理**：前綴 / 後綴、大寫 / 小寫 / Title Case、空白轉底線或連字號
+   - **安全機制**：即時預覽對照表（偵測撞名、非法字元、路徑過長）；區分「庫內顯示名」與「磁碟檔名」；`index` / `symlink` 外部檔案預設提示並可切換是否連動原檔；操作寫入 `rename_history` 支援**一鍵批次復原（Undo）**。
+2. **批量轉檔與壓縮匯出（`internal/library/export.go`）**
+   - 支援圖片批次轉出為 `PNG` / `JPEG` / `WebP`（品質滑條、長邊限制、是否保留 EXIF），影片透過 `ffmpeg` 支援裁切/壓縮匯出。
+3. **剪貼簿貼圖入庫 & 跨軟體拖出**
+   - `Ctrl+V` 直接將系統剪貼簿圖片 / 截圖落地存檔入庫（或直接貼上當前白板）。
+   - 支援把選中的一或多個素材複製為實體檔案清單至系統剪貼簿，並支援直接拖曳至外部創作軟體（Photoshop / Figma / Blender / Premiere / Discord）。
+4. **自動監控資料夾（Watch Folders）**
+   - 每個母庫可設定多個外部監控資料夾（指定預設存放策略與自動套用標籤），透過 `fsnotify` 即時同步新增、搬移與遺失重連。
+
+### 階段 13：獨立白板（Standalone Boards）與白板增強
+1. **資料模型擴充（向後相容）**
+   - `Board.ProjectID == ""` 視為獨立白板；新增索引 bucket `boards_standalone`（key: `boardID`）。
+   - 側邊欄新增「**白板**」專屬區塊（支援 `+` 快速建立、右鍵改名 / 複製 / 移入專案 / 轉為新專案 / 刪除）。
+2. **跨畫面無縫串聯**
+   - 母庫多選素材 → 右鍵「加入至白板（新建或現有）」。
+   - 獨立白板頁眉提供一鍵「歸類到專案」或「升級成專案」。
+3. **進階白板生產力**
+   - 區域分組框（Section / Frame）、自動對齊與等距排版、高解析 PNG / PDF 匯出。
+   - **PureRef 參考模式（選配）**：視窗置頂（Always-on-Top）與極簡無工具列浮動模式，方便繪圖與 3D 製作時對照參考。
+
+### 階段 14：以圖搜圖、主色提取與智慧篩選（Eagle 核心能力）
+採 **三層漸進架構**，第 1 層 100% 內建免 AI 零延遲，第 2–3 層可選開啟：
+
+#### 第 1 層：純 Go 內建即時視覺搜尋（零外部依賴、零顯卡需求）
+- **自動主色盤提取（Palette Extraction）**：
+  - 匯入 / 生成縮圖時同步以 k-means / median-cut 在 **OKLab / CIE Lab** 空間萃取 5 個主色（含權重比例），寫入 `Asset.Palette` 與色彩索引。
+  - 右側 Inspector 顯示 5 顆色票（點擊即複製 HEX）；搜尋列支援**依顏色搜圖**（選擇色盤＋相似度門檻，以 Lab Delta-E 排序）。
+- **感知雜湊以圖搜圖（Perceptual Reverse Image Search）**：
+  - 匯入時同步計算 **pHash（64-bit DCT）** 與 **dHash（64-bit Gradient）** 存入 `Asset.PHash` / `Asset.DHash`。
+  - 支援三種入口：「右鍵素材 → 尋找相似圖片」、「把外部圖片拖入搜尋列以圖搜圖」、「重複 / 近似圖清理工具（依漢明距離門檻分群）」。
+- **智慧型篩選群組（Smart Folders）**：
+  - 儲存複合條件（標籤、顏色、長寬比、尺寸、評分、格式、匯入日期、有無標記）至 `smart_folders` bucket，顯示於側邊欄並即時計算符合結果。
+- **版本堆疊（Asset Stacks）**：
+  - 透過 `Asset.StackID` 將多張改版/同系列素材摺疊為單一卡片，點開即展開全部版本。
+
+#### 第 2 層：本地向量語意搜尋（Semantic Image & Text Search，選配）
+- **Embedding 引擎（`internal/ai/embed`）**：
+  - 透過標準介面串接輕量多模態向量模型（如 **SigLIP2**、**MobileCLIP**、**Jina-CLIP**，可經本機 ONNX Runtime、Ollama 或獨立 sidecar 執行）。
+  - 向量存於 `asset_vectors` bucket（搭配輕量記憶體餘弦相似度索引 / HNSW），十萬張以內毫秒級檢索。
+  - 支援：**自然語言搜圖**（例：「暗紅光影賽博龐克人物海報」）與 **語意以圖搜圖**（找到構圖/氛圍/風格接近、即使像素完全不同的圖）。
+
+#### 第 3 層：Laya + Ollaya 開源本地決策分類引擎（Open-Source Local System-1 AI，選配）
+- **為何選用 Laya（搭配 Ollaya 本地執行環境）而非閉源雲端 API？**
+  - Ragle 是純本地優先的開源專案，AI 分類不應綁定任何閉源付費 API。
+  - **Laya**（`convaiinnovations/laya`，~421M 參數開源權重，ModernBERT-large 架構）是非自回歸決策模型，在一般 CPU / GPU 上只需約 **33ms** 即可於**單次前向推論**內對「輸入上下文＋候選選項清單 / 規則」輸出**校準後的機率分布、分數或布林判斷**，不逐字生成廢話、不亂造垃圾標籤。
+  - 透過開源本地伺服器 **Ollaya**（`ollaya-dev/ollaya`，支援 `/v1/decisions` 與 `/v1/systemone` 標準端點），使用者可一鍵在本機離線執行 `laya`（文字/檔名/來源 URL/視覺描述與中繼資料決策）或相容的開源視覺決策模型（如基於 Qwen-VL 的 Vev）。
+- **在 Ragle 中的四大落地場景（`internal/ai/laya`）**：
+  1. **匯入自動歸類（Closed-Set Auto-Tagging）**：結合檔名、來源標題/URL、主色特徵與選配視覺摘要，將使用者母庫現有的階層標籤樹作為候選選項送入 Laya，依信心度門檻分流——高於 `0.80` 自動套用、`0.45–0.80` 列為待確認建議標籤（絕不亂建雜亂標籤）。
+  2. **條件式智慧檢索與重排（Rerank & Policy Filter）**：先用第 1/2 層 pHash / 色彩 / Embeddings 粗篩出 Top-50 候選，再由 Laya 執行精準條件篩選與重排（例：「海報排版且偏暗色，排除人像攝影」）。
+  3. **專案歸屬建議**：匯入新素材時，依既有專案名稱與說明評估該素材最可能屬於哪個專案。
+  4. **批次整理與分類分流**：自動識別「截圖 / 攝影 / 插畫 / 3D 渲染 / UI 設計稿 / 字體排印」等維度。
+- **統一開源介面抽象（Provider Agnostic）**：
+  - 預設對接本機 **Ollaya**（`http://127.0.0.1:11435` 或使用者自訂位址，完全離線私密），同時相容任何 `/v1/decisions` / `/v1/systemone` 決策端點；使用者可在偏好設定頁一鍵測試連線、設定模型名稱與信心門檻。
+
+### 階段 15：統一內建伺服器＋獨立 CLI（`internal/server` + `cmd/ragle-server`）
+將原本分散的分享、信令、瀏覽器串接與插件通訊收斂到同一套伺服器核心：
+
+1. **雙形態部署（100% 共用 `internal/server`）**
+   - **App 內建伺服器**：在 Ragle 視窗內一鍵啟動/關閉、自訂監聽位址（預設 `127.0.0.1:41595` 供本機插件/瀏覽器使用；可額外開啟 `0.0.0.0:<port>` 供區網/外網分享），內建 QR Code 與存取狀態監控。
+   - **獨立 Headless CLI（`cmd/ragle-server`）**：無 GUI 單一執行檔（Linux / Windows / macOS / Docker），可直接部署至 VPS（配合 Caddy / Nginx 自動 HTTPS）。
+2. **伺服器四大能力**
+   - **Web 分享檢視器（免安裝瀏覽器直開）**：將單一專案、標籤集或白板產生唯讀 / 密碼保護 / 限時連結（`/s/<token>`），網頁端提供響應式圖庫、大圖檢視、互動縮放白板與原檔下載（可選開啟「外部上傳收集箱」與「白板審圖批註」）。
+   - **內嵌信令與中繼服務**：吸收原有 `cmd/ragle-signal`，App 內建即具備配對碼信令能力，VPS 版同時作為跨網穩定信令/中繼節點。
+   - **Push-to-VPS 同步**：桌面版可將指定專案或白板一鍵發佈到自己架設的 `ragle-server` VPS，即時更新公開作品集或客戶審圖頁。
+   - **Local Companion REST / WebSocket API（`/api/v1/...`）**：提供給瀏覽器擴充、外部插件與自動化腳本使用（具一次性配對 Token 與權限控管）。
+
+### 階段 16：Ragle MCP Server（`internal/mcp` + `cmd/ragle-mcp`）
+讓 Claude、Antigravity、Cursor 等 AI Coding / Creative Agent 直接操作你的本地 Ragle 母庫：
+- **雙傳輸模式**：
+  - **Stdio 模式（`cmd/ragle-mcp --library <path>`）**：零網路開銷，直接給桌面 AI 用戶端掛載；若 Ragle 主程式正開啟同一母庫，自動轉發至 Local API 避免 `bbolt` 鎖檔衝突。
+  - **Streamable HTTP / SSE 模式**：直接掛載於 `internal/server` 的 `/mcp` 端點（需 Bearer Token 驗證）。
+- **核心 MCP Tools**：
+  - 檢索：`search_assets`（關鍵字 / 標籤 / 顏色 HEX / 評分 / 尺寸 / 語意）、`find_similar_assets`（以圖搜圖）、`get_asset_detail`、`list_tags`、`list_projects`、`list_boards`。
+  - 組織：`import_assets`、`tag_assets`、`batch_rename_assets`（支援 `dry_run` 預覽）、`create_project`、`add_assets_to_project`。
+  - 白板：`create_board`、`place_assets_on_board`（支援自動網格 / 瀑布排版座標計算）、`add_board_note`。
+  - 智慧：`classify_assets_with_laya`（呼叫本機 Ollaya / Laya 模型對指定素材回傳分類機率與建議標籤）。
+- **核心 MCP Resources**：
+  - `ragle://library/summary`（母庫統計、標籤樹、專案列表）
+  - `ragle://asset/{id}`（素材完整中繼資料與本機路徑）
+  - `ragle://board/{id}`（白板佈局 JSON 描述）
+
+### 階段 17：瀏覽器配套擴充（`extensions/browser/`，Manifest V3）
+支援 Chrome / Edge / Brave / Firefox，透過配對 Token 連線至 Ragle Local Companion API：
+- **拖曳存圖（Drag-to-Save）**：拖曳網頁圖片即浮出快速目標選擇器（直接丟進指定標籤 / 專案 / 白板）。
+- **右鍵收集與截圖**：收集單圖、影片/GIF、區域截圖、可視範圍截圖、整頁長截圖。
+- **批次抓圖器（Batch Page Grabber）**：自動解析當前頁面所有高解析原圖（含尺寸過濾與勾選），一次匯入母庫。
+- **自動來源綁定**：自動寫入 `source_url`、`page_title`、`domain` 至素材中繼資料。
+
+### 階段 18：插件生態系統（`internal/plugin` + Plugin Manager UI）
+不依賴 Go `.so`，採跨平台安全架構：
+- **插件清單（`manifest.json`）**：宣告 ID、版本、權限（讀圖庫 / 寫標籤 / 存取磁碟 / 網路）、觸發掛載點（`context_menu`、`batch_action`、`importer`、`exporter`、`format_preview`、`ai_provider`、`toolbar`）。
+- **兩種執行環境**：
+  1. **WASM 沙盒插件（`wazero`）**：純 Go 零外部依賴、毫秒啟動、跨平台一致，適合命名規則、濾鏡、格式解析器。
+  2. **外部行程插件（JSON-RPC over stdio / Local HTTP）**：不限開發語言（Python / Node / Go / Rust），適合串接重型工具（FFmpeg 特效、AI 去背、超解析放大、Blender/PSD 轉圖、本地 Laya / Ollaya / CLIP 推論服務）。
+- **宣告式 UI 與管理介面**：插件透過 JSON Schema 宣告設定欄位與操作表單，由 MyGo 原生元件渲染（維持 Arc UI 風格一致）；偏好設定內建插件管理頁（安裝 / 啟用停用 / 權限檢視 / 日誌除錯）。
+
+---
+
+## 五、v2 資料庫（bbolt）新增欄位與 Bucket 規劃
+
+所有擴充保持向後相容（msgpack 欄位新增採 `omitempty`，Schema 版號推進時自動補建新 Bucket）：
+
+- **Asset 擴充欄位**：
+  - `display_name`（獨立於磁碟檔名的顯示名稱）
+  - `source_url`, `source_title`, `notes`（瀏覽器擴充與手動備註）
+  - `palette`（`[]PaletteColor{Hex, L, A, B, Ratio}`）
+  - `phash`, `dhash`（`uint64`，毫秒級以圖搜圖）
+  - `stack_id`（版本堆疊群組 ID）
+- **新增 Buckets**：
+  - `boards_standalone`：key `boardID`（獨立白板索引）
+  - `smart_folders`：key `folderID` → 篩選條件結構
+  - `watch_folders`：key `watchID` → 外部監控目錄設定
+  - `rename_history`：key `batchID` → 批次改名還原紀錄
+  - `asset_vectors`：key `modelID/assetID` → float32 向量位元組
+  - `share_links`：key `token` → 內建 / VPS 網頁分享設定（權限、密碼雜湊、過期時間）
+  - `plugins`：key `pluginID` → 啟用狀態與插件設定
+
+---
+
+## 六、程式碼目錄藍圖（現有＋v2 規劃）
+
+```text
 ragle/
-
-├── cmd/ragle/
-
+├── AGENT.md                 # 本規格書（架構與功能路線圖）
+├── DESIGN.md                # 視覺、色彩、動態與 UX 設計規範
+├── Logo.png                 # 512x512 深黑灰底＋#FF5C33 圖騰 App Icon
+├── cmd/
+│   ├── ragle/               # 桌面原生主程式（MyGo GUI）
+│   ├── ragle-server/        # [v2] 獨立無頭伺服器 CLI（VPS Host / Web Viewer / Signal）
+│   ├── ragle-mcp/           # [v2] 獨立 Stdio MCP Server 入口
+│   └── ragle-signal/        # [現有] 輕量信令（後續併入 internal/server 並保留相容）
 ├── internal/
-
-│   ├── db/          # bbolt 開啟、bucket 初始化、transaction 輔助
-
-│   ├── model/       # 結構定義與序列化
-
-│   ├── library/     # 匯入、存放策略、標籤管理
-
-│   ├── project/     # 專案、白版、Placement
-
-│   ├── canvas/      # 白版渲染與互動狀態
-
-│   ├── share/       # 區域網與 E2E
-
-│   ├── thumbnail/
-
-│   └── watcher/
-
-└── ui/              # MyGo 視圖
-
+│   ├── db/                  # bbolt 開啟、自動遷移、備份與交易輔助
+│   ├── model/               # 核心資料結構與 msgpack 序列化
+│   ├── library/             # 母庫、匯入、階層標籤、批量改名、轉檔匯出、智慧資料夾
+│   ├── project/             # 專案、專案白板與獨立白板、Placement
+│   ├── canvas/              # 白板幾何、命中測試、群組與渲染狀態
+│   ├── thumbnail/           # 縮圖、影片抽幀、主色盤提取、pHash/dHash 計算
+│   ├── watcher/             # fsnotify 檔案遺失追蹤與監控資料夾同步
+│   ├── share/               # 區域網發現與 WebRTC 配對碼 E2E
+│   ├── server/              # [v2] 內建伺服器、Local API、Web Viewer、信令與 Push 同步
+│   ├── mcp/                 # [v2] MCP Server（Tools / Resources，共用 Stdio 與 HTTP）
+│   ├── plugin/              # [v2] 插件管理器（manifest / wazero WASM / JSON-RPC）
+│   ├── ai/                  # [v2] Embedding 檢索引擎與 Laya / Ollaya 開源決策分類器
+│   ├── config/              # 系統設定目錄 config.json 讀寫
+│   └── i18n/                # 繁體中文 / 英文語系字典
+├── extensions/
+│   └── browser/             # [v2] Chrome / Edge / Firefox Manifest V3 瀏覽器擴充
+└── ui/                      # MyGo Native UI 視圖與主題系統
 ```
 
-
-
-\*\*匯入流程\*\*
-
-1\. 使用者選擇路徑與 StorageMode。
-
-2\. 依模式處理實體檔案（索引／連結／移動／複製）。
-
-3\. 計算 hash、讀取媒體資訊、生成縮圖。
-
-4\. 在 transaction 中寫入 `assets`、`assets\_by\_hash`、`assets\_by\_path`。
-
-5\. 若使用者指定標籤，同時寫入 `asset\_tags` 與 `tag\_assets`。
-
-
-
-\*\*白版渲染\*\*
-
-在視圖的 Render 中：
-
-\- 以目前 boardID 前綴掃描 `placements\_by\_board`。
-
-\- 讀取對應 Placement 與 Asset 縮圖。
-
-\- 只繪製可視範圍內的項目。
-
-\- 互動時修改記憶體狀態，停止操作或定時以 transaction 寫回 `placements`。
-
-
-
-\*\*標籤與專案瀏覽\*\*
-
-\- 列出所有標籤：掃描 `tags` bucket。
-
-\- 某標籤下的專案：前綴掃描 `tag\_projects`。
-
-\- 某標籤下的素材：前綴掃描 `tag\_assets`。
-
-
-
-\---
-
-
-
-\### 七、分享實作
-
-
-
-\*\*區域網\*\*
-
-廣播自身存在。使用者選擇一個專案後，從 bbolt 讀出該專案所屬標籤、所有 boards、placements、相關 assets 元資料，以及使用者勾選的實體檔案，透過 TCP 傳送。
-
-
-
-\*\*配對碼 E2E\*\*
-
-產生短碼向信令服務註冊。對方輸入後建立 WebRTC DataChannel。先傳元資料幀，再傳檔案幀（含 hash 與位元組偏移）。接收方在 transaction 內寫入自己的 bbolt，並以 hash 做去重。
-
-
-
-\---
-
-
-
-\### 八、開發順序
-
-
-
-1\. bbolt bucket 初始化、Asset 寫入與讀取、hash／path 索引。
-
-2\. 標籤的建立與素材歸屬。
-
-3\. 專案建立、專案與標籤的關聯、從母庫引用素材。
-
-4\. Board 與 Placement 的寫入、白版基本渲染與拖曳。
-
-5\. 縮圖與檔案監聽。
-
-6\. 區域網分享。
-
-7\. 配對碼 E2E 分享。
-
-
-
-每完成一個階段，必須能在無網路狀態下正常使用已實作的功能。
-
-
-
-\---
-
-
-
-\### 九、邊界與注意事項
-
-
-
-\- 標籤刪除時不自動刪除其下專案，只移除關聯；專案仍可透過其他標籤或直接列表找到。
-
-\- 高頻白版更新必須緩衝，不可每次滑鼠移動都開 transaction。
-
-\- 鍵設計必須支援前綴掃描，否則列表操作會變成全表讀取。
-
-\- 單一 bbolt 檔案需有備份機制，損壞會影響整個庫。
-
-\- 第一版分享以傳送副本為主，不做即時多人協作。
-
-
-
-此文件為 Ragle 的完整實作基準。
-
 ---
 
-### 十、第一版實作補充（階段 1–5）
+## 七、工程紀律與驗證要求
 
-這一版完成開發順序的第 1 到第 6 步：母庫、標籤、專案引用、白版、縮圖、檔案監聽，以及區域網分享。配對碼與即時協作尚未實作。
-
-#### 識別碼與索引
-
-- 識別碼是 ULID 字串，不含 `/`。索引鍵寫成 `父 ID/子 ID`，值是空的 byte slice，以便前綴掃描。
-- `meta` bucket 的 schema 版號是 `"1"`。
-- 相同 SHA-256 視為同一筆素材。再次匯入只補上標籤，不重複複製檔案。
-
-#### 專案引用
-
-- `project_assets` 與 `asset_projects` 記錄專案引用了哪些素材。引用本身不會在白版上建立放置。
-- 取消引用時，同一筆交易刪掉該專案各白版上這個素材的圖片放置。母庫檔案與其他專案的放置留下。
-
-#### 放置
-
-Placement 在規格的欄位之外還有：`kind`（`image`、`text`、`group`）、`parent_id`、`width`、`height`、`text`、`font_size`。`notes` 是註記，文字物件的內文放在 `text`。
-
-子物件的 `x`、`y`、`scale`、`rotation` 相對於父物件。原點在左上，Y 向下，旋轉以度為單位、順時針，與 MyGo Painter 一致。`x`、`y` 是物件中心。群組的縮放與旋轉會帶動子物件。
-
-#### 刪除
-
-- 刪除素材會移除標籤關聯、專案引用與所有放置。`index` 不刪使用者的原檔。`symlink` 只刪母庫裡的連結。`copy` 與 `move` 刪除母庫擁有的檔案。
-- 刪除群組時，同一筆操作刪掉所有子孫放置。
-- 刪除標籤只移除關聯。專案與素材都留著，仍可從列表找到。
-- 刪除專案只移除該專案的白版與放置，母庫檔案留下。
-
-#### 檔案不見與重新連結
-
-Asset 有 `missing`。監聽發現檔案不見時把它設為 true，並拿掉 path 索引。`Path` 仍留在紀錄上，介面可以顯示舊路徑。以雜湊重新連結成功後清除 `missing`。
-
-#### 備份
-
-- 資料庫成功開啟後，用 bbolt 交易的 `tx.WriteTo` 寫出 `ragle.db.bak`。檔案正開著，所以不直接複製那個檔。
-- 刪除專案、素材或標籤之前也先備份。
-- 開啟失敗且備份存在時，歡迎畫面可以還原。
-- 在 Windows 上取代檔案時，先刪掉目的地再改名。
-
-#### 匯入與縮圖
-
-- 存放方式是 `index`、`symlink`、`move`、`copy`。
-- 複製、移動與連結放進母庫的 `files/`，沿用原檔名。撞名時使用 `name (2).ext`。
-- 連結失敗時回傳錯誤，不改成複製，來源檔留在原地。
-- 略過母庫自己的 `files/`、`thumbs/`、`ragle.db*`，以及隱藏名稱。
-- 每個新檔案一筆寫入交易。縮圖在素材列寫入之後，由兩個 worker 非同步產生。
-- 沒有 ffmpeg 時，影片卡片顯示副檔名，其餘功能照常可用。
-
-#### 白版互動
-
-- 拖曳先改記憶體。放開指標與結構性修改時立刻寫回；有未寫入的變更時，最遲每 400 毫秒寫一次。不在每次滑鼠移動時開交易，也不在繪製裡寫入。
-- 滾輪以游標為中心縮放。中鍵，或按住空白鍵拖曳，用來平移。
-- 從母庫或專案托盤把圖片拖進白版。新圖片的長邊約 320。文字工具可建立文字，雙擊進入編輯，側邊把手調整寬度。角點等比例縮放，上方把手旋轉。
-- 可多選後群組或解散，也可調整圖層。從白版刪除只移除放置，不刪素材。
-- 群組的點選範圍是變換後的外框，子物件優先於群組。只繪製與可視範圍相交的物件。
-- 跨 goroutine 更新介面走 `Window.Update`。檔案對話框從 goroutine 呼叫，避免在視圖裡呼叫而卡住主執行緒。
-
-#### 視窗、語系與外觀
-
-- 單一視窗，畫面是歡迎、母庫、專案、白版。
-- 第一次啟動時選擇母庫資料夾。資料庫、縮圖，以及複製、移動、連結的檔案都放在該資料夾。
-- 偏好存在系統設定目錄的 `Ragle/config.json`（`library_path`、`language`），不寫進母庫。
-- 介面可在繁體中文與英文之間切換。預設跟著作業系統：中文語系用繁體中文，其餘用英文。
-- 刪除確認會說明母庫檔案會不會被刪除。
-- 外觀跟著系統的淺色或深色，以及系統強調色。白版紙色在淺色是 `#f4f1ea`，深色是 `#1c1c1c`。應用圖示是 `Logo.png`。
-
-#### 區域網分享
-
-- 發現用 UDP 廣播，連接埠 47321，封包以 `RGL1` 開頭。同一台機器上的兩個程式用 `SO_REUSEADDR` 綁同一個連接埠。TCP 用系統分配的連接埠，並寫在廣播裡。
-- 使用者在專案畫面選擇一台裝置，並決定要不要連素材檔案一起送。送出的是專案、標籤、白版、放置、引用與素材中繼資料的副本。
-- 對方先看到確認。拒絕就不會寫進資料庫，也不會傳檔案。
-- 接收時所有識別碼都換成新的。標籤以名稱對上，不分大小寫，沒有才建立。專案若沒有標籤，接收方會放進名為 Shared 的標籤。
-- 素材以 SHA-256 去重。雜湊已存在就沿用那筆，多出來的檔案刪掉。新檔案寫進 `files/`，存放方式是 `copy`。沒有帶檔案的新素材標成 missing，存放方式是 `index`，路徑只留檔名，之後刪除不會去刪使用者的原檔。
-- 關掉視窗時會取消還沒完成的分享。發現或傳輸失敗時，母庫仍可離線使用。
-
-#### 程式配置
-
-- 模組路徑是 `ragle`。進入點是 `cmd/ragle`。套件在 `internal/db`、`model`、`library`、`project`、`canvas`、`thumbnail`、`watcher`、`i18n`、`config`、`share`，視圖在 `ui/`。
-- `mygo.json` 的 `main` 是 `./cmd/ragle`。
-
-
-
----
-
-### 十一、介面架構與 MyGo Native UI 升級紀錄（v0.7.4）
-
-1. **框架與相依版本升級**：
-   - 升級至 `github.com/egoist/mygo v0.7.4` 與 Go 1.27.3。
-   - 執行 `mygo vet .` 驗證，所有 Handle、生命週期與 Context 用法皆合規。
-
-2. **原生佈局與組件全面重構**：
-   - **雙層分割視圖（`ui.Split` / `ui.SplitPercent`）**：
-     - 外層採用 `ui.Split` 分隔側邊欄與主要工作區，支援滑鼠拖曳與記憶寬度（預設 220 DIP）。
-     - 母庫內部採用 `ui.SplitPercent`（預設 72% / 28%）分割素材網格與右側 Inspector 檢查面板，防止小視窗時元素擠壓變形。
-     - 白版模式進入時全螢幕呈現畫布工作區，並以 `AlignItems(gui.Stretch)` 保證畫布與側邊檢查欄滿高展開。
-   - **標準側邊導覽（`ui.Sidebar` / `ui.SidebarSection` / `ui.SidebarItem`）**：
-     - 取代原有手繪按鈕與破碎的 ScrollView，整合鍵盤上/下/Home/End 選擇與自動折疊。
-     - 底部新增標籤與新增專案收納於獨立管理列，避免因標籤項目少時將表單擠壓至螢幕底部的問題。
-   - **素材網格（`ui.GridView`）渲染修正**：
-     - 去除 Cell 內多餘嵌套的固定容器，改以 `Fill().Padding(4)` 配合 Cell 自動適配。
-     - 圖片縮圖使用 `Image.Fit(gui.Contain).Grow(1).Radius(6)`，徹底解決高解析度（如 4x density）圖片尺寸溢出與黑色遮蔽塊問題。
-     - 檔名使用 `SingleLine()` 配合適當字級，防止長檔名過度換行破壞卡片高度。
-   - **原生評分組件（`ui.Rating`）**：
-     - Inspector 內將原先手刻的 5 個星號按鈕替換為 MyGo 原生 `Rating` 組件，支援即時懸停預覽與無障礙鍵盤操作。
-   - **頂部工具列（TopBar）視覺強化**：
-     - 採用 `Background(t.Surface)` 獨立視覺層次，狀態文字設定 `SingleLine()` 與最大寬度，避免訊息過長破壞標題列佈局。
-
----
-
-### 十二、階段 7 實作紀錄（配對碼 E2E 分享）
-
-1. **輕量自架信令服務（`internal/share/signal.go`、`cmd/ragle-signal`）**：
-   - 提供可自架的純 HTTP/JSON 長輪詢信令伺服器（`go run ./cmd/ragle-signal -addr :8787 -ttl 5m`），僅在記憶體暫存短生命週期 SDP Offer/Answer，不經手專案資料或檔案。
-   - 配對碼採用 6 碼去歧義字元（格式 `XXX-XXX`，輸入時不分大小寫與連字號），支援過期清理、防重複領取與發送方取消清理。
-
-2. **WebRTC DataChannel 端對端加密傳輸（`internal/share/pair.go`）**：
-   - 使用 `github.com/pion/webrtc/v4` 建立 DTLS 加密、有序可靠的 DataChannel（`ragle-share`）。
-   - 先分塊傳送 `Bundle` 元資料幀，經接收方確認後，再以 32 KiB 分塊傳送檔案幀（含 `Hash` 與位元組偏移 `Offset`）並具備背壓控制。
-   - 接收方驗證檔案大小與 SHA-256 後，於單一 bbolt transaction 內寫入並依雜湊去重。
-
-3. **設定與 UI 整合（`internal/config`、`internal/i18n`、`ui/share.go`、`ui/shell.go`）**：
-   - `config.json` 新增選填 `signaling_url`；未設定時不影響單機離線與區域網分享。
-   - 專案分享面板整合「產生配對碼 / 複製配對碼 / 取消」，頂部工具列新增「輸入配對碼」快速接收列。
+1. **MyGo 生命週期紀律**：遵循 `.agents/skills/mygo-maintenance/SKILL.md`；絕不跨 frame 或跨 goroutine 持有 `ui.Element` 或 `*ui.Context`；所有非同步回呼透過 `win.Update(...)` 回到 UI 執行緒；全域快捷鍵必須在 `View(c)` 根層級註冊。
+2. **單一交易一致性**：所有涉及主資料與輔助索引的寫入，必須在同一個 `db.Update` 交易中完成；破壞性操作前一律觸發資料庫備份。
+3. **驗證門檻**：每次里程碑提交前必須通過 `go tool mygo vet .`、`CGO_ENABLED=0 go test -count=1 ./...`，並針對重大 UI 改動以 `RAGLE_SNAPSHOT_DIR` 產出截圖做視覺審查。
