@@ -47,6 +47,7 @@ var (
 	BucketPlacementsByAsset = []byte("placements_by_asset")
 	BucketRenameHistory     = []byte("rename_history")
 	BucketBoardsStandalone  = []byte("boards_standalone")
+	BucketAssetVectors      = []byte("asset_vectors")
 	BucketMeta              = []byte("meta")
 )
 
@@ -69,6 +70,7 @@ var allBuckets = [][]byte{
 	BucketPlacementsByBoard,
 	BucketPlacementsByAsset,
 	BucketRenameHistory,
+	BucketAssetVectors,
 	BucketMeta,
 }
 

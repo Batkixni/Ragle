@@ -286,13 +286,13 @@ func TestRealUserClicksEveryControl(t *testing.T) {
 	}
 
 	// 12. Create board, switch tray to Library, click asset to place on board, verify placement!
-	if err := tt.Click("+ 新白版"); err != nil {
+	if err := tt.Click("+ 新白板"); err != nil {
 		t.Fatalf("clicking + New Board failed: %v", err)
 	}
 	if a.screen != screenBoard {
 		t.Fatalf("expected screenBoard, got %v", a.screen)
 	}
-	if err := tt.Click("母庫"); err != nil {
+	if err := tt.Click("資料庫"); err != nil {
 		t.Fatalf("clicking tray Library failed: %v", err)
 	}
 	tt.Advance(50 * time.Millisecond)
@@ -676,6 +676,41 @@ func TestGlobalShortcutsAndMarqueeBoxSelection(t *testing.T) {
 	for _, asset := range a.assets {
 		if a.assetName(asset) == "shot_01.png" {
 			t.Fatalf("Ctrl+Z did not revert shot_01.png")
+		}
+	}
+
+	// 11. Ctrl+T Go to / Command Palette popup opens, filters, and executes!
+	tt.Key(gui.Cmd, gui.KeyT)
+	tt.Advance(250 * time.Millisecond)
+	if !a.gotoOpen || !tt.HasText("快速跳轉與操作") {
+		t.Fatalf("Ctrl+T did not open Go to palette: open=%v texts=%v", a.gotoOpen, tt.Texts())
+	}
+	tt.Key(0, gui.KeyEscape)
+	tt.Frame()
+	if a.gotoOpen {
+		t.Fatal("Escape did not close Go to palette")
+	}
+
+	// 12. Inline Preview Viewer (Space opens inline viewer, NOT modal; Esc returns to grid).
+	if len(a.assets) > 0 {
+		a.selectCard(0, 0)
+		tt.Frame()
+		tt.Key(0, gui.KeySpace)
+		tt.Advance(250 * time.Millisecond)
+		if !a.previewOpen {
+			t.Fatal("Space did not open inline preview")
+		}
+		// Inspector Similar tab switches cleanly inside inline viewer.
+		if err := tt.Click("相似"); err != nil {
+			t.Fatalf("clicking Similar tab in inspector failed: %v", err)
+		}
+		if a.inspectorTab != 1 {
+			t.Fatalf("expected inspectorTab=1, got %d", a.inspectorTab)
+		}
+		tt.Key(0, gui.KeyEscape)
+		tt.Frame()
+		if a.previewOpen {
+			t.Fatal("Esc did not exit inline preview")
 		}
 	}
 }

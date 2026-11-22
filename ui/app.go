@@ -204,7 +204,11 @@ type App struct {
 	exportQuality    int
 	exportMaxEdge    int
 
-	// Stage 14: Visual search (OKLab color filter, reverse image search) & Laya/Ollaya AI.
+	// Stage 14: Visual search (OKLab color filter, reverse image search) & Built-in Embedding + Laya AI.
+	embedEnabled      bool
+	layaEnabled       bool
+	aiIndexBusy       bool
+	aiIndexedCount    int
 	colorFilter       string
 	similarQueryLabel string
 	similarScores     map[string]float64
@@ -223,7 +227,7 @@ type App struct {
 	// Stage 18: Plugin manager.
 	plugins *plugin.Manager
 
-	// Quick Preview Lightbox & Video Player state.
+	// Quick Preview Inline Viewer & Video Player state.
 	previewOpen     bool
 	previewAssetID  string
 	previewBitmap   *gui.Bitmap
@@ -231,6 +235,21 @@ type App struct {
 	previewVideoErr string
 	previewLoop     bool
 	previewLoading  bool
+	previewZoom     float64
+
+	// Inspector Info / Similar tabs.
+	inspectorTab         int // 0 = Info, 1 = Similar
+	inspectorSimilarID   string
+	inspectorSimilar     []library.VisualMatch
+	inspectorSimilarBusy bool
+
+	// Ctrl+T Go to / Command Palette state.
+	gotoOpen  bool
+	gotoQuery string
+	gotoIndex int
+
+	// Random discovery seed.
+	randomSeed int64
 
 	// Custom theme overrides.
 	themePreset   string
@@ -474,6 +493,8 @@ func (a *App) applyConfig(cfg config.Config) {
 	a.backupBeforeDelete = config.BoolOr(cfg.BackupBeforeDelete, true)
 	a.shareFiles = config.BoolOr(cfg.ShareIncludeFiles, true)
 	a.deviceName = cfg.DeviceName
+	a.embedEnabled = config.BoolOr(cfg.EmbedEnabled, true)
+	a.layaEnabled = config.BoolOr(cfg.LayaEnabled, true)
 	a.layaURL = cfg.LayaURL
 	if a.layaURL == "" {
 		a.layaURL = laya.DefaultBaseURL
@@ -519,6 +540,8 @@ func (a *App) syncConfigFromState() {
 	a.cfg.ShareIncludeFiles = config.BoolPtr(a.shareFiles)
 	a.cfg.DeviceName = strings.TrimSpace(a.deviceName)
 	a.cfg.SignalingURL = strings.TrimSpace(a.signalURL)
+	a.cfg.EmbedEnabled = config.BoolPtr(a.embedEnabled)
+	a.cfg.LayaEnabled = config.BoolPtr(a.layaEnabled)
 	a.cfg.LayaURL = strings.TrimSpace(a.layaURL)
 	a.cfg.LayaModel = strings.TrimSpace(a.layaModel)
 	a.cfg.ServerPort = a.serverPortValue()
@@ -902,11 +925,15 @@ func (a *App) applyFilters() {
 	}
 
 	colorDists := map[string]float64{}
+	recentCutoff := time.Now().Add(-14 * 24 * time.Hour)
 	for _, asset := range a.allAssets {
 		if a.navFilter == "missing" && !asset.Missing {
 			continue
 		}
 		if a.navFilter == "untagged" && len(a.assetTags[asset.ID]) > 0 {
+			continue
+		}
+		if a.navFilter == "recent" && !asset.CreatedAt.IsZero() && asset.CreatedAt.Before(recentCutoff) {
 			continue
 		}
 		if tagSet != nil && !a.hasAnyTag(asset.ID, tagSet) {
@@ -943,6 +970,14 @@ func (a *App) applyFilters() {
 	} else if a.colorFilter != "" {
 		sort.Slice(out, func(i, j int) bool {
 			return colorDists[out[i].ID] < colorDists[out[j].ID]
+		})
+	} else if a.navFilter == "random" {
+		seed := a.randomSeed
+		if seed == 0 {
+			seed = 1
+		}
+		sort.Slice(out, func(i, j int) bool {
+			return hashOrderKey(out[i].ID, seed) < hashOrderKey(out[j].ID, seed)
 		})
 	} else {
 		switch a.sortBy {
@@ -1220,6 +1255,7 @@ func (a *App) openPreview(asset model.Asset) {
 		return
 	}
 	a.previewOpen = true
+	a.previewZoom = 1.0
 	if a.previewAssetID == asset.ID && (a.previewBitmap != nil || a.previewVideo != nil || a.previewLoading) {
 		return
 	}
@@ -1228,6 +1264,17 @@ func (a *App) openPreview(asset model.Asset) {
 		a.previewVideo = nil
 	}
 	a.previewAssetID = asset.ID
+	// Keep inspector synced with the viewed asset.
+	for i, item := range a.assets {
+		if item.ID == asset.ID {
+			a.assetIndex = i
+			a.selectedIDs = map[string]bool{asset.ID: true}
+			break
+		}
+	}
+	if a.inspectorTab == 1 {
+		a.ensureInspectorSimilar(asset)
+	}
 	a.previewBitmap = nil
 	a.previewVideoErr = ""
 	a.previewLoading = false
@@ -1939,6 +1986,27 @@ func (a *App) handleNav(nav string) {
 		a.assetIndex = -1
 		a.screen = screenLibrary
 		a.reload()
+	case nav == "filter-recent":
+		a.closePreview()
+		a.flushBoard(true)
+		a.session = nil
+		a.referenceMode = false
+		a.tagID = ""
+		a.navFilter = "recent"
+		a.assetIndex = -1
+		a.screen = screenLibrary
+		a.reload()
+	case nav == "filter-random":
+		a.closePreview()
+		a.flushBoard(true)
+		a.session = nil
+		a.referenceMode = false
+		a.tagID = ""
+		a.navFilter = "random"
+		a.randomSeed = time.Now().UnixNano()
+		a.assetIndex = -1
+		a.screen = screenLibrary
+		a.reload()
 	case nav == "filter-missing":
 		a.closePreview()
 		a.flushBoard(true)
@@ -1991,6 +2059,10 @@ func (a *App) syncNavSelection() {
 		switch {
 		case a.navFilter == "untagged":
 			a.selectedNav = "filter-untagged"
+		case a.navFilter == "recent":
+			a.selectedNav = "filter-recent"
+		case a.navFilter == "random":
+			a.selectedNav = "filter-random"
 		case a.navFilter == "missing":
 			a.selectedNav = "filter-missing"
 		case a.tagID != "":
@@ -2114,6 +2186,7 @@ func (a *App) clearSelection() {
 func (a *App) canRunLibraryShortcut() bool {
 	return a.lib != nil &&
 		a.screen == screenLibrary &&
+		!a.gotoOpen &&
 		!a.onboardingOpen &&
 		!a.tagManagerOpen &&
 		!a.previewOpen &&
@@ -2201,6 +2274,13 @@ func (a *App) registerWindowShortcuts(c *gui.Context) {
 			a.sidebarOpen = !a.sidebarOpen
 		}
 	})
+	c.OnShortcut(gui.Cmd, gui.KeyT, func() {
+		if !a.gotoOpen {
+			a.openGotoModal()
+		} else {
+			a.gotoOpen = false
+		}
+	})
 	c.OnShortcut(gui.Cmd, gui.KeyComma, func() {
 		a.openSettings(a.settingsTab)
 	})
@@ -2244,6 +2324,10 @@ func (a *App) registerWindowShortcuts(c *gui.Context) {
 		}
 	})
 	c.OnShortcut(0, gui.KeyEscape, func() {
+		if a.previewOpen {
+			a.closePreview()
+			return
+		}
 		if !a.canRunLibraryShortcut() {
 			return
 		}
@@ -2259,6 +2343,16 @@ func (a *App) registerWindowShortcuts(c *gui.Context) {
 		}
 	})
 	c.OnShortcut(0, gui.KeySpace, func() {
+		if a.previewOpen {
+			if a.previewVideo != nil {
+				if a.previewVideo.Playing() {
+					a.previewVideo.Pause()
+				} else {
+					a.previewVideo.Play()
+				}
+			}
+			return
+		}
 		if a.canRunLibraryShortcut() {
 			if asset, ok := a.selectedAsset(); ok {
 				a.openPreview(asset)
@@ -2273,11 +2367,19 @@ func (a *App) registerWindowShortcuts(c *gui.Context) {
 		}
 	})
 	c.OnShortcut(0, gui.KeyLeft, func() {
+		if a.previewOpen {
+			a.stepPreview(-1)
+			return
+		}
 		if a.canRunLibraryShortcut() {
 			a.stepAssetSelection(-1, false)
 		}
 	})
 	c.OnShortcut(0, gui.KeyRight, func() {
+		if a.previewOpen {
+			a.stepPreview(1)
+			return
+		}
 		if a.canRunLibraryShortcut() {
 			a.stepAssetSelection(1, false)
 		}
@@ -2628,6 +2730,15 @@ func (a *App) moveBoardToProject(boardID, projectID string) {
 	}
 	a.reload()
 	a.notify(fmt.Sprintf(a.t("board.movedToProject"), projName))
+}
+
+func hashOrderKey(id string, seed int64) uint64 {
+	var h uint64 = 14695981039346656037 ^ uint64(seed)
+	for i := 0; i < len(id); i++ {
+		h ^= uint64(id[i])
+		h *= 1099511628211
+	}
+	return h
 }
 
 func (a *App) deleteStandaloneBoardPrompt(b model.Board) {

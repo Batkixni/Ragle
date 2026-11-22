@@ -19,6 +19,7 @@ const (
 	settingsTabDatabase
 	settingsTabImport
 	settingsTabSharing
+	settingsTabAI
 	settingsTabPlugins
 )
 
@@ -28,6 +29,9 @@ func (a *App) openSettings(tab int) {
 		a.settingsTab = tab
 	}
 	a.settingsOpen = true
+	if a.lib != nil {
+		a.aiIndexedCount = a.lib.VectorCount()
+	}
 	a.refreshDBStats()
 }
 
@@ -255,7 +259,8 @@ func (a *App) settingsModal(c *gui.Context) {
 			{settingsTabDatabase, iconDatabase, a.t("settings.tab.database")},
 			{settingsTabImport, iconImport, a.t("settings.tab.import")},
 			{settingsTabSharing, iconShare, a.t("settings.tab.sharing")},
-			{settingsTabPlugins, iconSparkle, a.t("settings.tab.plugins")},
+			{settingsTabAI, iconSparkle, a.t("settings.tab.ai")},
+			{settingsTabPlugins, iconPalette, a.t("settings.tab.plugins")},
 		}
 
 		gui.Row(c).Fill().Children(func() {
@@ -355,6 +360,8 @@ func (a *App) settingsModal(c *gui.Context) {
 							a.settingsImportTab(c)
 						case settingsTabSharing:
 							a.settingsSharingTab(c)
+						case settingsTabAI:
+							a.settingsAITab(c)
 						case settingsTabPlugins:
 							a.settingsPluginsTab(c)
 						}
@@ -548,27 +555,53 @@ func (a *App) settingsGeneralTab(c *gui.Context) {
 			})
 		})
 	})
+}
 
-	// Local Open-Source AI Classification (Laya / Ollaya).
+func (a *App) settingsAITab(c *gui.Context) {
+	// Built-in Visual Embedding Model card.
+	a.settingsGroup(c, a.t("ai.embedSection"), func() {
+		a.settingsSwitchRow(c, "pref-ai-embed-en", a.t("ai.embedEnable"), &a.embedEnabled, func() {
+			a.syncConfigFromState()
+		})
+		gui.Text(c, a.t("ai.embedDesc")).FontSize(12).TextColor(a.pal.inkSecondary).LineHeight(1.45)
+		gui.Row(c).FillWidth().Gap(10).AlignItems(gui.Center).Children(func() {
+			gui.Text(c, fmt.Sprintf(a.t("ai.embedStatus"), a.aiIndexedCount, a.allAssetsCount)).
+				FontSize(12).
+				Bold().
+				TextColor(a.pal.ink).
+				Grow(1)
+			a.arcButton(c, "pref-ai-reindex", a.t("ai.reindex"), true).
+				Disabled(a.aiIndexBusy || !a.embedEnabled).
+				OnClick(func() { a.reindexVisualEmbeddings() })
+		})
+	})
+
+	// Built-in Laya Decision Engine + optional Ollaya acceleration.
 	a.settingsGroup(c, a.t("laya.section"), func() {
-		gui.Row(c).FillWidth().Gap(8).AlignItems(gui.Center).Children(func() {
-			gui.Text(c, a.t("laya.url")).FontSize(12).TextColor(a.pal.inkSecondary).Width(130)
-			gui.TextInput(c.Key("pref-laya-url"), &a.layaURL).
-				Placeholder("http://127.0.0.1:11435").
-				Grow(1).
-				OnSubmit(func() { a.syncConfigFromState() })
+		a.settingsSwitchRow(c, "pref-ai-laya-en", a.t("ai.layaEnable"), &a.layaEnabled, func() {
+			a.syncConfigFromState()
 		})
-		gui.Row(c).FillWidth().Gap(8).AlignItems(gui.Center).Children(func() {
-			gui.Text(c, a.t("laya.model")).FontSize(12).TextColor(a.pal.inkSecondary).Width(130)
-			gui.TextInput(c.Key("pref-laya-model"), &a.layaModel).
-				Placeholder("laya").
-				Grow(1).
-				OnSubmit(func() { a.syncConfigFromState() })
-			a.toolButton(c, "pref-laya-test", iconSparkle, a.t("laya.test"), false).OnClick(func() {
-				a.syncConfigFromState()
-				a.testLayaConnection()
+		gui.Text(c, a.t("ai.layaBuiltInDesc")).FontSize(12).TextColor(a.pal.inkSecondary).LineHeight(1.45)
+		if a.layaEnabled {
+			gui.Row(c).FillWidth().Gap(8).AlignItems(gui.Center).Children(func() {
+				gui.Text(c, a.t("laya.url")).FontSize(12).TextColor(a.pal.inkSecondary).Width(130)
+				gui.TextInput(c.Key("pref-laya-url"), &a.layaURL).
+					Placeholder("http://127.0.0.1:11435").
+					Grow(1).
+					OnSubmit(func() { a.syncConfigFromState() })
 			})
-		})
+			gui.Row(c).FillWidth().Gap(8).AlignItems(gui.Center).Children(func() {
+				gui.Text(c, a.t("laya.model")).FontSize(12).TextColor(a.pal.inkSecondary).Width(130)
+				gui.TextInput(c.Key("pref-laya-model"), &a.layaModel).
+					Placeholder("laya").
+					Grow(1).
+					OnSubmit(func() { a.syncConfigFromState() })
+				a.toolButton(c, "pref-laya-test", iconSparkle, a.t("laya.test"), false).OnClick(func() {
+					a.syncConfigFromState()
+					a.testLayaConnection()
+				})
+			})
+		}
 	})
 }
 

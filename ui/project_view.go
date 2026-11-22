@@ -26,9 +26,6 @@ func (a *App) projectView(c *gui.Context) {
 			Gap(6).
 			AlignItems(gui.Center).
 			Children(func() {
-				a.iconButton(c, "proj-toggle-sidebar", iconPanelLeft, a.t("sidebar.toggle"), a.sidebarOpen).OnClick(func() {
-					a.sidebarOpen = !a.sidebarOpen
-				})
 				a.toolButton(c, "proj-back-lib", iconArrowLeft, a.t("shell.library"), false).OnClick(func() {
 					a.handleNav("tag-all")
 				})

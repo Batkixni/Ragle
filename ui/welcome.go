@@ -14,7 +14,7 @@ func (a *App) View(c *gui.Context) {
 	} else {
 		a.shell(c)
 	}
-	a.previewModal(c)
+	a.gotoModal(c)
 	a.settingsModal(c)
 	a.onboardingModal(c)
 	a.tagManagerModal(c)

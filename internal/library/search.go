@@ -5,6 +5,7 @@ import (
 
 	"go.etcd.io/bbolt"
 
+	"ragle/internal/ai/embed"
 	"ragle/internal/db"
 	"ragle/internal/model"
 	"ragle/internal/thumbnail"
@@ -17,14 +18,19 @@ type VisualMatch struct {
 	Distance   float64 // perceptual distance (lower is closer)
 }
 
-// EnsureVisualFeatures computes and persists pHash, dHash, and OKLab palette
-// for assetID if not already indexed.
+// EnsureVisualFeatures computes and persists pHash, dHash, OKLab palette, and
+// 128-dim local visual embedding for assetID if not already indexed.
 func (l *Library) EnsureVisualFeatures(assetID string) (model.Asset, error) {
 	a, err := l.Get(assetID)
 	if err != nil {
 		return model.Asset{}, err
 	}
-	if len(a.Palette) > 0 && (a.PHash != 0 || a.DHash != 0) {
+	var hasVec bool
+	_ = l.DB.View(func(tx *bbolt.Tx) error {
+		_, hasVec = db.GetAssetVector(tx, assetID)
+		return nil
+	})
+	if len(a.Palette) > 0 && (a.PHash != 0 || a.DHash != 0) && hasVec {
 		return a, nil
 	}
 	src := a.ThumbnailPath
@@ -38,6 +44,7 @@ func (l *Library) EnsureVisualFeatures(assetID string) (model.Asset, error) {
 	if err != nil {
 		return a, err
 	}
+	vec, _ := embed.ExtractFromPath(src)
 	err = l.DB.Update(func(tx *bbolt.Tx) error {
 		cur, err := db.GetAsset(tx, assetID)
 		if err != nil {
@@ -47,19 +54,102 @@ func (l *Library) EnsureVisualFeatures(assetID string) (model.Asset, error) {
 		cur.DHash = dh
 		cur.Palette = pal
 		a = cur
+		if len(vec) > 0 {
+			_ = db.PutAssetVector(tx, assetID, vec)
+		}
 		return db.PutAsset(tx, cur)
 	})
 	return a, err
 }
 
+// AssetVector returns the stored 128-dim visual embedding for assetID, if present.
+func (l *Library) AssetVector(assetID string) ([]float32, bool) {
+	var vec []float32
+	var ok bool
+	_ = l.DB.View(func(tx *bbolt.Tx) error {
+		vec, ok = db.GetAssetVector(tx, assetID)
+		return nil
+	})
+	return vec, ok
+}
+
+// VectorCount returns how many assets currently have visual embeddings indexed.
+func (l *Library) VectorCount() int {
+	var n int
+	_ = l.DB.View(func(tx *bbolt.Tx) error {
+		vecs, err := db.ListAssetVectors(tx)
+		if err == nil {
+			n = len(vecs)
+		}
+		return nil
+	})
+	return n
+}
+
+// ReindexAllVisuals extracts missing palettes, hashes, and 128-dim embeddings
+// across all visual assets in the library.
+func (l *Library) ReindexAllVisuals(progress func(done, total int)) (int, error) {
+	assets, err := l.List(Filter{})
+	if err != nil {
+		return 0, err
+	}
+	total := len(assets)
+	indexed := 0
+	for i, a := range assets {
+		if !a.Missing && (model.MediaKind(a.Mime) == model.MediaImage || a.ThumbnailPath != "") {
+			if _, err := l.EnsureVisualFeatures(a.ID); err == nil {
+				indexed++
+			}
+		}
+		if progress != nil {
+			progress(i+1, total)
+		}
+	}
+	return indexed, nil
+}
+
+// TagCentroids builds the mean visual embedding centroid for each tag that has
+// at least one indexed asset. Used by the built-in offline Laya classifier.
+func (l *Library) TagCentroids() map[string][]float32 {
+	out := map[string][]float32{}
+	_ = l.DB.View(func(tx *bbolt.Tx) error {
+		vecs, err := db.ListAssetVectors(tx)
+		if err != nil || len(vecs) == 0 {
+			return nil
+		}
+		tags, err := db.ListTags(tx)
+		if err != nil {
+			return nil
+		}
+		for _, tg := range tags {
+			aids, err := db.AssetsOfTag(tx, tg.ID)
+			if err != nil || len(aids) == 0 {
+				continue
+			}
+			var samples [][]float32
+			for _, aid := range aids {
+				if v, ok := vecs[aid]; ok {
+					samples = append(samples, v)
+				}
+			}
+			if c := embed.MeanCentroid(samples); len(c) > 0 {
+				out[tg.ID] = c
+			}
+		}
+		return nil
+	})
+	return out
+}
+
 // FindSimilarByAsset performs reverse image search using an asset already in
-// the library, ranking all other assets by combined pHash+dHash+palette similarity.
+// the library, ranking all other assets by combined 128-dim embedding + pHash/dHash + palette similarity.
 func (l *Library) FindSimilarByAsset(assetID string, minSimilarity float64, limit int) ([]VisualMatch, error) {
 	query, err := l.EnsureVisualFeatures(assetID)
 	if err != nil {
 		return nil, err
 	}
-	return l.findSimilarByFeatures(query.ID, query.PHash, query.DHash, query.Palette, minSimilarity, limit)
+	qVec, _ := l.AssetVector(assetID)
+	return l.findSimilarByFeatures(query.ID, query.PHash, query.DHash, query.Palette, qVec, minSimilarity, limit)
 }
 
 // FindSimilarByImage performs reverse image search from any external image file on disk.
@@ -68,29 +158,43 @@ func (l *Library) FindSimilarByImage(imagePath string, minSimilarity float64, li
 	if err != nil {
 		return nil, err
 	}
-	return l.findSimilarByFeatures("", ph, dh, pal, minSimilarity, limit)
+	qVec, _ := embed.ExtractFromPath(imagePath)
+	return l.findSimilarByFeatures("", ph, dh, pal, qVec, minSimilarity, limit)
 }
 
-func (l *Library) findSimilarByFeatures(excludeID string, qPH, qDH uint64, qPal []model.PaletteColor, minSimilarity float64, limit int) ([]VisualMatch, error) {
+func (l *Library) findSimilarByFeatures(excludeID string, qPH, qDH uint64, qPal []model.PaletteColor, qVec []float32, minSimilarity float64, limit int) ([]VisualMatch, error) {
 	assets, err := l.List(Filter{})
 	if err != nil {
 		return nil, err
 	}
+	var allVecs map[string][]float32
+	_ = l.DB.View(func(tx *bbolt.Tx) error {
+		allVecs, _ = db.ListAssetVectors(tx)
+		return nil
+	})
 	if minSimilarity <= 0 {
-		minSimilarity = 0.55
+		minSimilarity = 0.50
 	}
 	var out []VisualMatch
 	for _, a := range assets {
 		if excludeID != "" && a.ID == excludeID {
 			continue
 		}
-		if a.PHash == 0 && a.DHash == 0 {
+		vecB := allVecs[a.ID]
+		hasHash := a.PHash != 0 || a.DHash != 0
+		hasVec := len(qVec) > 0 && len(vecB) == len(qVec)
+		if !hasHash && !hasVec {
 			continue
 		}
-		hashSim := thumbnail.VisualSimilarity(qPH, qDH, a.PHash, a.DHash)
-		// Blend slight dominant-color affinity so images with both matching
-		// composition and matching color palette bubble to the top.
-		colorSim := hashSim
+		hashSim := 0.0
+		if hasHash {
+			hashSim = thumbnail.VisualSimilarity(qPH, qDH, a.PHash, a.DHash)
+		}
+		embSim := hashSim
+		if hasVec {
+			embSim = embed.CosineSimilarity(qVec, vecB)
+		}
+		colorSim := embSim
 		if len(qPal) > 0 && len(a.Palette) > 0 {
 			if d, ok := thumbnail.ColorDistanceToPalette(qPal[0].Hex, a.Palette); ok {
 				colorSim = 1.0 - d*2.0
@@ -99,7 +203,14 @@ func (l *Library) findSimilarByFeatures(excludeID string, qPH, qDH uint64, qPal 
 				}
 			}
 		}
-		score := 0.80*hashSim + 0.20*colorSim
+		var score float64
+		if hasVec && hasHash {
+			score = 0.52*embSim + 0.36*hashSim + 0.12*colorSim
+		} else if hasVec {
+			score = 0.85*embSim + 0.15*colorSim
+		} else {
+			score = 0.80*hashSim + 0.20*colorSim
+		}
 		if score >= minSimilarity {
 			out = append(out, VisualMatch{
 				Asset:      a,

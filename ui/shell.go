@@ -20,7 +20,7 @@ func (a *App) shell(c *gui.Context) {
 	if a.cardSize < 128 || a.cardSize > 300 {
 		a.cardSize = 184
 	}
-	gui.Column(c).Fill().Background(a.pal.canvas).Children(func() {
+	gui.Box(c).Fill().Background(a.pal.canvas).Children(func() {
 		if a.screen == screenBoard {
 			a.boardView(c)
 			return
@@ -28,6 +28,10 @@ func (a *App) shell(c *gui.Context) {
 
 		renderMain := func() {
 			gui.Column(c).Fill().Background(a.pal.canvas).Children(func() {
+				if a.previewOpen {
+					a.inlinePreviewView(c)
+					return
+				}
 				switch a.screen {
 				case screenProject:
 					a.projectView(c)
@@ -40,12 +44,50 @@ func (a *App) shell(c *gui.Context) {
 
 		if !a.sidebarOpen {
 			renderMain()
-			return
+		} else {
+			gui.Split(c, &a.sidebarWidth, func() {
+				a.sidebar(c)
+			}, renderMain).Fill()
 		}
 
-		gui.Split(c, &a.sidebarWidth, func() {
-			a.sidebar(c)
-		}, renderMain).Fill()
+		// Floating bottom-corner re-open buttons when panels are collapsed
+		// (keeps top bar clean and matches bottom-anchored collapse controls).
+		if !a.sidebarOpen {
+			gui.Box(c.Key("reopen-sidebar-wrap")).
+				Absolute().
+				Left(14).
+				Bottom(14).
+				Children(func() {
+					gui.Box(c).
+						Radius(radiusPill).
+						Background(a.pal.surfaceRaised).
+						Shadow(0, 6, 18, 0, a.pal.shadowRaised).
+						Padding(2).
+						Children(func() {
+							a.iconButton(c, "bottom-open-sidebar", iconPanelLeft, a.t("sidebar.toggle"), false).OnClick(func() {
+								a.sidebarOpen = true
+							})
+						})
+				})
+		}
+		if !a.inspectorOpen && (a.screen == screenLibrary || a.previewOpen) {
+			gui.Box(c.Key("reopen-inspector-wrap")).
+				Absolute().
+				Right(14).
+				Bottom(14).
+				Children(func() {
+					gui.Box(c).
+						Radius(radiusPill).
+						Background(a.pal.surfaceRaised).
+						Shadow(0, 6, 18, 0, a.pal.shadowRaised).
+						Padding(2).
+						Children(func() {
+							a.iconButton(c, "bottom-open-inspector", iconPanelRight, a.t("inspector.toggle"), false).OnClick(func() {
+								a.inspectorOpen = true
+							})
+						})
+				})
+		}
 	})
 }
 
@@ -64,6 +106,10 @@ func (a *App) currentViewTitle() string {
 	switch a.navFilter {
 	case "untagged":
 		return a.t("shell.untagged")
+	case "recent":
+		return a.t("shell.recent")
+	case "random":
+		return a.t("shell.random")
 	case "missing":
 		return a.t("shell.missing")
 	}
@@ -186,32 +232,29 @@ func (a *App) sidebar(c *gui.Context) {
 			Clip().
 			Background(a.pal.surface).
 			Children(func() {
-				// Top brand & quick utility header (48px, draggable to move frameless window).
+				// Clean top brand header (draggable frameless window region; utilities live at bottom).
 				gui.Row(c).
-					Height(48).
-					Padding(0, 8, 0, 14).
-					Gap(4).
+					Height(44).
+					Padding(4, 10, 0, 14).
+					Gap(8).
 					AlignItems(gui.Center).
+					DragWindow().
 					Children(func() {
-						gui.Row(c).
-							Grow(1).
-							FillHeight().
-							Gap(9).
-							AlignItems(gui.Center).
-							DragWindow().
-							Children(func() {
-								if bm := a.brandLogo(); bm != nil {
-									gui.Image(c, bm).Size(20, 20).Fit(gui.Contain)
-								}
-								gui.Text(c, a.libraryTitle()).Bold().FontSize(13).Grow(1).SingleLine()
-							})
-						a.iconButton(c, "sb-help-guide", iconHelp, a.t("onboarding.open"), a.onboardingOpen).OnClick(func() {
-							a.openOnboarding()
-						})
-						a.iconButton(c, "sb-settings", iconSettings, a.t("settings.open"), a.settingsOpen).OnClick(func() {
-							a.openSettings(a.settingsTab)
-						})
+						if bm := a.brandLogo(); bm != nil {
+							gui.Image(c, bm).Size(20, 20).Fit(gui.Contain)
+						}
+						gui.Text(c, a.libraryTitle()).Bold().FontSize(13).Grow(1).SingleLine()
 					})
+
+				// Clean sidebar quick-filter + Ctrl+T Go to launcher right below header.
+				gui.Row(c).Padding(6, 10, 6, 10).Gap(6).AlignItems(gui.Center).Children(func() {
+					gui.SearchField(c.Key("sidebar-filter"), &a.sidebarFilter).
+						Placeholder(a.t("library.search")).
+						Grow(1)
+					a.iconButton(c, "sb-goto-btn", iconCommand, a.t("goto.title")+" (Ctrl+T)", a.gotoOpen).OnClick(func() {
+						a.openGotoModal()
+					})
+				})
 
 				// Scrollable navigation tree with gliding pill highlight.
 				gui.Scroll(c.Key("nav-scroll")).Grow(1).FillWidth().Children(func() {
@@ -282,51 +325,14 @@ func (a *App) sidebar(c *gui.Context) {
 					track.Children(func() {
 						addNav("tag-all", iconLibrary, nil, a.t("shell.allAssets"), a.allAssetsCount, 0, false, false, nil, nil, nil)
 						addNav("filter-untagged", iconInbox, nil, a.t("shell.untagged"), a.untaggedCount, 0, false, false, nil, nil, nil)
+						addNav("filter-recent", iconClock, nil, a.t("shell.recent"), 0, 0, false, false, nil, nil, nil)
+						addNav("filter-random", iconShuffle, nil, a.t("shell.random"), 0, 0, false, false, nil, nil, nil)
 						if a.missingCount > 0 {
 							addNav("filter-missing", iconAlert, nil, a.t("shell.missing"), a.missingCount, 0, false, false, nil, nil, nil)
 						}
 						addNav("manage-tags", iconTag, nil, a.t("tags.manage"), len(a.tags), 0, false, false, nil, nil, nil)
 
-						// Tags section header with inline "+" creator button.
-						gui.Row(c).FillWidth().Padding(14, 4, 4, 10).AlignItems(gui.Center).Children(func() {
-							a.sectionLabel(c, a.t("shell.tags"))
-							gui.Spacer(c)
-							a.miniHeaderButton(c, "sb-add-tag", iconPlus, a.t("tag.new"), a.newTagOpen).OnClick(func() {
-								a.newTagOpen = !a.newTagOpen
-							})
-						})
-
-						if a.newTagOpen {
-							gui.Row(c.Key("inline-new-tag-row")).
-								Padding(4, 4, 6, 4).
-								Gap(4).
-								AlignItems(gui.Center).
-								Transition(gui.ElementTransition{
-									Animation: &springSmooth,
-									Enter:     &gui.Motion{Y: -6, Opacity: 0, Collapse: true},
-									Exit:      &gui.Motion{Y: -6, Opacity: 0, Collapse: true},
-								}).
-								Children(func() {
-									gui.TextInput(c.Key("new-tag"), &a.newTagName).
-										Placeholder(a.t("tag.new")).
-										AutoFocus().
-										Grow(1).
-										OnSubmit(func() { a.createTag() })
-									a.iconButton(c, "new-tag-ok", iconCheck, a.t("tag.create"), true).OnClick(func() {
-										a.createTag()
-									})
-									a.iconButton(c, "new-tag-x", iconX, a.t("common.cancel"), false).OnClick(func() {
-										a.newTagOpen = false
-										a.newTagName = ""
-									})
-								})
-						}
-
-						if len(a.tags) > 0 {
-							renderTagNodes(a.tagChildren[""], 0)
-						}
-
-						// Standalone Boards section header with inline "+" creator button.
+						// Boards section header with inline "+" creator button.
 						gui.Row(c).FillWidth().Padding(14, 4, 4, 10).AlignItems(gui.Center).Children(func() {
 							a.sectionLabel(c, a.t("shell.boards"))
 							gui.Spacer(c)
@@ -406,16 +412,67 @@ func (a *App) sidebar(c *gui.Context) {
 								a.batchReferenceToProject(ids, projID)
 							})
 						}
+
+						// Tags section header with inline "+" creator button.
+						gui.Row(c).FillWidth().Padding(14, 4, 4, 10).AlignItems(gui.Center).Children(func() {
+							a.sectionLabel(c, a.t("shell.tags"))
+							gui.Spacer(c)
+							a.miniHeaderButton(c, "sb-add-tag", iconPlus, a.t("tag.new"), a.newTagOpen).OnClick(func() {
+								a.newTagOpen = !a.newTagOpen
+							})
+						})
+
+						if a.newTagOpen {
+							gui.Row(c.Key("inline-new-tag-row")).
+								Padding(4, 4, 6, 4).
+								Gap(4).
+								AlignItems(gui.Center).
+								Transition(gui.ElementTransition{
+									Animation: &springSmooth,
+									Enter:     &gui.Motion{Y: -6, Opacity: 0, Collapse: true},
+									Exit:      &gui.Motion{Y: -6, Opacity: 0, Collapse: true},
+								}).
+								Children(func() {
+									gui.TextInput(c.Key("new-tag"), &a.newTagName).
+										Placeholder(a.t("tag.new")).
+										AutoFocus().
+										Grow(1).
+										OnSubmit(func() { a.createTag() })
+									a.iconButton(c, "new-tag-ok", iconCheck, a.t("tag.create"), true).OnClick(func() {
+										a.createTag()
+									})
+									a.iconButton(c, "new-tag-x", iconX, a.t("common.cancel"), false).OnClick(func() {
+										a.newTagOpen = false
+										a.newTagName = ""
+									})
+								})
+						}
+
+						if len(a.tags) > 0 {
+							renderTagNodes(a.tagChildren[""], 0)
+						}
 					})
 					attachGlidingPill(track, activeBtn, hasActive, radiusControl, a.pal.pillActive, a.pal.shadowResting)
 				})
 
-				// Clean bottom sidebar filter bar.
-				gui.Box(c).Padding(8, 10, 10, 10).Children(func() {
-					gui.SearchField(c.Key("sidebar-filter"), &a.sidebarFilter).
-						Placeholder(a.t("sidebar.filter")).
-						FillWidth()
-				})
+				// Bottom utility footer inside the sidebar (Settings, Help, and Collapse Sidebar).
+				gui.Row(c).
+					Height(44).
+					Padding(0, 10).
+					Gap(4).
+					AlignItems(gui.Center).
+					Children(func() {
+						a.iconButton(c, "sb-settings", iconSettings, a.t("settings.open"), a.settingsOpen).OnClick(func() {
+							a.openSettings(a.settingsTab)
+						})
+						a.iconButton(c, "sb-help-guide", iconHelp, a.t("onboarding.open"), a.onboardingOpen).OnClick(func() {
+							a.openOnboarding()
+						})
+						gui.Spacer(c)
+						a.iconButton(c, "sb-collapse-btn", iconPanelLeft, a.t("sidebar.toggle"), false).OnClick(func() {
+							a.sidebarOpen = false
+						})
+					})
 			})
 	})
 }
@@ -486,11 +543,6 @@ func (a *App) workspaceBar(c *gui.Context) {
 		}
 
 		bar.Children(func() {
-			// Collapsible left sidebar toggle button (always accessible at top-left).
-			a.iconButton(c, "top-toggle-sidebar", iconPanelLeft, a.t("sidebar.toggle"), a.sidebarOpen).OnClick(func() {
-				a.sidebarOpen = !a.sidebarOpen
-			})
-
 			gui.Row(c).Gap(8).FillHeight().AlignItems(gui.Center).DragWindow().Children(func() {
 				gui.Text(c, a.currentViewTitle()).Bold().FontSize(14).SingleLine().MaxWidth(titleMaxW)
 				if !tight {
@@ -616,10 +668,6 @@ func (a *App) workspaceBar(c *gui.Context) {
 					})
 				})
 			}
-
-			a.iconButton(c, "top-toggle-inspector", iconPanelRight, a.t("inspector.toggle"), a.inspectorOpen).OnClick(func() {
-				a.inspectorOpen = !a.inspectorOpen
-			})
 
 			gui.Box(c).Width(1).Height(18).Background(a.pal.surfaceMuted)
 

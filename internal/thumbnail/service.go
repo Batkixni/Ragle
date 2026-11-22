@@ -11,6 +11,7 @@ import (
 
 	"github.com/disintegration/imaging"
 
+	"ragle/internal/ai/embed"
 	"ragle/internal/db"
 	"ragle/internal/model"
 )
@@ -120,6 +121,7 @@ func (s *Service) build(id string) error {
 	}
 	var ph, dh uint64
 	var pal []model.PaletteColor
+	var vec []float32
 
 	switch model.MediaKind(asset.Mime) {
 	case model.MediaImage:
@@ -139,6 +141,7 @@ func (s *Service) build(id string) error {
 		}
 		if fitted != nil {
 			ph, dh, pal = ExtractVisualFromImage(fitted)
+			vec = embed.ExtractFromImage(fitted)
 		}
 	case model.MediaVideo:
 		if !hasThumb {
@@ -148,6 +151,7 @@ func (s *Service) build(id string) error {
 		}
 		if img, err := imaging.Open(dest); err == nil {
 			ph, dh, pal = ExtractVisualFromImage(img)
+			vec = embed.ExtractFromImage(img)
 		}
 	default:
 		return nil
@@ -164,6 +168,9 @@ func (s *Service) build(id string) error {
 		if ph != 0 || dh != 0 {
 			cur.PHash = ph
 			cur.DHash = dh
+		}
+		if len(vec) > 0 {
+			_ = db.PutAssetVector(tx, id, vec)
 		}
 		return db.PutAsset(tx, cur)
 	})

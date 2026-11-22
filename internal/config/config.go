@@ -48,7 +48,9 @@ type Config struct {
 	DeviceName        string `json:"device_name,omitempty"`
 	ShareIncludeFiles *bool  `json:"share_include_files,omitempty"`
 
-	// Stage 14: Local Laya / Ollaya AI decision classifier preferences.
+	// Stage 14: Built-in Visual Embedding & Laya / Ollaya AI decision classifier preferences.
+	EmbedEnabled      *bool   `json:"embed_enabled,omitempty"`
+	LayaEnabled       *bool   `json:"laya_enabled,omitempty"`
 	LayaURL           string  `json:"laya_url,omitempty"`
 	LayaModel         string  `json:"laya_model,omitempty"`
 	LayaAutoThreshold float64 `json:"laya_auto_threshold,omitempty"`

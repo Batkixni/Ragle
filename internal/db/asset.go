@@ -1,6 +1,9 @@
 package db
 
 import (
+	"encoding/binary"
+	"math"
+
 	"go.etcd.io/bbolt"
 
 	"ragle/internal/model"
@@ -126,7 +129,61 @@ func DeleteAssetRecords(tx *bbolt.Tx, id string) error {
 			return err
 		}
 	}
+	if b := tx.Bucket(BucketAssetVectors); b != nil {
+		_ = b.Delete([]byte(id))
+	}
 	return tx.Bucket(BucketAssets).Delete([]byte(id))
+}
+
+// PutAssetVector stores a dense float32 visual embedding vector for assetID.
+func PutAssetVector(tx *bbolt.Tx, assetID string, vec []float32) error {
+	b := tx.Bucket(BucketAssetVectors)
+	if b == nil || len(vec) == 0 {
+		return nil
+	}
+	raw := make([]byte, len(vec)*4)
+	for i, v := range vec {
+		binary.LittleEndian.PutUint32(raw[i*4:], math.Float32bits(v))
+	}
+	return b.Put([]byte(assetID), raw)
+}
+
+// GetAssetVector reads the dense float32 visual embedding vector for assetID.
+func GetAssetVector(tx *bbolt.Tx, assetID string) ([]float32, bool) {
+	b := tx.Bucket(BucketAssetVectors)
+	if b == nil {
+		return nil, false
+	}
+	raw := b.Get([]byte(assetID))
+	if len(raw) == 0 || len(raw)%4 != 0 {
+		return nil, false
+	}
+	return decodeFloat32s(raw), true
+}
+
+// ListAssetVectors returns all stored visual embedding vectors keyed by assetID.
+func ListAssetVectors(tx *bbolt.Tx) (map[string][]float32, error) {
+	out := map[string][]float32{}
+	b := tx.Bucket(BucketAssetVectors)
+	if b == nil {
+		return out, nil
+	}
+	err := b.ForEach(func(k, v []byte) error {
+		if len(v) > 0 && len(v)%4 == 0 {
+			out[string(k)] = decodeFloat32s(v)
+		}
+		return nil
+	})
+	return out, err
+}
+
+func decodeFloat32s(raw []byte) []float32 {
+	n := len(raw) / 4
+	out := make([]float32, n)
+	for i := 0; i < n; i++ {
+		out[i] = math.Float32frombits(binary.LittleEndian.Uint32(raw[i*4:]))
+	}
+	return out
 }
 
 // UpdateAssetPath atomically updates an asset's record and swaps its path index

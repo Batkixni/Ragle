@@ -1104,6 +1104,12 @@ func (a *App) assetCard(c *gui.Context, index int, asset model.Asset, selected b
 func (a *App) inspector(c *gui.Context) {
 	services := c.Services()
 	asset, ok := a.selectedAsset()
+	if a.previewOpen {
+		if pv, exists := a.assetByID[a.previewAssetID]; exists {
+			asset = pv
+			ok = true
+		}
+	}
 	a.syncInspectorSelection(false)
 
 	gui.Box(c).Fill().Padding(6, 12, 10, 4).Background(a.pal.canvas).Children(func() {
@@ -1118,7 +1124,7 @@ func (a *App) inspector(c *gui.Context) {
 			}).
 			Children(func() {
 				if !ok {
-					gui.Column(c).Fill().Center().Padding(24).Gap(12).Children(func() {
+					gui.Column(c).Grow(1).FillWidth().Center().Padding(24).Gap(12).Children(func() {
 						gui.Box(c).Size(46, 46).Radius(radiusControl).Background(a.pal.surfaceMuted).Center().Children(func() {
 							gui.Icon(c, iconPanelRight).Size(20, 20).TextColor(a.pal.inkMuted)
 						})
@@ -1128,50 +1134,121 @@ func (a *App) inspector(c *gui.Context) {
 							TextAlign(gui.Center).
 							LineHeight(1.55)
 					})
-					return
-				}
-
-				gui.Scroll(c).Fill().Children(func() {
-					body := gui.Column(c.Key("insp-body-" + asset.ID)).Padding(16).Gap(14)
-					applyBlurReveal(body, asset.ID, 0)
-					body.Children(func() {
-						// Full uncropped hero preview with gentle hover zoom.
-						hero := gui.ButtonBase(c.Key("insp-hero-" + asset.ID)).
-							FillWidth().
-							Height(176).
-							Radius(radiusControl).
-							Clip().
-							Background(a.pal.surfaceRaised).
-							Center().
-							Label(a.t("library.preview")).
-							Tooltip(a.t("library.preview")).
-							OnClick(func() {
-								a.openPreview(asset)
-							})
-						heroScale := float32(1)
-						if hero.Pressed() {
-							heroScale = 0.985
-						} else if hero.Hovered() {
-							heroScale = 1.02
-						}
-						hero.AnimatePose(gui.Pose{Scale: heroScale}, springGentle)
-						hero.Children(func() {
-							if bm := a.bitmaps[asset.ID]; bm != nil {
-								gui.Image(c, bm).Fit(gui.Contain).Grow(1).Padding(6).Radius(radiusControl)
-							} else {
-								gui.Column(c).Center().Gap(6).Children(func() {
-									ic := iconFile
-									switch model.MediaKind(asset.Mime) {
-									case model.MediaVideo:
-										ic = iconVideo
-									case model.MediaImage:
-										ic = iconImage
-									}
-									gui.Icon(c, ic).Size(28, 28).TextColor(a.pal.inkFaint)
-									gui.Text(c, a.assetExt(asset)).Bold().TextColor(a.pal.inkMuted)
-								})
+				} else {
+					// Top Info / Similar segmented tab switcher (matching reference design).
+					gui.Row(c).FillWidth().Padding(12, 14, 6, 14).Justify(gui.Center).Children(func() {
+						a.arcPillTabs(c, "insp-mode-tabs", a.inspectorTab, []string{
+							a.t("inspector.tabInfo"),
+							a.t("inspector.tabSimilar"),
+						}, func(idx int) {
+							a.inspectorTab = idx
+							if idx == 1 {
+								a.ensureInspectorSimilar(asset)
 							}
 						})
+					})
+
+					if a.inspectorTab == 1 {
+						a.ensureInspectorSimilar(asset)
+						gui.Scroll(c.Key("insp-sim-scroll")).Grow(1).FillWidth().Children(func() {
+							gui.Column(c).FillWidth().Padding(10, 14, 16, 14).Gap(12).Children(func() {
+								gui.Text(c, fmt.Sprintf(a.t("inspector.similarLike"), a.assetName(asset))).
+									FontSize(12).
+									TextColor(a.pal.inkSecondary).
+									SingleLine()
+								if len(a.inspectorSimilar) == 0 {
+									gui.Box(c).FillWidth().Padding(24, 12).Center().Children(func() {
+										gui.Text(c, a.t("inspector.similarNone")).FontSize(12).TextColor(a.pal.inkMuted).TextAlign(gui.Center)
+									})
+								} else {
+									for rowStart := 0; rowStart < len(a.inspectorSimilar); rowStart += 2 {
+										gui.Row(c.Key(fmt.Sprintf("sim-row-%d", rowStart))).FillWidth().Gap(8).Children(func() {
+											for col := 0; col < 2; col++ {
+												idx := rowStart + col
+												if idx >= len(a.inspectorSimilar) {
+													gui.Box(c).Grow(1)
+													continue
+												}
+												m := a.inspectorSimilar[idx]
+												hit := m.Asset
+												if a.bitmaps[hit.ID] == nil {
+													p := hit.ThumbnailPath
+													if p == "" {
+														p = hit.Path
+													}
+													if p != "" {
+														a.ensureBitmap(hit.ID, p)
+													}
+												}
+												btn := gui.ButtonBase(c.Key("sim-hit-"+hit.ID)).
+													Grow(1).
+													Height(124).
+													Radius(radiusControl).
+													Clip().
+													Background(a.pal.surfaceRaised).
+													Tooltip(fmt.Sprintf("%s (%.0f%%)", a.assetName(hit), m.Similarity*100)).
+													OnClick(func() {
+														a.openPreview(hit)
+													})
+												btn.Children(func() {
+													if bm := a.bitmaps[hit.ID]; bm != nil {
+														gui.Image(c, bm).Fit(gui.Cover).Fill()
+													} else {
+														gui.Box(c).Fill().Center().Children(func() {
+															gui.Text(c, a.assetExt(hit)).FontSize(11).TextColor(a.pal.inkMuted)
+														})
+													}
+												})
+											}
+										})
+									}
+								}
+							})
+						})
+					} else {
+						gui.Scroll(c).Grow(1).FillWidth().Children(func() {
+							body := gui.Column(c.Key("insp-body-" + asset.ID)).Padding(10, 16, 16, 16).Gap(14)
+							applyBlurReveal(body, asset.ID, 0)
+							body.Children(func() {
+								// Full uncropped hero preview when browsing grid (omitted in inline viewer).
+								if !a.previewOpen {
+									hero := gui.ButtonBase(c.Key("insp-hero-" + asset.ID)).
+										FillWidth().
+										Height(176).
+										Radius(radiusControl).
+										Clip().
+										Background(a.pal.surfaceRaised).
+										Center().
+										Label(a.t("library.preview")).
+										Tooltip(a.t("library.preview")).
+										OnClick(func() {
+											a.openPreview(asset)
+										})
+									heroScale := float32(1)
+									if hero.Pressed() {
+										heroScale = 0.985
+									} else if hero.Hovered() {
+										heroScale = 1.02
+									}
+									hero.AnimatePose(gui.Pose{Scale: heroScale}, springGentle)
+									hero.Children(func() {
+										if bm := a.bitmaps[asset.ID]; bm != nil {
+											gui.Image(c, bm).Fit(gui.Contain).Grow(1).Padding(6).Radius(radiusControl)
+										} else {
+											gui.Column(c).Center().Gap(6).Children(func() {
+												ic := iconFile
+												switch model.MediaKind(asset.Mime) {
+												case model.MediaVideo:
+													ic = iconVideo
+												case model.MediaImage:
+													ic = iconImage
+												}
+												gui.Icon(c, ic).Size(28, 28).TextColor(a.pal.inkFaint)
+												gui.Text(c, a.assetExt(asset)).Bold().TextColor(a.pal.inkMuted)
+											})
+										}
+									})
+								}
 
 						// Quick action bar right below preview.
 						gui.Row(c).Gap(6).AlignItems(gui.Center).Children(func() {
@@ -1432,8 +1509,22 @@ func (a *App) inspector(c *gui.Context) {
 							FillWidth().
 							TextColor(a.pal.danger).
 							OnClick(func() { a.deleteAssetPrompt(asset) })
+							})
+						})
+					}
+				}
+
+				// Bottom footer bar inside the Inspector panel with collapse button.
+				gui.Row(c).
+					Height(42).
+					Padding(0, 10).
+					AlignItems(gui.Center).
+					Children(func() {
+						gui.Spacer(c)
+						a.iconButton(c, "insp-collapse-btn", iconPanelRight, a.t("inspector.toggle"), false).OnClick(func() {
+							a.inspectorOpen = false
+						})
 					})
-				})
 			})
 	})
 }
