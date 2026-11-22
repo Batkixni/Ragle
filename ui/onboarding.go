@@ -76,7 +76,7 @@ func (a *App) onboardingModal(c *gui.Context) {
 				Background(a.pal.surface).
 				Children(func() {
 					if bm := a.brandLogo(); bm != nil {
-						gui.Image(c, bm).Size(24, 24).Fit(gui.Contain)
+						gui.Image(c, bm).Size(20, 20).Fit(gui.Contain)
 					}
 					gui.Text(c, "Ragle · "+a.t("onboarding.open")).FontSize(13).Bold()
 					gui.Spacer(c)

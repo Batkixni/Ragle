@@ -13,6 +13,9 @@ import (
 //go:embed logo.png
 var logoPNG []byte
 
+//go:embed app_icon.png
+var appIconPNG []byte
+
 var logoBitmap = func() *gui.Bitmap {
 	bm, err := gui.DecodeBitmap(logoPNG)
 	if err != nil {
@@ -21,8 +24,16 @@ var logoBitmap = func() *gui.Bitmap {
 	return bm
 }()
 
-// logoBitmapDark inverts dark-ink pixels to crisp light ink while preserving alpha,
-// so the Ragle emblem stays razor-sharp in dark mode.
+var appIconBitmap = func() *gui.Bitmap {
+	bm, err := gui.DecodeBitmap(appIconPNG)
+	if err != nil {
+		return nil
+	}
+	return bm
+}()
+
+// logoBitmapDark inverts dark-ink pixels to crisp pure white while preserving alpha,
+// so the monochrome Ragle emblem stays razor-sharp in dark mode.
 var logoBitmapDark = func() *gui.Bitmap {
 	src, err := png.Decode(bytes.NewReader(logoPNG))
 	if err != nil {
@@ -54,10 +65,21 @@ var logoBitmapDark = func() *gui.Bitmap {
 	return bm
 }()
 
-// brandLogo returns the full-color orange squircle Ragle emblem in both light
-// and dark themes (no color inversion).
+// brandLogo returns the pure solid monochrome Ragle mark (white in dark mode,
+// black in light mode) for top-left chrome and headers.
 func (a *App) brandLogo() *gui.Bitmap {
+	if a.dark && logoBitmapDark != nil {
+		return logoBitmapDark
+	}
 	return logoBitmap
+}
+
+// appIcon returns the full dark-charcoal squircle app icon with #FF5C33 emblem.
+func (a *App) appIcon() *gui.Bitmap {
+	if appIconBitmap != nil {
+		return appIconBitmap
+	}
+	return a.brandLogo()
 }
 
 func svgIcon(inner string) *gui.SVG {

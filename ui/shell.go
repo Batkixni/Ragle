@@ -201,7 +201,7 @@ func (a *App) sidebar(c *gui.Context) {
 							DragWindow().
 							Children(func() {
 								if bm := a.brandLogo(); bm != nil {
-									gui.Image(c, bm).Size(24, 24).Fit(gui.Contain)
+									gui.Image(c, bm).Size(20, 20).Fit(gui.Contain)
 								}
 								gui.Text(c, a.libraryTitle()).Bold().FontSize(13).Grow(1).SingleLine()
 							})

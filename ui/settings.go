@@ -479,7 +479,7 @@ func (a *App) settingsGeneralTab(c *gui.Context) {
 
 		a.themeColorRow(c, "pref-col-canvas", a.t("settings.colorCanvas"), &a.customCanvas, a.pal.canvas, []string{"#111111", "#18191C", "#090A0D", "#FFFFFF", "#F6F3EE"})
 		a.themeColorRow(c, "pref-col-surface", a.t("settings.colorSurface"), &a.customSurface, a.pal.surface, []string{"#18181B", "#222428", "#12141A", "#F4F4F5", "#EDE8DF"})
-		a.themeColorRow(c, "pref-col-accent", a.t("settings.colorAccent"), &a.customAccent, a.pal.controlOn, []string{"#F97316", "#EA580C", "#EDEDED", "#18181B", "#E11D48", "#10B981"})
+		a.themeColorRow(c, "pref-col-accent", a.t("settings.colorAccent"), &a.customAccent, a.pal.controlOn, []string{"#FF5C33", "#E04722", "#EDEDED", "#18181B", "#E11D48", "#10B981"})
 		a.themeColorRow(c, "pref-col-text", a.t("settings.colorText"), &a.customText, a.pal.ink, []string{"#FAFAFA", "#E4E4E7", "#18181B", "#1F1B17"})
 	})
 

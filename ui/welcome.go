@@ -118,7 +118,7 @@ func (a *App) welcome(c *gui.Context) {
 				AlignItems(gui.Center)
 			applyBlurReveal(card, "welcome", 0)
 			card.Children(func() {
-				if bm := a.brandLogo(); bm != nil {
+				if bm := a.appIcon(); bm != nil {
 					gui.Image(c, bm).Size(68, 68).Fit(gui.Contain)
 				}
 				gui.Column(c).Gap(6).AlignItems(gui.Center).Children(func() {
