@@ -641,4 +641,41 @@ func TestGlobalShortcutsAndMarqueeBoxSelection(t *testing.T) {
 	if !a.sidebarOpen {
 		t.Fatal("clicking sidebar toggle button did not restore sidebar")
 	}
+
+	// 10. Stage 12: Batch Rename modal via Ctrl+A + F2, live preview, apply, and Ctrl+Z undo.
+	tt.Key(gui.Cmd, gui.KeyA)
+	tt.Key(0, gui.KeyF2)
+	tt.Advance(300 * time.Millisecond)
+	if !a.renameOpen || !tt.HasText("批量重新命名") {
+		t.Fatalf("F2 did not open Batch Rename modal: open=%v texts=%v", a.renameOpen, tt.Texts())
+	}
+	a.renameTemplate = "shot_{index:02}"
+	tt.Frame()
+	if !tt.HasText("shot_01.png") {
+		t.Fatalf("live preview did not render shot_01.png, texts=%v", tt.Texts())
+	}
+	if err := tt.Click("套用重新命名"); err != nil {
+		t.Fatalf("clicking Apply Rename failed: %v", err)
+	}
+	if a.renameOpen {
+		t.Fatal("rename modal stayed open after apply")
+	}
+	foundShot := false
+	for _, asset := range a.assets {
+		if a.assetName(asset) == "shot_01.png" {
+			foundShot = true
+			break
+		}
+	}
+	if !foundShot {
+		t.Fatalf("expected renamed asset shot_01.png in library")
+	}
+	// Ctrl+Z reverts the batch rename cleanly.
+	tt.Key(gui.Cmd, gui.KeyZ)
+	tt.Frame()
+	for _, asset := range a.assets {
+		if a.assetName(asset) == "shot_01.png" {
+			t.Fatalf("Ctrl+Z did not revert shot_01.png")
+		}
+	}
 }

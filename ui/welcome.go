@@ -18,6 +18,8 @@ func (a *App) View(c *gui.Context) {
 	a.settingsModal(c)
 	a.onboardingModal(c)
 	a.tagManagerModal(c)
+	a.renameModal(c)
+	a.exportModal(c)
 	a.newProjectModal(c)
 	a.editProjectModal(c)
 	a.editTagModal(c)

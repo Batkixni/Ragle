@@ -128,3 +128,40 @@ func DeleteAssetRecords(tx *bbolt.Tx, id string) error {
 	}
 	return tx.Bucket(BucketAssets).Delete([]byte(id))
 }
+
+// UpdateAssetPath atomically updates an asset's record and swaps its path index
+// entry when oldPath != a.Path.
+func UpdateAssetPath(tx *bbolt.Tx, a model.Asset, oldPath string) error {
+	if oldPath != "" && oldPath != a.Path {
+		if err := tx.Bucket(BucketAssetsByPath).Delete([]byte(oldPath)); err != nil {
+			return err
+		}
+	}
+	return PutAsset(tx, a)
+}
+
+// PutRenameBatch appends a batch rename entry to rename_history.
+func PutRenameBatch(tx *bbolt.Tx, batch model.RenameBatch) error {
+	raw, err := encode(batch)
+	if err != nil {
+		return err
+	}
+	return tx.Bucket(BucketRenameHistory).Put([]byte(batch.ID), raw)
+}
+
+// LastRenameBatch returns the most recent batch rename (ULID keys sort by time).
+func LastRenameBatch(tx *bbolt.Tx) (model.RenameBatch, error) {
+	var b model.RenameBatch
+	c := tx.Bucket(BucketRenameHistory).Cursor()
+	k, v := c.Last()
+	if k == nil {
+		return b, ErrNotFound
+	}
+	err := decode(v, &b)
+	return b, err
+}
+
+// DeleteRenameBatch removes a batch rename entry after undo.
+func DeleteRenameBatch(tx *bbolt.Tx, id string) error {
+	return tx.Bucket(BucketRenameHistory).Delete([]byte(id))
+}

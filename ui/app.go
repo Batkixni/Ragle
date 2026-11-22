@@ -176,6 +176,29 @@ type App struct {
 	inspectorProjects []model.Project
 	inspectorPlaces   int
 	quickTagName      string
+	inspectorNotes    string
+	inspectorSrcURL   string
+	inspectorMetaID   string
+
+	// Stage 12: Batch Rename & Batch Export modals.
+	renameOpen       bool
+	renameIDs        []string
+	renameTemplate   string
+	renameFind       string
+	renameReplace    string
+	renameRegex      bool
+	renameIgnoreCase bool
+	renamePrefix     string
+	renameSuffix     string
+	renameCaseMode   string
+	renameStartIdx   string
+	renameDiskFile   bool
+	renameIncludeExt bool
+	exportOpen       bool
+	exportIDs        []string
+	exportFormat     string
+	exportQuality    int
+	exportMaxEdge    int
 
 	// Quick Preview Lightbox & Video Player state.
 	previewOpen     bool
@@ -1747,7 +1770,7 @@ func (a *App) deleteAssetPrompt(asset model.Asset) {
 }
 
 func (a *App) assetName(asset model.Asset) string {
-	name := filepath.Base(asset.Path)
+	name := asset.Label()
 	if name == "." || name == string(filepath.Separator) || name == "" {
 		name = asset.ID
 	}
@@ -1987,6 +2010,8 @@ func (a *App) canRunLibraryShortcut() bool {
 		!a.tagManagerOpen &&
 		!a.previewOpen &&
 		!a.settingsOpen &&
+		!a.renameOpen &&
+		!a.exportOpen &&
 		!a.newProjOpen &&
 		!a.editProjOpen &&
 		!a.editTagOpen &&
@@ -2084,6 +2109,30 @@ func (a *App) registerWindowShortcuts(c *gui.Context) {
 	c.OnShortcut(gui.Cmd, gui.KeyA, func() {
 		if a.canRunLibraryShortcut() {
 			a.selectAllVisible()
+		}
+	})
+	c.OnShortcut(gui.Cmd, gui.KeyC, func() {
+		if a.canRunLibraryShortcut() {
+			if ids := a.selectedAssetIDs(); len(ids) > 0 {
+				a.copySelectedFilesToClipboard(ids)
+			}
+		}
+	})
+	c.OnShortcut(gui.Cmd, gui.KeyV, func() {
+		if a.canRunLibraryShortcut() {
+			a.pasteFromClipboard()
+		}
+	})
+	c.OnShortcut(gui.Cmd, gui.KeyZ, func() {
+		if a.canRunLibraryShortcut() && a.lib.HasRenameUndo() {
+			a.undoLastBatchRename()
+		}
+	})
+	c.OnShortcut(0, gui.KeyF2, func() {
+		if a.canRunLibraryShortcut() {
+			if ids := a.selectedAssetIDs(); len(ids) > 0 {
+				a.openRenameModal(ids)
+			}
 		}
 	})
 	c.OnShortcut(0, gui.KeyEscape, func() {

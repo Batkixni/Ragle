@@ -248,6 +248,15 @@ func (a *App) batchActionBar(c *gui.Context) {
 			}
 
 			if len(ids) > 0 {
+				a.toolButton(c, "batch-rename-btn", iconEdit, a.t("rename.batchAction"), false).OnClick(func() {
+					a.openRenameModal(ids)
+				})
+				a.toolButton(c, "batch-export-btn", iconExport, a.t("export.action"), false).OnClick(func() {
+					a.openExportModal(ids)
+				})
+				a.toolButton(c, "batch-copy-files-btn", iconCopy, a.t("clipboard.copyFiles"), false).OnClick(func() {
+					a.copySelectedFilesToClipboard(ids)
+				})
 				a.arcButton(c, "batch-del-btn", a.t("batch.delete"), false).
 					TextColor(a.pal.danger).
 					OnClick(func() {
@@ -833,10 +842,32 @@ func (a *App) assetCard(c *gui.Context, index int, asset model.Asset, selected b
 		}
 		m.Separator()
 		if multi {
+			if m.Item(fmt.Sprintf("%s (%d)", a.t("rename.batchAction"), len(batchIDs))).Chosen() {
+				a.openRenameModal(batchIDs)
+			}
+			if m.Item(fmt.Sprintf("%s (%d)", a.t("export.action"), len(batchIDs))).Chosen() {
+				a.openExportModal(batchIDs)
+			}
+			if m.Item(fmt.Sprintf("%s (%d)", a.t("clipboard.copyFiles"), len(batchIDs))).Chosen() {
+				a.copySelectedFilesToClipboard(batchIDs)
+			}
+			m.Separator()
 			if m.Item(fmt.Sprintf("%s (%d)", a.t("batch.delete"), len(batchIDs))).Chosen() {
 				a.batchDeletePrompt(batchIDs)
 			}
 		} else {
+			if m.Item(a.t("rename.action") + " (F2)").Chosen() {
+				a.openRenameModal([]string{asset.ID})
+			}
+			if m.Item(a.t("export.action")).Chosen() {
+				a.openExportModal([]string{asset.ID})
+			}
+			if !asset.Missing && asset.Path != "" {
+				if m.Item(a.t("clipboard.copyFiles") + " (Ctrl+C)").Chosen() {
+					a.copySelectedFilesToClipboard([]string{asset.ID})
+				}
+			}
+			m.Separator()
 			if m.Item(a.t("library.delete")).Chosen() {
 				a.deleteAssetPrompt(asset)
 			}
@@ -1043,12 +1074,68 @@ func (a *App) inspector(c *gui.Context) {
 
 						// Title + quiet monochrome metadata chain (design.md §13 inspired).
 						gui.Column(c).Gap(6).Children(func() {
-							gui.Text(c, a.assetName(asset)).FontSize(14).Bold().LineHeight(1.3)
+							gui.Row(c).FillWidth().Gap(6).AlignItems(gui.Center).Children(func() {
+								gui.Text(c, a.assetName(asset)).FontSize(14).Bold().LineHeight(1.3).Grow(1)
+								a.iconButton(c, "insp-rename-btn", iconEdit, a.t("rename.action")+" (F2)", false).OnClick(func() {
+									a.openRenameModal([]string{asset.ID})
+								})
+								a.iconButton(c, "insp-export-btn", iconExport, a.t("export.action"), false).OnClick(func() {
+									a.openExportModal([]string{asset.ID})
+								})
+							})
 							parts := []string{a.assetExt(asset), a.modeLabel(asset.StorageMode)}
 							if asset.Width > 0 && asset.Height > 0 {
 								parts = append(parts, fmt.Sprintf("%d × %d", asset.Width, asset.Height))
 							}
 							gui.Text(c, strings.Join(parts, "  ·  ")).FontSize(11).TextColor(a.pal.inkMuted).SingleLine()
+						})
+
+						// Editable notes & source URL.
+						if a.inspectorMetaID != asset.ID {
+							a.inspectorMetaID = asset.ID
+							a.inspectorNotes = asset.Notes
+							a.inspectorSrcURL = asset.SourceURL
+						}
+						gui.Column(c).Gap(6).Children(func() {
+							gui.Row(c).FillWidth().AlignItems(gui.Center).Children(func() {
+								a.sectionLabel(c, a.t("inspector.notes"))
+								gui.Spacer(c)
+								if a.inspectorNotes != asset.Notes || a.inspectorSrcURL != asset.SourceURL {
+									a.toolButton(c, "insp-save-meta", iconCheck, a.t("inspector.saveMeta"), true).
+										Padding(3, 8).
+										OnClick(func() {
+											if _, err := a.lib.UpdateAssetMeta(asset.ID, a.inspectorNotes, a.inspectorSrcURL, asset.SourceTitle); err == nil {
+												a.reload()
+												a.notify(a.t("inspector.metaSaved"))
+											}
+										})
+								}
+							})
+							gui.TextInput(c.Key("insp-notes-"+asset.ID), &a.inspectorNotes).
+								Placeholder(a.t("inspector.notesPlaceholder")).
+								FillWidth().
+								OnSubmit(func() {
+									if _, err := a.lib.UpdateAssetMeta(asset.ID, a.inspectorNotes, a.inspectorSrcURL, asset.SourceTitle); err == nil {
+										a.reload()
+										a.notify(a.t("inspector.metaSaved"))
+									}
+								})
+							gui.Row(c).FillWidth().Gap(6).AlignItems(gui.Center).Children(func() {
+								gui.TextInput(c.Key("insp-srcurl-"+asset.ID), &a.inspectorSrcURL).
+									Placeholder(a.t("inspector.source")).
+									Grow(1).
+									OnSubmit(func() {
+										if _, err := a.lib.UpdateAssetMeta(asset.ID, a.inspectorNotes, a.inspectorSrcURL, asset.SourceTitle); err == nil {
+											a.reload()
+											a.notify(a.t("inspector.metaSaved"))
+										}
+									})
+								if strings.HasPrefix(asset.SourceURL, "http://") || strings.HasPrefix(asset.SourceURL, "https://") {
+									a.iconButton(c, "insp-open-url", iconLink, a.t("inspector.source"), false).OnClick(func() {
+										services.OpenURL(asset.SourceURL)
+									})
+								}
+							})
 						})
 
 						// Missing file alert & relink CTAs.

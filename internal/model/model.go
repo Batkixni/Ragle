@@ -1,7 +1,11 @@
 // Package model holds the records stored in the library database.
 package model
 
-import "time"
+import (
+	"path/filepath"
+	"strings"
+	"time"
+)
 
 // Storage modes choose what happens to a file at import.
 const (
@@ -28,22 +32,63 @@ const (
 // SchemaVersion is the meta bucket value written by this build.
 const SchemaVersion = "1"
 
+// PaletteColor is one extracted dominant color in sRGB hex and OKLab space.
+type PaletteColor struct {
+	Hex   string  `msgpack:"hex"`
+	L     float64 `msgpack:"l"`
+	A     float64 `msgpack:"a"`
+	B     float64 `msgpack:"b"`
+	Ratio float64 `msgpack:"ratio"`
+}
+
 // Asset is one item in the library. The file at Path is the user's when
 // StorageMode is index or symlink; copy and move own the file inside the
 // library.
 type Asset struct {
-	ID            string    `msgpack:"id"`
-	Path          string    `msgpack:"path"`
-	StorageMode   string    `msgpack:"storage_mode"`
-	Hash          string    `msgpack:"hash"`
-	Mime          string    `msgpack:"mime"`
-	Width         int       `msgpack:"width"`
-	Height        int       `msgpack:"height"`
-	Duration      float64   `msgpack:"duration"`
-	ThumbnailPath string    `msgpack:"thumbnail_path"`
-	Rating        int       `msgpack:"rating"`
-	Missing       bool      `msgpack:"missing"`
-	CreatedAt     time.Time `msgpack:"created_at"`
+	ID            string         `msgpack:"id"`
+	Path          string         `msgpack:"path"`
+	DisplayName   string         `msgpack:"display_name,omitempty"`
+	StorageMode   string         `msgpack:"storage_mode"`
+	Hash          string         `msgpack:"hash"`
+	Mime          string         `msgpack:"mime"`
+	Width         int            `msgpack:"width"`
+	Height        int            `msgpack:"height"`
+	Duration      float64        `msgpack:"duration"`
+	ThumbnailPath string         `msgpack:"thumbnail_path"`
+	Rating        int            `msgpack:"rating"`
+	Missing       bool           `msgpack:"missing"`
+	SourceURL     string         `msgpack:"source_url,omitempty"`
+	SourceTitle   string         `msgpack:"source_title,omitempty"`
+	Notes         string         `msgpack:"notes,omitempty"`
+	Palette       []PaletteColor `msgpack:"palette,omitempty"`
+	PHash         uint64         `msgpack:"phash,omitempty"`
+	DHash         uint64         `msgpack:"dhash,omitempty"`
+	CreatedAt     time.Time      `msgpack:"created_at"`
+}
+
+// Label returns DisplayName if set, falling back to the base filename of Path.
+func (a Asset) Label() string {
+	if s := strings.TrimSpace(a.DisplayName); s != "" {
+		return s
+	}
+	return filepath.Base(a.Path)
+}
+
+// RenameEntry records one asset change inside a batch rename for Undo.
+type RenameEntry struct {
+	AssetID        string `msgpack:"asset_id"`
+	OldDisplayName string `msgpack:"old_display_name"`
+	NewDisplayName string `msgpack:"new_display_name"`
+	OldPath        string `msgpack:"old_path"`
+	NewPath        string `msgpack:"new_path"`
+	RenamedDisk    bool   `msgpack:"renamed_disk"`
+}
+
+// RenameBatch stores one reversible batch rename operation.
+type RenameBatch struct {
+	ID        string        `msgpack:"id"`
+	CreatedAt time.Time     `msgpack:"created_at"`
+	Entries   []RenameEntry `msgpack:"entries"`
 }
 
 // Tag is a label on assets and projects. ParentID nests child tags under a
