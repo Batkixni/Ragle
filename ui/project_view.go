@@ -13,10 +13,10 @@ import (
 )
 
 // projectView renders a calm Arc UI editorial layout:
-// 1. Minimal frameless top bar (back button, draggable strip, window controls)
-// 2. Editorial Hero block (eyebrow metadata, large bold display title, spacious
-//    description on its own line, interactive colored tag pills, and single actions)
-// 3. Live visual Moodboard preview cards + Referenced Assets grid.
+//  1. Minimal frameless top bar (back button, draggable strip, window controls)
+//  2. Editorial Hero block (eyebrow metadata, large bold display title, spacious
+//     description on its own line, interactive colored tag pills, and single actions)
+//  3. Live visual Moodboard preview cards + Referenced Assets grid.
 func (a *App) projectView(c *gui.Context) {
 	gui.Column(c).Fill().Background(a.pal.canvas).Children(func() {
 		// Minimal frameless top chrome (transparent on canvas, zero visual bloat).
@@ -38,7 +38,7 @@ func (a *App) projectView(c *gui.Context) {
 
 		// Scrollable project content with Arc UI Editorial Hero.
 		gui.Scroll(c.Key("proj-scroll")).Grow(1).FillWidth().Background(a.pal.canvas).Children(func() {
-			col := gui.Column(c.Key("proj-view-" + a.projectID)).Padding(12, 26, 32, 18).Gap(28)
+			col := gui.Column(c.Key("proj-view-"+a.projectID)).Padding(12, 26, 32, 18).Gap(28)
 			applyPanelSwitch(col, a.projectID, 0, 6)
 			col.Children(func() {
 				// Arc UI Editorial Project Hero (frameless surface, clear display scale).
@@ -468,7 +468,7 @@ func (a *App) projectAssetCard(c *gui.Context, index int, item model.Asset) {
 	applyCardBlurFade(card, item.ID, time.Duration(min(index, 6))*arcStaggerItem)
 
 	card.Children(func() {
-		thumb := gui.ButtonBase(c.Key("pref-open-" + item.ID)).
+		thumb := gui.ButtonBase(c.Key("pref-open-"+item.ID)).
 			Size(176, 132).
 			Clip().
 			Background(a.pal.surfaceMuted).

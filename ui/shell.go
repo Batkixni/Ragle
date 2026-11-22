@@ -95,7 +95,7 @@ func (a *App) arcNavItem(
 	active := a.selectedNav == id
 	indent := float32(depth * 18)
 
-	btn := gui.ButtonBase(c.Key("nav-" + id)).
+	btn := gui.ButtonBase(c.Key("nav-"+id)).
 		FillWidth().
 		Padding(7, 10, 7, 8+indent).
 		Gap(7).
@@ -140,7 +140,7 @@ func (a *App) arcNavItem(
 			if expanded {
 				chevIcon = iconChevronDown
 			}
-			chevBtn := gui.ButtonBase(c.Key("nav-exp-" + id)).
+			chevBtn := gui.ButtonBase(c.Key("nav-exp-"+id)).
 				Size(20, 20).
 				Center().
 				Radius(6).

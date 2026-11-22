@@ -120,9 +120,9 @@ type App struct {
 	allAssetsCount     int
 	untaggedCount      int
 	missingCount       int
-	projectTags     map[string]bool
-	boardCounts     map[string]int
-	boardPlacements map[string][]model.Placement
+	projectTags        map[string]bool
+	boardCounts        map[string]int
+	boardPlacements    map[string][]model.Placement
 
 	// Navigation, search, sort, multi-select & library display state.
 	tagID           string
@@ -1726,7 +1726,7 @@ func (a *App) deleteAssetPrompt(asset model.Asset) {
 			if len(drop) > 0 {
 				a.session.Delete(drop)
 				a.closePreview()
-	a.flushBoard(true)
+				a.flushBoard(true)
 			}
 		}
 		if a.backupBeforeDelete && a.lib != nil {

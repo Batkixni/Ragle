@@ -917,7 +917,7 @@ func (a *App) assetCard(c *gui.Context, index int, asset model.Asset, selected b
 					if selected {
 						chkBg = a.pal.controlOn
 					}
-					gui.ButtonBase(c.Key("card-chk-" + asset.ID)).
+					gui.ButtonBase(c.Key("card-chk-"+asset.ID)).
 						Size(16, 16).
 						Radius(radiusPill).
 						Background(chkBg).

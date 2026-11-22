@@ -231,7 +231,7 @@ func (a *App) tagColorDots(c *gui.Context, keyPrefix, selected string, onPick fu
 	gui.Row(c).Gap(4).AlignItems(gui.Center).Children(func() {
 		// Neutral (clear color) dot.
 		noneOn := selected == ""
-		noneBtn := gui.ButtonBase(c.Key(keyPrefix + "-none")).
+		noneBtn := gui.ButtonBase(c.Key(keyPrefix+"-none")).
 			Size(16, 16).
 			Radius(radiusPill).
 			Background(a.pal.surfaceMuted).
@@ -282,7 +282,7 @@ func (a *App) tagManagerRow(c *gui.Context, tg model.Tag, depth int, q string, s
 	}
 
 	gui.Column(c.Key("tm-node-" + tg.ID)).FillWidth().Gap(4).Children(func() {
-		row := gui.Row(c.Key("tm-row-" + tg.ID)).
+		row := gui.Row(c.Key("tm-row-"+tg.ID)).
 			FillWidth().
 			Padding(7, 10, 7, 10+indent).
 			Gap(8).
@@ -306,7 +306,7 @@ func (a *App) tagManagerRow(c *gui.Context, tg model.Tag, depth int, q string, s
 				if expanded {
 					chev = "▾"
 				}
-				gui.ButtonBase(c.Key("tm-tog-" + tg.ID)).
+				gui.ButtonBase(c.Key("tm-tog-"+tg.ID)).
 					Size(20, 20).
 					Center().
 					Radius(6).
@@ -346,7 +346,7 @@ func (a *App) tagManagerRow(c *gui.Context, tg model.Tag, depth int, q string, s
 		})
 
 		if a.newChildParentID == tg.ID {
-			gui.Row(c.Key("tm-inline-ch-" + tg.ID)).
+			gui.Row(c.Key("tm-inline-ch-"+tg.ID)).
 				FillWidth().
 				Padding(6, 10, 6, 30+indent).
 				Gap(8).
