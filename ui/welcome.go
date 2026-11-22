@@ -24,6 +24,44 @@ func (a *App) View(c *gui.Context) {
 	a.shareModal(c)
 	a.receivePairModal(c)
 	a.confirm(c)
+	a.toastOverlay(c)
+}
+
+// toastOverlay renders a sleek auto-dismissing floating toast pill at the
+// bottom-center of the window so import/backup/batch notices never shift layout.
+func (a *App) toastOverlay(c *gui.Context) {
+	if !a.toastVisible || a.toastMsg == "" {
+		return
+	}
+	gui.Row(c.Key("floating-toast-wrap")).
+		Absolute().
+		Left(0).
+		Right(0).
+		Bottom(24).
+		Justify(gui.Center).
+		PassThrough().
+		Children(func() {
+			gui.Row(c.Key("floating-toast")).
+				Padding(10, 14, 10, 16).
+				Gap(10).
+				Radius(radiusPill).
+				Background(a.pal.surfaceRaised).
+				Shadow(0, 12, 32, 0, a.pal.shadowFloating).
+				AlignItems(gui.Center).
+				Transition(gui.ElementTransition{
+					Animation: &springSmooth,
+					Enter:     &gui.Motion{Y: 16, Opacity: 0},
+					Exit:      &gui.Motion{Y: 10, Opacity: 0},
+				}).
+				Children(func() {
+					gui.Box(c).Size(8, 8).Radius(radiusPill).Background(a.pal.controlOn)
+					gui.Text(c, a.toastMsg).FontSize(12).Bold().TextColor(a.pal.ink).MaxWidth(440).SingleLine()
+					a.iconButton(c, "toast-dismiss", iconX, a.t("common.close"), false).OnClick(func() {
+						a.toastVisible = false
+						a.status = ""
+					})
+				})
+		})
 }
 
 func (a *App) captureTheme(c *gui.Context) {
@@ -81,15 +119,7 @@ func (a *App) welcome(c *gui.Context) {
 			applyBlurReveal(card, "welcome", 0)
 			card.Children(func() {
 				if bm := a.brandLogo(); bm != nil {
-					gui.Box(c).
-						Size(64, 64).
-						Radius(radiusPanel).
-						Background(a.pal.surfaceRaised).
-						Shadow(0, 2, 8, 0, a.pal.shadowResting).
-						Center().
-						Children(func() {
-							gui.Image(c, bm).Size(40, 40).Fit(gui.Contain)
-						})
+					gui.Image(c, bm).Size(68, 68).Fit(gui.Contain)
 				}
 				gui.Column(c).Gap(6).AlignItems(gui.Center).Children(func() {
 					gui.Text(c, "Ragle").FontSize(28).Bold().LetterSpacing(-0.5)

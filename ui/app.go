@@ -265,10 +265,16 @@ type App struct {
 	askFn      func()
 	askCancel  func()
 
+	sidebarOpen    bool
 	sidebarWidth   float32
 	libraryPercent float32
 	selectedNav    string
 	lastNav        string
+
+	// Auto-dismissing floating toast popup state.
+	toastSeq     uint64
+	toastMsg     string
+	toastVisible bool
 
 	dark   bool
 	pal    palette
@@ -335,7 +341,8 @@ func NewApp() *App {
 		boardCounts:          map[string]int{},
 		boardPlacements:      map[string][]model.Placement{},
 		newProjTags:          map[string]bool{},
-		sidebarWidth:         232,
+		sidebarOpen:          true,
+		sidebarWidth:         240,
 		libraryPercent:       74,
 		selectedNav:          "tag-all",
 		lastNav:              "tag-all",
@@ -1352,7 +1359,7 @@ func (a *App) importPaths(paths []string) {
 				a.status = importErr.Error()
 			} else {
 				if notifyDup || res.Added > 0 || res.Failed > 0 {
-					a.status = fmt.Sprintf(a.t("library.imported"), res.Added, res.Existing, res.Failed)
+					a.notify(fmt.Sprintf(a.t("library.imported"), res.Added, res.Existing, res.Failed))
 				}
 				for _, item := range res.Items {
 					if item.Status == "added" {
@@ -1365,7 +1372,7 @@ func (a *App) importPaths(paths []string) {
 						}
 					}
 					if item.Err != nil && errors.Is(item.Err, library.ErrSymlink) {
-						a.status = a.t("library.symlinkFailed")
+						a.notify(a.t("library.symlinkFailed"))
 					}
 				}
 			}
@@ -1474,9 +1481,9 @@ func (a *App) relinkMissing(directory bool) {
 				return
 			}
 			if count > 0 {
-				a.status = fmt.Sprintf(a.t("inspector.relinkResult"), count)
+				a.notify(fmt.Sprintf(a.t("inspector.relinkResult"), count))
 			} else {
-				a.status = a.t("inspector.relinkNone")
+				a.notify(a.t("inspector.relinkNone"))
 			}
 			a.reload()
 		})
@@ -1691,7 +1698,7 @@ func (a *App) referenceAssetToProject(assetID, projectID string) {
 	}
 	for _, p := range a.projectList {
 		if p.ID == projectID {
-			a.status = fmt.Sprintf(a.t("library.referencedIn"), p.Name)
+			a.notify(fmt.Sprintf(a.t("library.referencedIn"), p.Name))
 			break
 		}
 	}
@@ -2024,10 +2031,43 @@ func (a *App) batchSetRating(rating int) {
 	a.reload()
 }
 
+func (a *App) notify(msg string) {
+	a.status = msg
+	if msg == "" {
+		a.toastVisible = false
+		a.toastMsg = ""
+		return
+	}
+	a.toastSeq++
+	seq := a.toastSeq
+	a.toastMsg = msg
+	a.toastVisible = true
+	win := a.win
+	if win == nil {
+		return
+	}
+	time.AfterFunc(3500*time.Millisecond, func() {
+		win.Update(func() {
+			if a.isClosed() || a.toastSeq != seq {
+				return
+			}
+			a.toastVisible = false
+			if a.status == msg {
+				a.status = ""
+			}
+		})
+	})
+}
+
 func (a *App) registerWindowShortcuts(c *gui.Context) {
 	if a.lib == nil {
 		return
 	}
+	c.OnShortcut(gui.Cmd, gui.KeyB, func() {
+		if a.screen == screenLibrary || a.screen == screenProject {
+			a.sidebarOpen = !a.sidebarOpen
+		}
+	})
 	c.OnShortcut(gui.Cmd, gui.KeyComma, func() {
 		a.openSettings(a.settingsTab)
 	})
@@ -2133,7 +2173,7 @@ func (a *App) batchReferenceToProject(ids []string, projectID string) {
 			break
 		}
 	}
-	a.status = fmt.Sprintf(a.t("batch.addedProject"), added, projName)
+	a.notify(fmt.Sprintf(a.t("batch.addedProject"), added, projName))
 	a.reload()
 }
 
@@ -2148,7 +2188,7 @@ func (a *App) batchApplyTag(ids []string, tagID string) {
 		}
 	}
 	tagName := a.tagByID[tagID].Name
-	a.status = fmt.Sprintf(a.t("batch.appliedTag"), applied, tagName)
+	a.notify(fmt.Sprintf(a.t("batch.appliedTag"), applied, tagName))
 	a.reload()
 }
 
@@ -2191,7 +2231,7 @@ func (a *App) batchDeletePrompt(ids []string) {
 		a.flushBoard(true)
 		a.clearSelection()
 		a.assetIndex = -1
-		a.status = fmt.Sprintf(a.t("batch.deleted"), deleted)
+		a.notify(fmt.Sprintf(a.t("batch.deleted"), deleted))
 		a.reload()
 	})
 }

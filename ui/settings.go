@@ -117,7 +117,7 @@ func (a *App) backupDatabaseNow() {
 			a.status = err.Error()
 			return
 		}
-		a.status = a.t("settings.backupDone")
+		a.notify(a.t("settings.backupDone"))
 		a.refreshDBStats()
 		return
 	}
@@ -130,10 +130,10 @@ func (a *App) backupDatabaseNow() {
 				return
 			}
 			if err != nil {
-				a.status = err.Error()
+				a.notify(err.Error())
 				return
 			}
-			a.status = a.t("settings.backupDone")
+			a.notify(a.t("settings.backupDone"))
 			a.refreshDBStats()
 		})
 	}()
@@ -190,7 +190,7 @@ func (a *App) rebuildAllThumbnails() {
 		}
 		count++
 	}
-	a.status = fmt.Sprintf(a.t("settings.rebuildThumbsDone"), count)
+	a.notify(fmt.Sprintf(a.t("settings.rebuildThumbsDone"), count))
 }
 
 func (a *App) cleanOrphanThumbs() {
@@ -226,7 +226,7 @@ func (a *App) cleanOrphanThumbs() {
 			removed++
 		}
 	}
-	a.status = fmt.Sprintf(a.t("settings.cleanThumbsDone"), removed, formatBytes(freed))
+	a.notify(fmt.Sprintf(a.t("settings.cleanThumbsDone"), removed, formatBytes(freed)))
 	a.refreshDBStats()
 }
 
@@ -479,7 +479,7 @@ func (a *App) settingsGeneralTab(c *gui.Context) {
 
 		a.themeColorRow(c, "pref-col-canvas", a.t("settings.colorCanvas"), &a.customCanvas, a.pal.canvas, []string{"#111111", "#18191C", "#090A0D", "#FFFFFF", "#F6F3EE"})
 		a.themeColorRow(c, "pref-col-surface", a.t("settings.colorSurface"), &a.customSurface, a.pal.surface, []string{"#18181B", "#222428", "#12141A", "#F4F4F5", "#EDE8DF"})
-		a.themeColorRow(c, "pref-col-accent", a.t("settings.colorAccent"), &a.customAccent, a.pal.controlOn, []string{"#EDEDED", "#18181B", "#D4D4D8", "#E11D48", "#10B981", "#F59E0B"})
+		a.themeColorRow(c, "pref-col-accent", a.t("settings.colorAccent"), &a.customAccent, a.pal.controlOn, []string{"#F97316", "#EA580C", "#EDEDED", "#18181B", "#E11D48", "#10B981"})
 		a.themeColorRow(c, "pref-col-text", a.t("settings.colorText"), &a.customText, a.pal.ink, []string{"#FAFAFA", "#E4E4E7", "#18181B", "#1F1B17"})
 	})
 

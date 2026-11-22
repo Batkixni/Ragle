@@ -338,9 +338,12 @@ func TestRenderScreenshots(t *testing.T) {
 	a.inspectorFileSize = 2480128
 	a.syncInspectorSelection(true)
 
-	// 2. Library Bento, Waterfall Masonry, Grid, Multi-Select (dark) & Bento (light).
+	// 2. Library Bento (dark + toast), Narrow 980px responsive bar, Waterfall Masonry, Grid, Multi-Select & Bento (light).
 	a.layoutMode = layoutBento
+	a.notify("匯入完成：新增 11，已存在 0，失敗 0")
 	save("library_bento_dark.png", 1360, 860)
+	a.toastVisible = false
+	save("library_narrow_dark.png", 980, 700)
 	a.multiSelectMode = true
 	a.selectedIDs = map[string]bool{"art-a": true, "art-b": true, "art-c": true}
 	save("library_multiselect_dark.png", 1360, 860)

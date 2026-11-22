@@ -23,9 +23,12 @@ func (a *App) projectView(c *gui.Context) {
 		gui.Row(c.Key("proj-chrome")).
 			Height(44).
 			Padding(6, 12, 0, 12).
-			Gap(8).
+			Gap(6).
 			AlignItems(gui.Center).
 			Children(func() {
+				a.iconButton(c, "proj-toggle-sidebar", iconPanelLeft, a.t("sidebar.toggle"), a.sidebarOpen).OnClick(func() {
+					a.sidebarOpen = !a.sidebarOpen
+				})
 				a.toolButton(c, "proj-back-lib", iconArrowLeft, a.t("shell.library"), false).OnClick(func() {
 					a.handleNav("tag-all")
 				})
@@ -38,21 +41,6 @@ func (a *App) projectView(c *gui.Context) {
 			col := gui.Column(c.Key("proj-view-" + a.projectID)).Padding(12, 26, 32, 18).Gap(28)
 			applyPanelSwitch(col, a.projectID, 0, 6)
 			col.Children(func() {
-				if a.status != "" {
-					gui.Row(c.Key("proj-status-toast")).
-						Padding(6, 12).
-						Radius(radiusControl).
-						Background(a.pal.surface).
-						AlignItems(gui.Center).
-						Gap(8).
-						Children(func() {
-							gui.Text(c, a.status).FontSize(12).TextColor(a.pal.inkSecondary).Grow(1).SingleLine()
-							a.iconButton(c, "proj-status-dismiss", iconX, a.t("common.close"), false).OnClick(func() {
-								a.status = ""
-							})
-						})
-				}
-
 				// Arc UI Editorial Project Hero (frameless surface, clear display scale).
 				gui.Column(c.Key("proj-hero")).
 					FillWidth().

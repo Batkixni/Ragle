@@ -163,6 +163,7 @@ var pairs = []pair{
 	{"inspector.placements", "白版放置 %d 次", "%d board placements"},
 	{"inspector.actions", "操作", "Actions"},
 	{"inspector.toggle", "切換資訊欄", "Toggle inspector"},
+	{"sidebar.toggle", "切換側邊欄 (Ctrl+B)", "Toggle sidebar (Ctrl+B)"},
 	{"inspector.quickTag", "新增並套用標籤…", "Add & apply tag…"},
 	{"inspector.relink", "掃描資料夾重連…", "Relink from folder…"},
 	{"inspector.relinkFile", "選取檔案重連…", "Relink file…"},

@@ -626,4 +626,19 @@ func TestGlobalShortcutsAndMarqueeBoxSelection(t *testing.T) {
 	if a.onboardingOpen || !a.onboardingDone {
 		t.Fatalf("onboarding did not complete cleanly: open=%v done=%v", a.onboardingOpen, a.onboardingDone)
 	}
+
+	// 9. Collapsible left sidebar via Ctrl+B and top-left toggle button.
+	if !a.sidebarOpen {
+		t.Fatal("expected sidebarOpen=true initially")
+	}
+	tt.Key(gui.Cmd, gui.KeyB)
+	if a.sidebarOpen {
+		t.Fatal("Ctrl+B did not collapse left sidebar")
+	}
+	if err := tt.Click("切換側邊欄 (Ctrl+B)"); err != nil {
+		t.Fatalf("clicking sidebar toggle button failed: %v", err)
+	}
+	if !a.sidebarOpen {
+		t.Fatal("clicking sidebar toggle button did not restore sidebar")
+	}
 }

@@ -101,27 +101,6 @@ func (a *App) libraryMain(c *gui.Context) {
 				})
 		}
 
-		// Quiet monochrome status toast strip.
-		if a.status != "" {
-			gui.Row(c.Key("status-toast")).
-				Padding(6, 12).
-				Radius(radiusControl).
-				Background(a.pal.surface).
-				AlignItems(gui.Center).
-				Gap(8).
-				Transition(gui.ElementTransition{
-					Animation: &springSmooth,
-					Enter:     &gui.Motion{Y: -6, Opacity: 0, Collapse: true},
-					Exit:      &gui.Motion{Y: -6, Opacity: 0, Collapse: true},
-				}).
-				Children(func() {
-					gui.Text(c, a.status).FontSize(12).TextColor(a.pal.inkSecondary).Grow(1).SingleLine()
-					a.iconButton(c, "status-dismiss", iconX, a.t("common.close"), false).OnClick(func() {
-						a.status = ""
-					})
-				})
-		}
-
 		// Missing-assets quick relink banner.
 		if a.navFilter == "missing" && len(a.assets) > 0 {
 			gui.Row(c.Key("missing-banner")).
@@ -841,7 +820,7 @@ func (a *App) assetCard(c *gui.Context, index int, asset model.Asset, selected b
 			}
 			if m.Item(a.t("common.copyPath")).Chosen() {
 				services.WriteClipboard(asset.Path)
-				a.status = a.t("common.copied")
+				a.notify(a.t("common.copied"))
 			}
 			if asset.Missing {
 				if m.Item(a.t("inspector.relinkFile")).Chosen() {
@@ -1058,7 +1037,7 @@ func (a *App) inspector(c *gui.Context) {
 							}
 							a.iconButton(c, "insp-copy-path", iconCopy, a.t("common.copyPath"), false).OnClick(func() {
 								services.WriteClipboard(asset.Path)
-								a.status = a.t("common.copied")
+								a.notify(a.t("common.copied"))
 							})
 						})
 
