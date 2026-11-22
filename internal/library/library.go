@@ -31,6 +31,9 @@ var ErrEmptyName = errors.New("ragle: empty name")
 // ErrDuplicateName means a tag with that name already exists.
 var ErrDuplicateName = errors.New("ragle: tag already exists")
 
+// ErrTagCycle means moving a tag under itself or one of its own descendants.
+var ErrTagCycle = errors.New("ragle: tag cannot be its own ancestor")
+
 // Filter selects assets. An empty TagID lists the whole library.
 // Kind is image, video, other, or empty. MinRating of 0 does not filter.
 type Filter struct {
@@ -72,14 +75,24 @@ func Open(root string) (*Library, error) {
 // Close closes the database.
 func (l *Library) Close() error { return l.DB.Close() }
 
-// CreateTag adds a tag. Names are unique, ignoring case.
+// CreateTag adds a root tag. Names are unique, ignoring case.
 func (l *Library) CreateTag(name string) (model.Tag, error) {
+	return l.CreateTagWithParent(name, "")
+}
+
+// CreateTagWithParent adds a tag optionally nested under parentID.
+func (l *Library) CreateTagWithParent(name, parentID string) (model.Tag, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return model.Tag{}, ErrEmptyName
 	}
 	var created model.Tag
 	err := l.DB.Update(func(tx *bbolt.Tx) error {
+		if parentID != "" {
+			if _, err := db.GetTag(tx, parentID); err != nil {
+				return err
+			}
+		}
 		tags, err := db.ListTags(tx)
 		if err != nil {
 			return err
@@ -89,10 +102,64 @@ func (l *Library) CreateTag(name string) (model.Tag, error) {
 				return ErrDuplicateName
 			}
 		}
-		created = model.Tag{ID: model.NewID(), Name: name, CreatedAt: time.Now().UTC()}
+		created = model.Tag{
+			ID:        model.NewID(),
+			Name:      name,
+			ParentID:  parentID,
+			CreatedAt: time.Now().UTC(),
+		}
 		return db.PutTag(tx, created)
 	})
 	return created, err
+}
+
+// UpdateTag renames a tag and/or changes its parent tag, rejecting cycles.
+func (l *Library) UpdateTag(id, name, parentID string) (model.Tag, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return model.Tag{}, ErrEmptyName
+	}
+	if parentID == id {
+		return model.Tag{}, ErrTagCycle
+	}
+	var updated model.Tag
+	err := l.DB.Update(func(tx *bbolt.Tx) error {
+		cur, err := db.GetTag(tx, id)
+		if err != nil {
+			return err
+		}
+		tags, err := db.ListTags(tx)
+		if err != nil {
+			return err
+		}
+		byID := make(map[string]model.Tag, len(tags))
+		for _, tag := range tags {
+			byID[tag.ID] = tag
+			if tag.ID != id && strings.EqualFold(tag.Name, name) {
+				return ErrDuplicateName
+			}
+		}
+		if parentID != "" {
+			if _, ok := byID[parentID]; !ok {
+				return db.ErrNotFound
+			}
+			// Walk ancestors of parentID to prevent cycles.
+			walk := parentID
+			seen := map[string]bool{id: true}
+			for walk != "" {
+				if seen[walk] {
+					return ErrTagCycle
+				}
+				seen[walk] = true
+				walk = byID[walk].ParentID
+			}
+		}
+		cur.Name = name
+		cur.ParentID = parentID
+		updated = cur
+		return db.PutTag(tx, cur)
+	})
+	return updated, err
 }
 
 // Tags lists every tag.
@@ -106,12 +173,31 @@ func (l *Library) Tags() ([]model.Tag, error) {
 	return tags, err
 }
 
-// DeleteTag removes the tag and its links. Assets and projects stay.
+// DeleteTag removes the tag and its links. Direct child tags are promoted to
+// the deleted tag's parent so no nested tags become orphaned. Assets and projects stay.
 func (l *Library) DeleteTag(id string) error {
 	if err := l.DB.Backup(); err != nil {
 		return err
 	}
-	return l.DB.Update(func(tx *bbolt.Tx) error { return db.DeleteTag(tx, id) })
+	return l.DB.Update(func(tx *bbolt.Tx) error {
+		cur, err := db.GetTag(tx, id)
+		if err != nil {
+			return err
+		}
+		tags, err := db.ListTags(tx)
+		if err != nil {
+			return err
+		}
+		for _, child := range tags {
+			if child.ParentID == id {
+				child.ParentID = cur.ParentID
+				if err := db.PutTag(tx, child); err != nil {
+					return err
+				}
+			}
+		}
+		return db.DeleteTag(tx, id)
+	})
 }
 
 // SetAssetTag adds or removes one tag on an asset.

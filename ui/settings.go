@@ -432,6 +432,57 @@ func (a *App) settingsGeneralTab(c *gui.Context) {
 		})
 	})
 
+	// Custom theme colors group.
+	a.settingsGroup(c, a.t("settings.customTheme"), func() {
+		presetIDs := []string{"", "graphite", "warm", "midnight", "custom"}
+		presetSel := 0
+		for i, id := range presetIDs {
+			if a.themePreset == id {
+				presetSel = i
+				break
+			}
+		}
+		gui.Column(c).FillWidth().Gap(8).Children(func() {
+			gui.Row(c).FillWidth().AlignItems(gui.Center).Children(func() {
+				gui.Text(c, a.t("settings.themePreset")).FontSize(13).Grow(1)
+				a.toolButton(c, "pref-theme-reset", iconRefresh, a.t("settings.resetTheme"), false).OnClick(func() {
+					a.resetCustomTheme()
+				})
+			})
+			a.arcPillTabs(c, "pref-theme-preset", presetSel, []string{
+				a.t("settings.preset.default"),
+				a.t("settings.preset.graphite"),
+				a.t("settings.preset.warm"),
+				a.t("settings.preset.midnight"),
+				a.t("settings.preset.custom"),
+			}, func(idx int) {
+				if presetIDs[idx] == "custom" {
+					a.themePreset = "custom"
+					if a.customCanvas == "" {
+						a.customCanvas = colorHex(a.pal.canvas)
+					}
+					if a.customSurface == "" {
+						a.customSurface = colorHex(a.pal.surface)
+					}
+					if a.customAccent == "" {
+						a.customAccent = colorHex(a.pal.controlOn)
+					}
+					if a.customText == "" {
+						a.customText = colorHex(a.pal.ink)
+					}
+					a.syncConfigFromState()
+				} else {
+					a.applyThemePreset(presetIDs[idx])
+				}
+			})
+		})
+
+		a.themeColorRow(c, "pref-col-canvas", a.t("settings.colorCanvas"), &a.customCanvas, a.pal.canvas, []string{"#111111", "#18191C", "#090A0D", "#FFFFFF", "#F6F3EE"})
+		a.themeColorRow(c, "pref-col-surface", a.t("settings.colorSurface"), &a.customSurface, a.pal.surface, []string{"#18181B", "#222428", "#12141A", "#F4F4F5", "#EDE8DF"})
+		a.themeColorRow(c, "pref-col-accent", a.t("settings.colorAccent"), &a.customAccent, a.pal.controlOn, []string{"#EDEDED", "#18181B", "#D4D4D8", "#E11D48", "#10B981", "#F59E0B"})
+		a.themeColorRow(c, "pref-col-text", a.t("settings.colorText"), &a.customText, a.pal.ink, []string{"#FAFAFA", "#E4E4E7", "#18181B", "#1F1B17"})
+	})
+
 	// Workspace display group.
 	a.settingsGroup(c, a.t("settings.workspace"), func() {
 		a.settingsSwitchRow(c, "pref-sb-counts", a.t("settings.sidebarCounts"), &a.showSidebarCounts, func() {
@@ -671,4 +722,41 @@ func (a *App) settingsKVRow(c *gui.Context, label, value string) {
 		gui.Text(c, label).Width(156).FontSize(12).TextColor(a.pal.inkSecondary).SingleLine()
 		gui.Text(c, value).Grow(1).FontSize(12).Bold().TextColor(a.pal.ink).SingleLine()
 	})
+}
+
+func (a *App) themeColorRow(c *gui.Context, key, label string, val *string, preview gui.Color, swatches []string) {
+	gui.Row(c).FillWidth().Gap(10).AlignItems(gui.Center).Children(func() {
+		gui.Text(c, label).Width(112).FontSize(12).TextColor(a.pal.inkSecondary).SingleLine()
+		gui.Box(c).Size(22, 22).Radius(6).Background(preview).Border(1, a.pal.surfaceActive)
+		gui.TextInput(c.Key(key), val).
+			Placeholder(colorHex(preview)).
+			Width(96).
+			OnChange(func() {
+				a.themePreset = "custom"
+				a.syncConfigFromState()
+			})
+		gui.Row(c).Gap(6).AlignItems(gui.Center).Children(func() {
+			for i, sw := range swatches {
+				hex := sw
+				if col, ok := parseHexColor(hex); ok {
+					dot := gui.ButtonBase(c.Key(fmt.Sprintf("%s-sw-%d", key, i))).
+						Size(18, 18).
+						Radius(radiusPill).
+						Background(col).
+						Border(1, a.pal.surfaceActive).
+						Tooltip(hex).
+						OnClick(func() {
+							*val = hex
+							a.themePreset = "custom"
+							a.syncConfigFromState()
+						})
+					_ = dot
+				}
+			}
+		})
+	})
+}
+
+func colorHex(c gui.Color) string {
+	return fmt.Sprintf("#%02X%02X%02X", c.R, c.G, c.B)
 }

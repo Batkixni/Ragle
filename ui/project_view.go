@@ -79,34 +79,38 @@ func (a *App) projectView(c *gui.Context) {
 						a.windowControls(c)
 					})
 
-				// Compact metadata & tag strip (only shown when description or tags exist).
-				if a.project.Description != "" || len(a.tags) > 0 {
+				// Row 2: Project description on its own dedicated line.
+				if a.project.Description != "" {
 					gui.Row(c).
 						FillWidth().
-						Padding(2, 16, 12, 16).
-						Gap(12).
+						Padding(2, 16, 6, 16).
+						AlignItems(gui.Center).
+						Children(func() {
+							gui.Text(c, a.project.Description).
+								FontSize(12).
+								TextColor(a.pal.inkSecondary).
+								LineHeight(1.45)
+						})
+				}
+
+				// Row 3: Interactive project tags on their own dedicated row.
+				if len(a.tags) > 0 {
+					gui.Row(c).
+						FillWidth().
+						Padding(4, 16, 12, 16).
+						Gap(6).
 						Wrap().
 						AlignItems(gui.Center).
 						Children(func() {
-							if a.project.Description != "" {
-								gui.Text(c, a.project.Description).
-									FontSize(12).
-									TextColor(a.pal.inkSecondary).
-									LineHeight(1.4)
-							}
-							if len(a.tags) > 0 {
-								gui.Row(c).Gap(6).Wrap().AlignItems(gui.Center).Children(func() {
-									for _, tag := range a.tags {
-										tg := tag
-										isOn := a.projectTags[tg.ID]
-										a.tagChip(c, "ptag-"+tg.ID, tg.Name, isOn).OnClick(func() {
-											if err := a.projects.SetTag(a.projectID, tg.ID, !isOn); err != nil {
-												a.status = err.Error()
-												return
-											}
-											a.reload()
-										})
+							for _, tag := range a.tags {
+								tg := tag
+								isOn := a.projectTags[tg.ID]
+								a.tagChip(c, "ptag-"+tg.ID, tg.Name, isOn).OnClick(func() {
+									if err := a.projects.SetTag(a.projectID, tg.ID, !isOn); err != nil {
+										a.status = err.Error()
+										return
 									}
+									a.reload()
 								})
 							}
 						})

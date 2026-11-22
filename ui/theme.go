@@ -3,6 +3,8 @@ package ui
 import (
 	"fmt"
 	"math"
+	"strconv"
+	"strings"
 	"time"
 
 	gui "github.com/egoist/mygo/ui"
@@ -115,6 +117,168 @@ type palette struct {
 	paper          gui.Color // moodboard canvas paper
 	paperInk       gui.Color // moodboard default ink
 	paperGrid      gui.Color // moodboard subtle dot grid
+}
+
+// themeOverrides lets users pick a built-in studio preset or customize
+// canvas, surface, accent, and text colors in Preferences.
+type themeOverrides struct {
+	preset  string
+	canvas  string
+	surface string
+	accent  string
+	text    string
+}
+
+type themePresetSpec struct {
+	id      string
+	dark    bool
+	canvas  string
+	surface string
+	accent  string
+	text    string
+}
+
+var themePresets = []themePresetSpec{
+	{id: "", dark: true, canvas: "#111111", surface: "#18181B", accent: "#EDEDED", text: "#FAFAFA"},
+	{id: "graphite", dark: true, canvas: "#18191C", surface: "#222428", accent: "#E4E6EB", text: "#F4F5F7"},
+	{id: "warm", dark: false, canvas: "#F6F3EE", surface: "#EDE8DF", accent: "#231F1B", text: "#1F1B17"},
+	{id: "midnight", dark: true, canvas: "#090A0D", surface: "#12141A", accent: "#F4F4F5", text: "#FAFAFA"},
+}
+
+func parseHexColor(s string) (gui.Color, bool) {
+	s = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(s), "#"))
+	if len(s) == 3 {
+		s = string([]byte{s[0], s[0], s[1], s[1], s[2], s[2]})
+	}
+	if len(s) != 6 {
+		return gui.Color{}, false
+	}
+	v, err := strconv.ParseUint(s, 16, 32)
+	if err != nil {
+		return gui.Color{}, false
+	}
+	return gui.RGBA(
+		uint8((v>>16)&0xFF),
+		uint8((v>>8)&0xFF),
+		uint8(v&0xFF),
+		1,
+	), true
+}
+
+func mixColor(a, b gui.Color, t float32) gui.Color {
+	if t <= 0 {
+		return a
+	}
+	if t >= 1 {
+		return b
+	}
+	lerp := func(x, y uint8) uint8 {
+		v := float32(x)*(1-t) + float32(y)*t
+		if v < 0 {
+			return 0
+		}
+		if v > 255 {
+			return 255
+		}
+		return uint8(v + 0.5)
+	}
+	return gui.RGBA(lerp(a.R, b.R), lerp(a.G, b.G), lerp(a.B, b.B), 1)
+}
+
+func colorLuminance(c gui.Color) float32 {
+	return (0.299*float32(c.R) + 0.587*float32(c.G) + 0.114*float32(c.B)) / 255
+}
+
+func makeThemeWithOverrides(dark bool, ov themeOverrides) (*gui.Theme, palette, bool) {
+	// Apply preset defaults when a named preset is chosen (unless custom).
+	if ov.preset != "" && ov.preset != "custom" {
+		for _, pr := range themePresets {
+			if pr.id == ov.preset {
+				dark = pr.dark
+				if ov.canvas == "" {
+					ov.canvas = pr.canvas
+				}
+				if ov.surface == "" {
+					ov.surface = pr.surface
+				}
+				if ov.accent == "" {
+					ov.accent = pr.accent
+				}
+				if ov.text == "" {
+					ov.text = pr.text
+				}
+				break
+			}
+		}
+	}
+	if c, ok := parseHexColor(ov.canvas); ok {
+		dark = colorLuminance(c) < 0.45
+	}
+	t, p := makeTheme(dark)
+	hasCustom := false
+
+	if c, ok := parseHexColor(ov.canvas); ok {
+		hasCustom = true
+		p.canvas = c
+		t.Background = c
+		if dark {
+			p.paper = mixColor(c, gui.Hex("#FFFFFF"), 0.03)
+		} else {
+			p.paper = mixColor(c, gui.Hex("#000000"), 0.03)
+		}
+	}
+	if c, ok := parseHexColor(ov.surface); ok {
+		hasCustom = true
+		p.surface = c
+		t.Surface = c
+		if dark {
+			p.surfaceRaised = mixColor(c, gui.Hex("#FFFFFF"), 0.05)
+			p.surfaceMuted = mixColor(c, gui.Hex("#FFFFFF"), 0.10)
+			p.surfaceActive = mixColor(c, gui.Hex("#FFFFFF"), 0.16)
+			p.pillTrack = mixColor(p.canvas, c, 0.35)
+			p.pillActive = mixColor(c, gui.Hex("#FFFFFF"), 0.14)
+		} else {
+			p.surfaceRaised = mixColor(c, gui.Hex("#FFFFFF"), 0.72)
+			p.surfaceMuted = mixColor(c, gui.Hex("#000000"), 0.07)
+			p.surfaceActive = mixColor(c, gui.Hex("#000000"), 0.13)
+			p.pillTrack = mixColor(c, gui.Hex("#000000"), 0.08)
+			p.pillActive = gui.Hex("#FFFFFF")
+		}
+		t.SurfaceHover = p.surfaceMuted
+		t.SurfacePressed = p.surfaceActive
+	}
+	if c, ok := parseHexColor(ov.accent); ok {
+		hasCustom = true
+		p.controlOn = c
+		if colorLuminance(c) > 0.56 {
+			p.controlGlyph = gui.Hex("#141416")
+		} else {
+			p.controlGlyph = gui.Hex("#FFFFFF")
+		}
+		t.Accent = c
+		t.AccentText = p.controlGlyph
+		t.Inverse = c
+		t.InverseText = p.controlGlyph
+		if dark {
+			t.AccentHover = mixColor(c, gui.Hex("#FFFFFF"), 0.14)
+			t.AccentPressed = mixColor(c, gui.Hex("#000000"), 0.14)
+		} else {
+			t.AccentHover = mixColor(c, gui.Hex("#000000"), 0.12)
+			t.AccentPressed = mixColor(c, gui.Hex("#000000"), 0.22)
+		}
+	}
+	if c, ok := parseHexColor(ov.text); ok {
+		hasCustom = true
+		p.ink = c
+		p.paperInk = c
+		t.Text = c
+		p.inkSecondary = mixColor(c, p.surface, 0.36)
+		p.inkMuted = mixColor(c, p.surface, 0.56)
+		p.inkFaint = mixColor(c, p.surface, 0.70)
+		t.TextMuted = p.inkSecondary
+	}
+	_ = hasCustom
+	return t, p, dark
 }
 
 func makeTheme(dark bool) (*gui.Theme, palette) {

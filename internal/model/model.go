@@ -46,10 +46,12 @@ type Asset struct {
 	CreatedAt     time.Time `msgpack:"created_at"`
 }
 
-// Tag is a label on assets and projects.
+// Tag is a label on assets and projects. ParentID nests child tags under a
+// parent tag (empty string for root tags).
 type Tag struct {
 	ID        string    `msgpack:"id"`
 	Name      string    `msgpack:"name"`
+	ParentID  string    `msgpack:"parent_id,omitempty"`
 	CreatedAt time.Time `msgpack:"created_at"`
 }
 

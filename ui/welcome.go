@@ -14,6 +14,7 @@ func (a *App) View(c *gui.Context) {
 	a.settingsModal(c)
 	a.newProjectModal(c)
 	a.editProjectModal(c)
+	a.editTagModal(c)
 	a.shareModal(c)
 	a.receivePairModal(c)
 	a.confirm(c)
@@ -28,9 +29,15 @@ func (a *App) captureTheme(c *gui.Context) {
 	case "dark":
 		dark = true
 	}
-	theme, pal := makeTheme(dark)
+	theme, pal, resolvedDark := makeThemeWithOverrides(dark, themeOverrides{
+		preset:  a.themePreset,
+		canvas:  a.customCanvas,
+		surface: a.customSurface,
+		accent:  a.customAccent,
+		text:    a.customText,
+	})
 	c.SetTheme(theme)
-	a.dark = dark
+	a.dark = resolvedDark
 	a.pal = pal
 	a.paper = pal.paper
 	a.ink = pal.paperInk

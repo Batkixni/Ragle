@@ -36,6 +36,7 @@ const (
 	screenLibrary
 	screenProject
 	screenBoard
+	screenTags
 )
 
 const (
@@ -51,9 +52,15 @@ const (
 	layoutGrid    = "grid"
 )
 
-// assetDrag is the value dragged from a library card or the board tray.
+// assetDrag is the value dragged from the board tray onto the canvas.
 type assetDrag struct {
 	ID string
+}
+
+// assetBatchDrag is the value dragged from the library grid/bento/masonry onto
+// a sidebar project or tag for single or multi-asset batch organization.
+type assetBatchDrag struct {
+	IDs []string
 }
 
 var storageModes = []string{
@@ -101,35 +108,52 @@ type App struct {
 	canRestore  bool
 
 	// Cached catalog data updated in reload() so View never hits bbolt per frame.
-	tags           []model.Tag
-	allAssets      []model.Asset
-	assets         []model.Asset
-	assetByID      map[string]model.Asset
-	assetTags      map[string][]model.Tag
-	tagCounts      map[string]int
-	allAssetsCount int
-	untaggedCount  int
-	missingCount   int
-	projectTags    map[string]bool
-	boardCounts    map[string]int
+	tags               []model.Tag
+	tagByID            map[string]model.Tag
+	tagChildren        map[string][]model.Tag
+	tagRecursiveCounts map[string]int
+	expandedTags       map[string]bool
+	allAssets          []model.Asset
+	assets             []model.Asset
+	assetByID          map[string]model.Asset
+	assetTags          map[string][]model.Tag
+	tagCounts          map[string]int
+	allAssetsCount     int
+	untaggedCount      int
+	missingCount       int
+	projectTags        map[string]bool
+	boardCounts        map[string]int
 
-	// Navigation, search, sort & library display state.
-	tagID         string
-	navFilter     string // "", "untagged", "missing"
-	searchQuery   string
-	searchHandle  gui.Handle
-	kindFilter    int
-	minRating     int
-	sortBy        int
-	layoutMode    string // "bento", "masonry", "grid"
-	grid          gui.GridState
-	assetIndex    int
-	cardSize      float64
-	inspectorOpen bool
-	filterBarOpen bool
-	revealGen     int
-	storageMode   int
-	importing     bool
+	// Navigation, search, sort, multi-select & library display state.
+	tagID           string
+	navFilter       string // "", "untagged", "missing"
+	searchQuery     string
+	searchHandle    gui.Handle
+	kindFilter      int
+	minRating       int
+	sortBy          int
+	layoutMode      string // "bento", "masonry", "grid"
+	grid            gui.GridState
+	assetIndex      int
+	anchorIndex     int
+	selectedIDs     map[string]bool
+	multiSelectMode bool
+	cardSize        float64
+	inspectorOpen   bool
+	filterBarOpen   bool
+	revealGen       int
+	storageMode     int
+	importing       bool
+
+	// Tag management view & edit modal state.
+	tagSearch        string
+	newRootTagName   string
+	newChildParentID string
+	newChildTagName  string
+	editTagOpen      bool
+	editTagID        string
+	editTagName      string
+	editTagParentID  string
 
 	// Inspector persistent bound state (avoids local-variable loss on rebuild).
 	inspectorAssetID  string
@@ -139,11 +163,21 @@ type App struct {
 	inspectorPlaces   int
 	quickTagName      string
 
-	// Quick Preview Lightbox state.
-	previewOpen    bool
-	previewAssetID string
-	previewBitmap  *gui.Bitmap
-	previewLoading bool
+	// Quick Preview Lightbox & Video Player state.
+	previewOpen     bool
+	previewAssetID  string
+	previewBitmap   *gui.Bitmap
+	previewVideo    *gui.VideoPlayer
+	previewVideoErr string
+	previewLoop     bool
+	previewLoading  bool
+
+	// Custom theme overrides.
+	themePreset   string
+	customCanvas  string
+	customSurface string
+	customAccent  string
+	customText    string
 
 	// Preferences / Settings modal state & live database diagnostics.
 	settingsOpen         bool
@@ -254,7 +288,10 @@ func NewApp() *App {
 		importRecursive:      true,
 		notifyDuplicates:     true,
 		backupBeforeDelete:   true,
+		previewLoop:          true,
 		assetIndex:           -1,
+		anchorIndex:          -1,
+		selectedIDs:          map[string]bool{},
 		cardSize:             184,
 		inspectorOpen:        true,
 		filterBarOpen:        false,
@@ -263,6 +300,10 @@ func NewApp() *App {
 		bitmaps:              map[string]*gui.Bitmap{},
 		loading:              map[string]bool{},
 		queued:               map[string]bool{},
+		tagByID:              map[string]model.Tag{},
+		tagChildren:          map[string][]model.Tag{},
+		tagRecursiveCounts:   map[string]int{},
+		expandedTags:         map[string]bool{},
 		assetByID:            map[string]model.Asset{},
 		assetTags:            map[string][]model.Tag{},
 		tagCounts:            map[string]int{},
@@ -315,6 +356,11 @@ func (a *App) applyConfig(cfg config.Config) {
 	if cfg.ThemeMode == "auto" || cfg.ThemeMode == "light" || cfg.ThemeMode == "dark" {
 		a.themeMode = cfg.ThemeMode
 	}
+	a.themePreset = cfg.ThemePreset
+	a.customCanvas = cfg.CustomCanvas
+	a.customSurface = cfg.CustomSurface
+	a.customAccent = cfg.CustomAccent
+	a.customText = cfg.CustomText
 	if cfg.CardSize >= 120 && cfg.CardSize <= 320 {
 		a.cardSize = cfg.CardSize
 	}
@@ -345,6 +391,11 @@ func (a *App) applyConfig(cfg config.Config) {
 func (a *App) syncConfigFromState() {
 	a.cfg.Language = a.lang
 	a.cfg.ThemeMode = a.themeMode
+	a.cfg.ThemePreset = a.themePreset
+	a.cfg.CustomCanvas = strings.TrimSpace(a.customCanvas)
+	a.cfg.CustomSurface = strings.TrimSpace(a.customSurface)
+	a.cfg.CustomAccent = strings.TrimSpace(a.customAccent)
+	a.cfg.CustomText = strings.TrimSpace(a.customText)
 	a.cfg.CardSize = a.cardSize
 	a.cfg.DefaultSort = a.sortBy
 	a.cfg.LayoutMode = a.layoutMode
@@ -382,6 +433,36 @@ func (a *App) setLayoutMode(mode string) {
 	}
 	a.layoutMode = mode
 	a.revealGen++
+	a.syncConfigFromState()
+}
+
+func (a *App) applyThemePreset(preset string) {
+	a.themePreset = preset
+	if preset == "" {
+		a.customCanvas = ""
+		a.customSurface = ""
+		a.customAccent = ""
+		a.customText = ""
+	} else {
+		for _, pr := range themePresets {
+			if pr.id == preset {
+				a.customCanvas = pr.canvas
+				a.customSurface = pr.surface
+				a.customAccent = pr.accent
+				a.customText = pr.text
+				break
+			}
+		}
+	}
+	a.syncConfigFromState()
+}
+
+func (a *App) resetCustomTheme() {
+	a.themePreset = ""
+	a.customCanvas = ""
+	a.customSurface = ""
+	a.customAccent = ""
+	a.customText = ""
 	a.syncConfigFromState()
 }
 
@@ -426,6 +507,7 @@ func (a *App) shutdown() {
 	if node != nil {
 		_ = node.Close()
 	}
+	a.closePreview()
 	a.flushBoard(true)
 	watch, thumbs, lib := a.watch, a.thumbs, a.lib
 	a.watch, a.thumbs, a.lib = nil, nil, nil
@@ -561,6 +643,7 @@ func (a *App) reload() {
 		return
 	}
 	a.tags = tags
+	a.rebuildTagTree()
 
 	all, err := a.lib.List(library.Filter{})
 	if err != nil {
@@ -572,6 +655,7 @@ func (a *App) reload() {
 	a.assetByID = make(map[string]model.Asset, len(all))
 	a.assetTags = make(map[string][]model.Tag, len(all))
 	a.tagCounts = make(map[string]int, len(tags))
+	a.tagRecursiveCounts = make(map[string]int, len(tags))
 	a.untaggedCount = 0
 	a.missingCount = 0
 
@@ -585,8 +669,15 @@ func (a *App) reload() {
 		if len(atags) == 0 {
 			a.untaggedCount++
 		}
+		countedAncestors := map[string]bool{}
 		for _, tg := range atags {
 			a.tagCounts[tg.ID]++
+			walk := tg.ID
+			for walk != "" && !countedAncestors[walk] {
+				countedAncestors[walk] = true
+				a.tagRecursiveCounts[walk]++
+				walk = a.tagByID[walk].ParentID
+			}
 		}
 		if asset.ThumbnailPath != "" {
 			a.ensureBitmap(asset.ID, asset.ThumbnailPath)
@@ -675,6 +766,11 @@ func (a *App) applyFilters() {
 	q := strings.ToLower(strings.TrimSpace(a.searchQuery))
 	out := make([]model.Asset, 0, len(a.allAssets))
 
+	var tagSet map[string]bool
+	if a.tagID != "" {
+		tagSet = a.tagDescendantSet(a.tagID)
+	}
+
 	for _, asset := range a.allAssets {
 		if a.navFilter == "missing" && !asset.Missing {
 			continue
@@ -682,7 +778,7 @@ func (a *App) applyFilters() {
 		if a.navFilter == "untagged" && len(a.assetTags[asset.ID]) > 0 {
 			continue
 		}
-		if a.tagID != "" && !a.hasTag(asset.ID, a.tagID) {
+		if tagSet != nil && !a.hasAnyTag(asset.ID, tagSet) {
 			continue
 		}
 		if a.minRating > 0 && asset.Rating < a.minRating {
@@ -741,6 +837,68 @@ func (a *App) hasTag(assetID, tagID string) bool {
 		}
 	}
 	return false
+}
+
+func (a *App) hasAnyTag(assetID string, set map[string]bool) bool {
+	for _, tg := range a.assetTags[assetID] {
+		if set[tg.ID] {
+			return true
+		}
+	}
+	return false
+}
+
+func (a *App) rebuildTagTree() {
+	a.tagByID = make(map[string]model.Tag, len(a.tags))
+	a.tagChildren = make(map[string][]model.Tag)
+	for _, tg := range a.tags {
+		a.tagByID[tg.ID] = tg
+	}
+	for _, tg := range a.tags {
+		pid := tg.ParentID
+		if pid != "" {
+			if _, ok := a.tagByID[pid]; !ok {
+				pid = ""
+			}
+		}
+		a.tagChildren[pid] = append(a.tagChildren[pid], tg)
+	}
+	for pid := range a.tagChildren {
+		list := a.tagChildren[pid]
+		sort.Slice(list, func(i, j int) bool {
+			return strings.ToLower(list[i].Name) < strings.ToLower(list[j].Name)
+		})
+		a.tagChildren[pid] = list
+	}
+}
+
+func (a *App) ensureTagTree() {
+	if len(a.tags) > 0 && len(a.tagByID) != len(a.tags) {
+		a.rebuildTagTree()
+	}
+}
+
+// tagDescendantSet returns tagID plus all of its nested child tag IDs.
+func (a *App) tagDescendantSet(tagID string) map[string]bool {
+	out := map[string]bool{tagID: true}
+	var walk func(id string)
+	walk = func(id string) {
+		for _, ch := range a.tagChildren[id] {
+			if !out[ch.ID] {
+				out[ch.ID] = true
+				walk(ch.ID)
+			}
+		}
+	}
+	walk(tagID)
+	return out
+}
+
+func (a *App) tagDisplayCount(tagID string) int {
+	if c, ok := a.tagRecursiveCounts[tagID]; ok {
+		return c
+	}
+	return a.tagCounts[tagID]
 }
 
 func (a *App) matchesQuery(asset model.Asset, q string) bool {
@@ -882,20 +1040,89 @@ func (a *App) ensureBitmap(id, path string) {
 	}()
 }
 
-// openPreview opens the full-resolution Quick Preview lightbox for asset.
+// closePreview shuts down any active video player and closes the lightbox.
+func (a *App) closePreview() {
+	if a.previewVideo != nil {
+		a.previewVideo.Close()
+		a.previewVideo = nil
+	}
+	a.previewVideoErr = ""
+	a.previewLoading = false
+	a.previewOpen = false
+}
+
+// openPreview opens the full-resolution Quick Preview lightbox for asset,
+// starting in-app playback for videos (via ffmpeg -> ui.VideoPlayer) and
+// animated GIFs (via ui.NewGIFDecoder).
 func (a *App) openPreview(asset model.Asset) {
 	if asset.ID == "" {
 		return
 	}
 	a.previewOpen = true
-	if a.previewAssetID == asset.ID && (a.previewBitmap != nil || a.previewLoading) {
+	if a.previewAssetID == asset.ID && (a.previewBitmap != nil || a.previewVideo != nil || a.previewLoading) {
 		return
+	}
+	if a.previewVideo != nil {
+		a.previewVideo.Close()
+		a.previewVideo = nil
 	}
 	a.previewAssetID = asset.ID
 	a.previewBitmap = nil
+	a.previewVideoErr = ""
 	a.previewLoading = false
 
-	if asset.Missing || model.MediaKind(asset.Mime) != model.MediaImage || asset.Path == "" {
+	if asset.Missing || asset.Path == "" {
+		return
+	}
+
+	kind := model.MediaKind(asset.Mime)
+	isGIF := strings.EqualFold(asset.Mime, "image/gif") || strings.EqualFold(filepath.Ext(asset.Path), ".gif")
+
+	if kind == model.MediaVideo {
+		if a.win == nil {
+			a.previewBitmap = a.bitmaps[asset.ID]
+			return
+		}
+		if !thumbnail.Available() {
+			a.previewVideoErr = a.t("preview.videoNoFfmpeg")
+			return
+		}
+		a.previewLoading = true
+		win := a.win
+		targetID := asset.ID
+		path := asset.Path
+		w, h := asset.Width, asset.Height
+		loop := a.previewLoop
+		go func() {
+			dec, err := newFFmpegVideoDecoder(path, w, h)
+			var player *gui.VideoPlayer
+			if err == nil {
+				player, err = gui.NewVideoPlayer(dec)
+				if err != nil {
+					_ = dec.Close()
+				} else {
+					player.SetLoop(loop)
+				}
+			}
+			win.Update(func() {
+				if a.previewAssetID != targetID || !a.previewOpen || a.isClosed() {
+					if player != nil {
+						player.Close()
+					}
+					return
+				}
+				a.previewLoading = false
+				if err != nil || player == nil {
+					a.previewVideoErr = a.t("preview.videoFailed")
+					return
+				}
+				a.previewVideo = player
+			})
+		}()
+		return
+	}
+
+	if kind != model.MediaImage {
 		return
 	}
 	if a.win == nil {
@@ -906,18 +1133,35 @@ func (a *App) openPreview(asset model.Asset) {
 	win := a.win
 	targetID := asset.ID
 	path := asset.Path
+	loop := a.previewLoop
 	go func() {
 		data, err := os.ReadFile(path)
 		var bm *gui.Bitmap
+		var player *gui.VideoPlayer
 		if err == nil {
-			bm, _ = gui.DecodeBitmap(data)
+			if isGIF {
+				if dec, gerr := gui.NewGIFDecoder(data); gerr == nil {
+					if p, perr := gui.NewVideoPlayer(dec); perr == nil {
+						p.SetLoop(loop)
+						player = p
+					}
+				}
+			}
+			if player == nil {
+				bm, _ = gui.DecodeBitmap(data)
+			}
 		}
 		win.Update(func() {
-			if a.previewAssetID != targetID {
+			if a.previewAssetID != targetID || !a.previewOpen || a.isClosed() {
+				if player != nil {
+					player.Close()
+				}
 				return
 			}
 			a.previewLoading = false
-			if bm != nil {
+			if player != nil {
+				a.previewVideo = player
+			} else if bm != nil {
 				a.previewBitmap = bm
 			}
 		})
@@ -1370,6 +1614,7 @@ func (a *App) createProjectFromModal() {
 }
 
 func (a *App) openProject(id string) {
+	a.closePreview()
 	a.flushBoard(true)
 	a.session = nil
 	a.boardID = ""
@@ -1381,6 +1626,7 @@ func (a *App) openProject(id string) {
 }
 
 func (a *App) openBoard(b model.Board) {
+	a.closePreview()
 	a.flushBoard(true)
 	items, err := a.projects.LoadPlacements(b.ID)
 	if err != nil {
@@ -1436,7 +1682,8 @@ func (a *App) deleteAssetPrompt(asset model.Asset) {
 			}
 			if len(drop) > 0 {
 				a.session.Delete(drop)
-				a.flushBoard(true)
+				a.closePreview()
+	a.flushBoard(true)
 			}
 		}
 		if a.backupBeforeDelete && a.lib != nil {
@@ -1503,8 +1750,17 @@ func (a *App) handleNav(nav string) {
 	a.selectedNav = nav
 	a.lastNav = nav
 	a.revealGen++
+	a.clearSelection()
 	switch {
+	case nav == "manage-tags":
+		a.closePreview()
+		a.flushBoard(true)
+		a.session = nil
+		a.referenceMode = false
+		a.screen = screenTags
+		a.reload()
 	case nav == "library" || nav == "tag-all":
+		a.closePreview()
 		a.flushBoard(true)
 		a.session = nil
 		a.referenceMode = false
@@ -1514,6 +1770,7 @@ func (a *App) handleNav(nav string) {
 		a.screen = screenLibrary
 		a.reload()
 	case nav == "filter-untagged":
+		a.closePreview()
 		a.flushBoard(true)
 		a.session = nil
 		a.referenceMode = false
@@ -1523,6 +1780,7 @@ func (a *App) handleNav(nav string) {
 		a.screen = screenLibrary
 		a.reload()
 	case nav == "filter-missing":
+		a.closePreview()
 		a.flushBoard(true)
 		a.session = nil
 		a.referenceMode = false
@@ -1532,10 +1790,17 @@ func (a *App) handleNav(nav string) {
 		a.screen = screenLibrary
 		a.reload()
 	case strings.HasPrefix(nav, "tag:"):
+		a.closePreview()
 		a.flushBoard(true)
 		a.session = nil
 		a.referenceMode = false
-		a.tagID = strings.TrimPrefix(nav, "tag:")
+		tid := strings.TrimPrefix(nav, "tag:")
+		if a.screen == screenLibrary && a.tagID == tid && len(a.tagChildren[tid]) > 0 {
+			a.toggleTagExpand(tid)
+		} else if len(a.tagChildren[tid]) > 0 {
+			a.expandedTags[tid] = true
+		}
+		a.tagID = tid
 		a.navFilter = ""
 		a.assetIndex = -1
 		a.screen = screenLibrary
@@ -1547,7 +1812,10 @@ func (a *App) handleNav(nav string) {
 }
 
 func (a *App) syncNavSelection() {
-	if a.screen == screenProject || a.screen == screenBoard {
+	if a.screen == screenTags {
+		a.selectedNav = "manage-tags"
+		a.lastNav = a.selectedNav
+	} else if a.screen == screenProject || a.screen == screenBoard {
 		if a.projectID != "" {
 			a.selectedNav = "project:" + a.projectID
 			a.lastNav = a.selectedNav
@@ -1565,4 +1833,255 @@ func (a *App) syncNavSelection() {
 		}
 		a.lastNav = a.selectedNav
 	}
+}
+
+// --- Multi-Select & Batch Operations ---
+
+func (a *App) selectCard(index int, mods gui.Modifiers) {
+	if index < 0 || index >= len(a.assets) {
+		return
+	}
+	id := a.assets[index].ID
+	if a.selectedIDs == nil {
+		a.selectedIDs = map[string]bool{}
+	}
+	ctrl := mods&(gui.Cmd|gui.Ctrl) != 0
+	shift := mods&gui.Shift != 0
+	switch {
+	case shift && a.anchorIndex >= 0 && a.anchorIndex < len(a.assets):
+		lo, hi := a.anchorIndex, index
+		if lo > hi {
+			lo, hi = hi, lo
+		}
+		if !ctrl {
+			a.selectedIDs = map[string]bool{}
+		}
+		for i := lo; i <= hi; i++ {
+			a.selectedIDs[a.assets[i].ID] = true
+		}
+		a.assetIndex = index
+	case ctrl || a.multiSelectMode:
+		if a.selectedIDs[id] {
+			delete(a.selectedIDs, id)
+		} else {
+			a.selectedIDs[id] = true
+		}
+		a.assetIndex = index
+		a.anchorIndex = index
+	default:
+		a.selectedIDs = map[string]bool{id: true}
+		a.assetIndex = index
+		a.anchorIndex = index
+	}
+	a.syncInspectorSelection(false)
+}
+
+func (a *App) toggleCardSelection(index int) {
+	if index < 0 || index >= len(a.assets) {
+		return
+	}
+	id := a.assets[index].ID
+	if a.selectedIDs == nil {
+		a.selectedIDs = map[string]bool{}
+	}
+	if a.selectedIDs[id] {
+		delete(a.selectedIDs, id)
+	} else {
+		a.selectedIDs[id] = true
+		a.assetIndex = index
+		a.anchorIndex = index
+	}
+	a.syncInspectorSelection(false)
+}
+
+func (a *App) isCardSelected(index int, id string) bool {
+	if a.selectedIDs[id] {
+		return true
+	}
+	return len(a.selectedIDs) == 0 && index == a.assetIndex
+}
+
+func (a *App) selectedAssetIDs() []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, asset := range a.assets {
+		if a.selectedIDs[asset.ID] {
+			out = append(out, asset.ID)
+			seen[asset.ID] = true
+		}
+	}
+	if len(out) == 0 {
+		if cur, ok := a.selectedAsset(); ok && !seen[cur.ID] {
+			out = append(out, cur.ID)
+		}
+	}
+	return out
+}
+
+func (a *App) dragIDsFor(assetID string) []string {
+	if a.selectedIDs[assetID] && len(a.selectedIDs) > 1 {
+		return a.selectedAssetIDs()
+	}
+	return []string{assetID}
+}
+
+func (a *App) selectAllVisible() {
+	a.selectedIDs = make(map[string]bool, len(a.assets))
+	for _, asset := range a.assets {
+		a.selectedIDs[asset.ID] = true
+	}
+	if len(a.assets) > 0 && a.assetIndex < 0 {
+		a.assetIndex = 0
+		a.anchorIndex = 0
+	}
+	a.syncInspectorSelection(false)
+}
+
+func (a *App) clearSelection() {
+	a.selectedIDs = map[string]bool{}
+	a.multiSelectMode = false
+}
+
+func (a *App) batchReferenceToProject(ids []string, projectID string) {
+	if len(ids) == 0 || projectID == "" || a.projects == nil {
+		return
+	}
+	added := 0
+	for _, id := range ids {
+		if err := a.projects.Reference(projectID, id); err == nil {
+			added++
+		}
+	}
+	projName := projectID
+	for _, p := range a.projectList {
+		if p.ID == projectID {
+			projName = p.Name
+			break
+		}
+	}
+	a.status = fmt.Sprintf(a.t("batch.addedProject"), added, projName)
+	a.reload()
+}
+
+func (a *App) batchApplyTag(ids []string, tagID string) {
+	if len(ids) == 0 || tagID == "" || a.lib == nil {
+		return
+	}
+	applied := 0
+	for _, id := range ids {
+		if err := a.lib.SetAssetTag(id, tagID, true); err == nil {
+			applied++
+		}
+	}
+	tagName := a.tagByID[tagID].Name
+	a.status = fmt.Sprintf(a.t("batch.appliedTag"), applied, tagName)
+	a.reload()
+}
+
+func (a *App) batchDeletePrompt(ids []string) {
+	if len(ids) == 0 || a.lib == nil {
+		return
+	}
+	if len(ids) == 1 {
+		if asset, ok := a.assetByID[ids[0]]; ok {
+			a.deleteAssetPrompt(asset)
+			return
+		}
+	}
+	list := append([]string(nil), ids...)
+	a.ask(a.t("batch.delete"), fmt.Sprintf(a.t("batch.deleteConfirm"), len(list)), a.t("common.delete"), func() {
+		if a.backupBeforeDelete && a.lib != nil {
+			_ = a.lib.DB.Backup()
+		}
+		deleted := 0
+		for _, id := range list {
+			if a.session != nil {
+				var drop []string
+				for _, item := range a.session.Items {
+					if item.Kind == model.KindImage && item.AssetID == id {
+						drop = append(drop, item.ID)
+					}
+				}
+				if len(drop) > 0 {
+					a.session.Delete(drop)
+				}
+			}
+			if err := a.lib.Delete(id); err == nil {
+				deleted++
+				delete(a.bitmaps, id)
+				if a.previewAssetID == id {
+					a.closePreview()
+				}
+			}
+		}
+		a.flushBoard(true)
+		a.clearSelection()
+		a.assetIndex = -1
+		a.status = fmt.Sprintf(a.t("batch.deleted"), deleted)
+		a.reload()
+	})
+}
+
+// --- Hierarchical Tag Management Helpers ---
+
+func (a *App) createTagWithParent(name, parentID string) {
+	name = trim(name)
+	if name == "" {
+		a.status = a.t("tag.needName")
+		return
+	}
+	_, err := a.lib.CreateTagWithParent(name, parentID)
+	if err != nil {
+		if errors.Is(err, library.ErrDuplicateName) {
+			a.status = a.t("tag.exists")
+			return
+		}
+		a.status = err.Error()
+		return
+	}
+	if parentID != "" {
+		a.expandedTags[parentID] = true
+	}
+	a.reload()
+}
+
+func (a *App) openEditTagModal(tg model.Tag) {
+	a.editTagID = tg.ID
+	a.editTagName = tg.Name
+	a.editTagParentID = tg.ParentID
+	a.editTagOpen = true
+}
+
+func (a *App) saveEditTag() {
+	if a.lib == nil || a.editTagID == "" {
+		return
+	}
+	name := trim(a.editTagName)
+	if name == "" {
+		a.status = a.t("tag.needName")
+		return
+	}
+	if _, err := a.lib.UpdateTag(a.editTagID, name, a.editTagParentID); err != nil {
+		switch {
+		case errors.Is(err, library.ErrDuplicateName):
+			a.status = a.t("tag.exists")
+		case errors.Is(err, library.ErrTagCycle):
+			a.status = a.t("tags.cycleErr")
+		default:
+			a.status = err.Error()
+		}
+		return
+	}
+	if a.editTagParentID != "" {
+		a.expandedTags[a.editTagParentID] = true
+	}
+	a.editTagOpen = false
+	a.reload()
+}
+
+func (a *App) toggleTagExpand(id string) {
+	if a.expandedTags == nil {
+		a.expandedTags = map[string]bool{}
+	}
+	a.expandedTags[id] = !a.expandedTags[id]
 }

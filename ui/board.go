@@ -140,7 +140,7 @@ func (a *App) boardToolbar(c *gui.Context) {
 }
 
 func (a *App) boardSurface(c *gui.Context) {
-	board := gui.Box(c.Key("board")).Grow(1).Focusable().Background(a.paper)
+	board := gui.Box(c.Key("board")).Grow(1).Clip().Focusable().Background(a.paper)
 	if a.focusBoard {
 		board = board.Focus()
 		a.focusBoard = false
@@ -740,6 +740,15 @@ func (a *App) paintBoard(p *gui.Painter, r gui.Rect) {
 	if s == nil {
 		return
 	}
+	// Strictly clip all canvas rendering to the board viewport so pan/zoomed
+	// placements never bleed over the toolbar, inspector, or bottom tray.
+	p.Clip(r, 0, func() {
+		a.paintBoardClipped(p, r)
+	})
+}
+
+func (a *App) paintBoardClipped(p *gui.Painter, r gui.Rect) {
+	s := a.session
 	// Subtle infinite studio dot grid.
 	zoom := s.Zoom
 	if zoom <= 0 {

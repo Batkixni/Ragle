@@ -16,6 +16,13 @@ type Config struct {
 	ThemeMode    string  `json:"theme_mode,omitempty"` // "auto", "light", "dark"
 	CardSize     float64 `json:"card_size,omitempty"`
 
+	// Custom theme colors (optional overrides applied on top of light/dark mode).
+	ThemePreset   string `json:"theme_preset,omitempty"`   // "", "graphite", "warm", "midnight", "custom"
+	CustomCanvas  string `json:"custom_canvas,omitempty"`  // #RRGGBB
+	CustomSurface string `json:"custom_surface,omitempty"` // #RRGGBB
+	CustomAccent  string `json:"custom_accent,omitempty"`  // #RRGGBB
+	CustomText    string `json:"custom_text,omitempty"`    // #RRGGBB
+
 	// Workspace & appearance preferences.
 	ShowSidebarCounts *bool  `json:"show_sidebar_counts,omitempty"`
 	ShowCardCaption   *bool  `json:"show_card_caption,omitempty"`

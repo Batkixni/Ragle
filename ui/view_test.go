@@ -243,6 +243,8 @@ func TestRenderScreenshots(t *testing.T) {
 	t1, _ := lib.CreateTag("Editorial")
 	t2, _ := lib.CreateTag("UI Motion")
 	t3, _ := lib.CreateTag("Typography")
+	t4, _ := lib.CreateTagWithParent("Poster", t1.ID)
+	t5, _ := lib.CreateTagWithParent("Magazine", t1.ID)
 	store := project.New(lib.DB)
 	proj, _ := store.Create("Brand Identity 2026", "Visual direction, typography & grid references", []string{t1.ID, t3.ID})
 	b1, _ := store.CreateBoard(proj.ID, "Hero Moodboard")
@@ -296,7 +298,9 @@ func TestRenderScreenshots(t *testing.T) {
 		[2]color.RGBA{{148, 163, 184, 255}, {51, 65, 85, 255}},
 		[2]color.RGBA{{212, 212, 216, 255}, {63, 63, 70, 255}},
 	)
-	a.tags = []model.Tag{t1, t2, t3}
+	a.tags = []model.Tag{t1, t2, t3, t4, t5}
+	a.rebuildTagTree()
+	a.expandedTags[t1.ID] = true
 	a.projectList = []model.Project{proj}
 	now := time.Now()
 	for i, name := range names {
@@ -318,16 +322,21 @@ func TestRenderScreenshots(t *testing.T) {
 		a.assetTags[id] = []model.Tag{t1, t2}
 	}
 	a.allAssetsCount = len(a.allAssets)
-	a.tagCounts = map[string]int{t1.ID: len(names), t2.ID: len(names), t3.ID: 2}
+	a.tagCounts = map[string]int{t1.ID: len(names), t2.ID: len(names), t3.ID: 2, t4.ID: 3, t5.ID: 2}
+	a.tagRecursiveCounts = map[string]int{t1.ID: len(names), t2.ID: len(names), t3.ID: 2, t4.ID: 3, t5.ID: 2}
 	a.applyFilters()
 	a.screen = screenLibrary
 	a.assetIndex = 0
 	a.inspectorFileSize = 2480128
 	a.syncInspectorSelection(true)
 
-	// 2. Library Bento, Waterfall Masonry, Grid (dark) & Bento (light).
+	// 2. Library Bento, Waterfall Masonry, Grid, Multi-Select (dark) & Bento (light).
 	a.layoutMode = layoutBento
 	save("library_bento_dark.png", 1360, 860)
+	a.multiSelectMode = true
+	a.selectedIDs = map[string]bool{"art-a": true, "art-b": true, "art-c": true}
+	save("library_multiselect_dark.png", 1360, 860)
+	a.clearSelection()
 	a.layoutMode = layoutMasonry
 	save("library_masonry_dark.png", 1360, 860)
 	a.layoutMode = layoutGrid
@@ -335,6 +344,14 @@ func TestRenderScreenshots(t *testing.T) {
 	a.layoutMode = layoutBento
 	a.themeMode = "light"
 	save("library_light.png", 1360, 860)
+
+	// 2a. Dedicated Tag Management page (dark).
+	a.themeMode = "dark"
+	a.screen = screenTags
+	a.syncNavSelection()
+	save("tags_manager_dark.png", 1360, 860)
+	a.screen = screenLibrary
+	a.syncNavSelection()
 
 	// 2b. Preferences modal screenshots (General, Database, Import — dark).
 	a.themeMode = "dark"
@@ -359,11 +376,12 @@ func TestRenderScreenshots(t *testing.T) {
 	a.syncNavSelection()
 	save("project_dark.png", 1360, 860)
 
-	// 4. Moodboard view dark.
+	// 4. Moodboard view dark (include an item crossing top edge to verify strict clipping).
 	a.screen = screenBoard
 	a.boardID = b1.ID
 	a.boardName = b1.Name
 	a.session = canvas.NewSession([]model.Placement{
+		{ID: "p0", Kind: model.KindImage, AssetID: "art-c", X: 320, Y: -20, Width: 280, Height: 180, Scale: 1, ZIndex: 0},
 		{ID: "p1", Kind: model.KindImage, AssetID: "art-a", X: 260, Y: 220, Width: 300, Height: 200, Scale: 1, ZIndex: 1},
 		{ID: "p2", Kind: model.KindImage, AssetID: "art-b", X: 600, Y: 280, Width: 260, Height: 180, Scale: 1, Rotation: 4, ZIndex: 2},
 		{ID: "p3", Kind: model.KindText, X: 260, Y: 380, Width: 280, Height: 48, Scale: 1, Text: "Hero Direction — High Contrast", FontSize: 20, ZIndex: 3},

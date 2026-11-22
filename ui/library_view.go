@@ -66,6 +66,11 @@ func (a *App) libraryMain(c *gui.Context) {
 			a.filterBar(c)
 		}
 
+		// Multi-select Batch Action Bar (appears when >1 selected or multi-select mode is ON).
+		if a.multiSelectMode || len(a.selectedIDs) > 1 {
+			a.batchActionBar(c)
+		}
+
 		// Project reference mode banner (pure monochrome).
 		if a.referenceMode && a.project.Name != "" {
 			gui.Row(c.Key("ref-banner")).
@@ -223,6 +228,67 @@ func (a *App) filterBar(c *gui.Context) {
 		})
 }
 
+func (a *App) batchActionBar(c *gui.Context) {
+	ids := a.selectedAssetIDs()
+	gui.Row(c.Key("batch-action-bar")).
+		Padding(8, 14).
+		Gap(8).
+		Radius(radiusPanel).
+		Background(a.pal.surface).
+		AlignItems(gui.Center).
+		Wrap().
+		Transition(gui.ElementTransition{
+			Animation: &springSmooth,
+			Enter:     &gui.Motion{Y: -6, Opacity: 0, Collapse: true},
+			Exit:      &gui.Motion{Y: -6, Opacity: 0, Collapse: true},
+		}).
+		Children(func() {
+			gui.Icon(c, iconCheckSquare).Size(15, 15).TextColor(a.pal.ink)
+			gui.Text(c, fmt.Sprintf(a.t("batch.selected"), len(ids))).FontSize(12).Bold().TextColor(a.pal.ink)
+			gui.Text(c, a.t("batch.dragHint")).FontSize(11).TextColor(a.pal.inkMuted)
+
+			gui.Spacer(c)
+
+			a.toolButton(c, "batch-sel-all", nil, a.t("batch.selectAll"), false).OnClick(func() {
+				a.selectAllVisible()
+			})
+
+			if len(ids) > 0 && len(a.projectList) > 0 {
+				gui.PopoverMenuButton(c.Key("batch-add-proj"), a.t("batch.addToProject"), func(m *gui.Menu) {
+					for _, p := range a.projectList {
+						proj := p
+						if m.Item(proj.Name).Chosen() {
+							a.batchReferenceToProject(ids, proj.ID)
+						}
+					}
+				})
+			}
+
+			if len(ids) > 0 && len(a.tags) > 0 {
+				gui.PopoverMenuButton(c.Key("batch-apply-tag"), a.t("batch.applyTag"), func(m *gui.Menu) {
+					for _, tg := range a.tags {
+						tag := tg
+						if m.Item(tag.Name).Chosen() {
+							a.batchApplyTag(ids, tag.ID)
+						}
+					}
+				})
+			}
+
+			if len(ids) > 0 {
+				a.arcButton(c, "batch-del-btn", a.t("batch.delete"), false).
+					TextColor(a.pal.danger).
+					OnClick(func() {
+						a.batchDeletePrompt(ids)
+					})
+			}
+
+			a.toolButton(c, "batch-clear", iconX, a.t("batch.clear"), false).OnClick(func() {
+				a.clearSelection()
+			})
+		})
+}
+
 func (a *App) libraryEmptyState(c *gui.Context) {
 	empty := gui.Column(c.Key("lib-empty")).Grow(1).Center().Gap(14).Padding(32)
 	applyBlurReveal(empty, a.revealGen, 0)
@@ -282,7 +348,7 @@ func (a *App) assetGrid(c *gui.Context) {
 
 	gv := gui.GridView(c.Key("asset-grid"), &a.grid, len(a.assets), cellW, cellH, func(i int) {
 		asset := a.assets[i]
-		a.assetCard(c, i, asset, i == a.assetIndex)
+		a.assetCard(c, i, asset, a.isCardSelected(i, asset.ID))
 	}).
 		Gap(16).
 		Grow(1)
@@ -293,8 +359,9 @@ func (a *App) assetGrid(c *gui.Context) {
 		}
 	})
 	gv.OnShortcut(0, gui.KeyDelete, func() {
-		if asset, ok := a.selectedAsset(); ok {
-			a.deleteAssetPrompt(asset)
+		ids := a.selectedAssetIDs()
+		if len(ids) > 0 {
+			a.batchDeletePrompt(ids)
 		}
 	})
 }
@@ -306,8 +373,9 @@ func (a *App) bindAssetShortcuts(el gui.Element) {
 		}
 	})
 	el.OnShortcut(0, gui.KeyDelete, func() {
-		if asset, ok := a.selectedAsset(); ok {
-			a.deleteAssetPrompt(asset)
+		ids := a.selectedAssetIDs()
+		if len(ids) > 0 {
+			a.batchDeletePrompt(ids)
 		}
 	})
 }
@@ -388,7 +456,7 @@ func (a *App) assetMasonry(c *gui.Context) {
 						idx := ent.index
 						asset := a.assets[idx]
 						gui.Box(c).FillWidth().Height(ent.h).Children(func() {
-							a.assetCard(c, idx, asset, idx == a.assetIndex)
+							a.assetCard(c, idx, asset, a.isCardSelected(idx, asset.ID))
 						})
 					}
 				})
@@ -450,7 +518,7 @@ func (a *App) assetBento(c *gui.Context) {
 
 					renderHero := func() {
 						gui.Box(c).Grow(2).Height(heroH).Children(func() {
-							a.assetCard(c, heroIdx, a.assets[heroIdx], heroIdx == a.assetIndex)
+							a.assetCard(c, heroIdx, a.assets[heroIdx], a.isCardSelected(heroIdx, a.assets[heroIdx].ID))
 						})
 					}
 					renderSide := func() {
@@ -459,7 +527,7 @@ func (a *App) assetBento(c *gui.Context) {
 								for k := 0; k < sideCols; k++ {
 									idx := heroIdx + 1 + k
 									gui.Box(c).Grow(1).FillHeight().Children(func() {
-										a.assetCard(c, idx, a.assets[idx], idx == a.assetIndex)
+										a.assetCard(c, idx, a.assets[idx], a.isCardSelected(idx, a.assets[idx].ID))
 									})
 								}
 							})
@@ -467,7 +535,7 @@ func (a *App) assetBento(c *gui.Context) {
 								for k := 0; k < sideCols; k++ {
 									idx := heroIdx + 1 + sideCols + k
 									gui.Box(c).Grow(1).FillHeight().Children(func() {
-										a.assetCard(c, idx, a.assets[idx], idx == a.assetIndex)
+										a.assetCard(c, idx, a.assets[idx], a.isCardSelected(idx, a.assets[idx].ID))
 									})
 								}
 							})
@@ -504,7 +572,7 @@ func (a *App) assetBento(c *gui.Context) {
 								span = 2
 							}
 							gui.Box(c).Grow(span).FillHeight().Children(func() {
-								a.assetCard(c, idx, a.assets[idx], idx == a.assetIndex)
+								a.assetCard(c, idx, a.assets[idx], a.isCardSelected(idx, a.assets[idx].ID))
 							})
 						}
 					})
@@ -526,7 +594,7 @@ func (a *App) assetBento(c *gui.Context) {
 						}
 						usedSpan += span
 						gui.Box(c).Grow(float32(span)).FillHeight().Children(func() {
-							a.assetCard(c, idx, a.assets[idx], idx == a.assetIndex)
+							a.assetCard(c, idx, a.assets[idx], a.isCardSelected(idx, a.assets[idx].ID))
 						})
 					}
 					if usedSpan < cols {
@@ -555,70 +623,99 @@ func (a *App) assetCard(c *gui.Context, index int, asset model.Asset, selected b
 		Fill().
 		Radius(radiusPanel).
 		Clip().
+		Drag(assetBatchDrag{IDs: a.dragIDsFor(asset.ID)}).
 		Label(name)
 
 	card.PopoverMenu(func(m *gui.Menu) {
-		if m.Item(a.t("library.preview")).Chosen() {
-			a.openPreview(asset)
+		batchIDs := a.dragIDsFor(asset.ID)
+		multi := len(batchIDs) > 1
+		if !multi {
+			if m.Item(a.t("library.preview")).Chosen() {
+				a.openPreview(asset)
+			}
 		}
 		if len(a.projectList) > 0 {
-			m.Submenu(a.t("library.addToProject"), func(sm *gui.Menu) {
+			addProjTitle := a.t("library.addToProject")
+			if multi {
+				addProjTitle = fmt.Sprintf("%s (%d)", addProjTitle, len(batchIDs))
+			}
+			m.Submenu(addProjTitle, func(sm *gui.Menu) {
 				for _, p := range a.projectList {
 					proj := p
 					if sm.Item(proj.Name).Chosen() {
-						a.referenceAssetToProject(asset.ID, proj.ID)
+						if multi {
+							a.batchReferenceToProject(batchIDs, proj.ID)
+						} else {
+							a.referenceAssetToProject(asset.ID, proj.ID)
+						}
 					}
 				}
 			})
 		}
-		m.Submenu(a.t("library.rating"), func(sm *gui.Menu) {
-			for r := 0; r <= 5; r++ {
-				rating := r
-				lbl := "0"
-				if rating > 0 {
-					lbl = strings.Repeat("★", rating)
-				}
-				if sm.Item(lbl).Radio(asset.Rating == rating).Chosen() {
-					if err := a.lib.SetRating(asset.ID, rating); err == nil {
-						a.reload()
+		if multi && len(a.tags) > 0 {
+			m.Submenu(fmt.Sprintf("%s (%d)", a.t("batch.applyTag"), len(batchIDs)), func(sm *gui.Menu) {
+				for _, tg := range a.tags {
+					tag := tg
+					if sm.Item(tag.Name).Chosen() {
+						a.batchApplyTag(batchIDs, tag.ID)
 					}
 				}
+			})
+		}
+		if !multi {
+			m.Submenu(a.t("library.rating"), func(sm *gui.Menu) {
+				for r := 0; r <= 5; r++ {
+					rating := r
+					lbl := "0"
+					if rating > 0 {
+						lbl = strings.Repeat("★", rating)
+					}
+					if sm.Item(lbl).Radio(asset.Rating == rating).Chosen() {
+						if err := a.lib.SetRating(asset.ID, rating); err == nil {
+							a.reload()
+						}
+					}
+				}
+			})
+			m.Separator()
+			if !asset.Missing && asset.Path != "" {
+				if m.Item(a.t("common.openFile")).Chosen() {
+					_ = openLocalFile(asset.Path)
+				}
+				if m.Item(a.t("common.revealFile")).Chosen() {
+					_ = revealLocalFile(asset.Path)
+				}
 			}
-		})
+			if m.Item(a.t("common.copyPath")).Chosen() {
+				services.WriteClipboard(asset.Path)
+				a.status = a.t("common.copied")
+			}
+			if asset.Missing {
+				if m.Item(a.t("inspector.relinkFile")).Chosen() {
+					a.relinkMissing(false)
+				}
+				if m.Item(a.t("inspector.relink")).Chosen() {
+					a.relinkMissing(true)
+				}
+			}
+		}
 		m.Separator()
-		if !asset.Missing && asset.Path != "" {
-			if m.Item(a.t("common.openFile")).Chosen() {
-				_ = openLocalFile(asset.Path)
+		if multi {
+			if m.Item(fmt.Sprintf("%s (%d)", a.t("batch.delete"), len(batchIDs))).Chosen() {
+				a.batchDeletePrompt(batchIDs)
 			}
-			if m.Item(a.t("common.revealFile")).Chosen() {
-				_ = revealLocalFile(asset.Path)
+		} else {
+			if m.Item(a.t("library.delete")).Chosen() {
+				a.deleteAssetPrompt(asset)
 			}
-		}
-		if m.Item(a.t("common.copyPath")).Chosen() {
-			services.WriteClipboard(asset.Path)
-			a.status = a.t("common.copied")
-		}
-		if asset.Missing {
-			if m.Item(a.t("inspector.relinkFile")).Chosen() {
-				a.relinkMissing(false)
-			}
-			if m.Item(a.t("inspector.relink")).Chosen() {
-				a.relinkMissing(true)
-			}
-		}
-		m.Separator()
-		if m.Item(a.t("library.delete")).Chosen() {
-			a.deleteAssetPrompt(asset)
 		}
 	})
 
 	card.OnClick(func() {
-		a.assetIndex = index
-		a.syncInspectorSelection(false)
+		a.selectCard(index, c.Modifiers())
 	})
 	if card.DoubleClicked() {
-		a.assetIndex = index
-		a.syncInspectorSelection(false)
+		a.selectCard(index, 0)
 		a.openPreview(asset)
 	}
 
@@ -683,12 +780,34 @@ func (a *App) assetCard(c *gui.Context, index int, asset model.Asset, selected b
 		// Clean frameless caption strip (pure monochrome; toggleable in Preferences).
 		if a.showCardCaption {
 			gui.Row(c).FillWidth().Padding(8, 11).Gap(6).AlignItems(gui.Center).Children(func() {
-				if selected {
-					gui.Box(c).Size(6, 6).Radius(radiusPill).Background(a.pal.controlOn)
+				if selected || a.multiSelectMode || hovered {
+					chkBg := a.pal.surfaceActive
+					if selected {
+						chkBg = a.pal.controlOn
+					}
+					gui.ButtonBase(c.Key("card-chk-" + asset.ID)).
+						Size(16, 16).
+						Radius(radiusPill).
+						Background(chkBg).
+						Center().
+						OnClick(func() {
+							a.toggleCardSelection(index)
+						}).
+						Children(func() {
+							if selected {
+								gui.Icon(c, iconCheck).Size(10, 10).TextColor(a.pal.controlGlyph)
+							}
+						})
 				}
 				gui.Text(c, name).Grow(1).FontSize(12).Bold().TextColor(a.pal.ink).SingleLine()
 				if asset.Missing {
 					gui.Text(c, a.t("library.missing")).FontSize(10).Bold().TextColor(a.pal.danger).SingleLine()
+				} else if model.MediaKind(asset.Mime) == model.MediaVideo {
+					vidLbl := "▶ " + ext
+					if asset.Duration > 0 {
+						vidLbl = "▶ " + formatDuration(asset.Duration)
+					}
+					gui.Text(c, vidLbl).FontSize(10).Bold().TextColor(a.pal.inkSecondary).SingleLine()
 				} else if asset.Rating > 0 {
 					gui.Text(c, fmt.Sprintf("★%d", asset.Rating)).FontSize(11).TextColor(a.pal.inkSecondary).SingleLine()
 				} else {

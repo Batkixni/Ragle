@@ -370,6 +370,63 @@ func TestRealUserClicksEveryControl(t *testing.T) {
 	if err := tt.Click("最小化"); err != nil {
 		t.Fatalf("frameless minimize button missing: %v", err)
 	}
+
+	// 16. Hierarchical Tag Manager flow: open Tag Manager, create a child tag under tagA,
+	// verify parent/child filtering and cycle protection.
+	if err := tt.Click("標籤管理"); err != nil {
+		t.Fatalf("clicking Tag Manager in sidebar failed: %v", err)
+	}
+	tt.Advance(250 * time.Millisecond)
+	if a.screen != screenTags {
+		t.Fatalf("expected screenTags, got %v", a.screen)
+	}
+	child, err := lib.CreateTagWithParent("Character", tagA.ID)
+	if err != nil {
+		t.Fatalf("CreateTagWithParent failed: %v", err)
+	}
+	if _, err := lib.UpdateTag(tagA.ID, tagA.Name, child.ID); err == nil {
+		t.Fatal("expected cycle error when reparenting parent under its own child")
+	}
+	a.reload()
+	tt.Advance(200 * time.Millisecond)
+	if !tt.HasText("Character") {
+		t.Fatalf("child tag missing in Tag Manager, texts=%v", tt.Texts())
+	}
+
+	// 17. Multi-select mode & Batch Action Bar flow in Library.
+	if err := tt.Click("全部素材"); err != nil {
+		t.Fatalf("returning to All Assets failed: %v", err)
+	}
+	tt.Advance(250 * time.Millisecond)
+	if err := tt.Click("多選模式"); err != nil {
+		t.Fatalf("clicking Multi-select toggle failed: %v", err)
+	}
+	tt.Advance(350 * time.Millisecond)
+	if err := tt.Click("全選"); err != nil {
+		t.Fatalf("clicking Select All in Batch Bar failed: %v", err)
+	}
+	if len(a.selectedAssetIDs()) != 2 {
+		t.Fatalf("expected 2 selected assets after Select All, got %d", len(a.selectedAssetIDs()))
+	}
+	a.batchReferenceToProject(a.selectedAssetIDs(), proj.ID)
+	projAssets, err := store.Assets(proj.ID)
+	if err != nil || len(projAssets) != 2 {
+		t.Fatalf("expected 2 assets referenced in project after batch action, got %d (err=%v)", len(projAssets), err)
+	}
+
+	// 18. Custom theme preset & custom hex override verification.
+	a.applyThemePreset("warm")
+	tt.Frame()
+	if a.dark {
+		t.Fatal("expected warm preset to resolve to light appearance")
+	}
+	a.customCanvas = "#1A1B26"
+	a.themePreset = "custom"
+	tt.Frame()
+	if !a.dark {
+		t.Fatal("expected dark custom canvas hex to resolve to dark appearance")
+	}
+	a.resetCustomTheme()
 	_ = tagB
 }
 

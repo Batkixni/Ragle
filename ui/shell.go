@@ -6,6 +6,8 @@ import (
 	"strconv"
 
 	gui "github.com/egoist/mygo/ui"
+
+	"ragle/internal/model"
 )
 
 func (a *App) shell(c *gui.Context) {
@@ -29,6 +31,16 @@ func (a *App) shell(c *gui.Context) {
 		c.OnShortcut(gui.Cmd, gui.KeyComma, func() {
 			a.openSettings(a.settingsTab)
 		})
+		c.OnShortcut(gui.Cmd, gui.KeyA, func() {
+			if a.screen == screenLibrary && !a.previewOpen && !a.settingsOpen && !a.newProjOpen && !a.editProjOpen && !a.editTagOpen {
+				a.selectAllVisible()
+			}
+		})
+		c.OnShortcut(0, gui.KeyEscape, func() {
+			if a.screen == screenLibrary && (len(a.selectedIDs) > 1 || a.multiSelectMode) {
+				a.clearSelection()
+			}
+		})
 
 		if a.screen == screenBoard {
 			a.boardView(c)
@@ -41,8 +53,11 @@ func (a *App) shell(c *gui.Context) {
 			gui.Column(c).Fill().Background(a.pal.canvas).Children(func() {
 				switch a.screen {
 				case screenProject:
-					// Project view owns its single unified top header (no duplicate navbar + hero).
+					// Project view owns its single unified top header.
 					a.projectView(c)
+				case screenTags:
+					// Dedicated hierarchical Tag Management page.
+					a.tagsView(c)
 				default:
 					a.workspaceBar(c)
 					a.libraryView(c)
@@ -64,6 +79,9 @@ func (a *App) currentViewTitle() string {
 	if a.screen == screenProject {
 		return a.project.Name
 	}
+	if a.screen == screenTags {
+		return a.t("tags.manage")
+	}
 	switch a.navFilter {
 	case "untagged":
 		return a.t("shell.untagged")
@@ -71,10 +89,8 @@ func (a *App) currentViewTitle() string {
 		return a.t("shell.missing")
 	}
 	if a.tagID != "" {
-		for _, tg := range a.tags {
-			if tg.ID == a.tagID {
-				return "# " + tg.Name
-			}
+		if tg, ok := a.tagByID[a.tagID]; ok {
+			return "# " + tg.Name
 		}
 	}
 	return a.t("shell.allAssets")
@@ -83,11 +99,11 @@ func (a *App) currentViewTitle() string {
 // arcNavItem renders a stationary monochrome sidebar item. The active highlight
 // pill glides smoothly underneath all labels via attachGlidingPill on the parent
 // track (zero text jitter or stretching).
-func (a *App) arcNavItem(c *gui.Context, id string, icon *gui.SVG, label string, count int, menu func(m *gui.Menu)) (gui.Element, bool) {
+func (a *App) arcNavItem(c *gui.Context, id string, icon *gui.SVG, label string, count int, indent float32, menu func(m *gui.Menu), onDrop func([]string)) (gui.Element, bool) {
 	active := a.selectedNav == id
 	btn := gui.ButtonBase(c.Key("nav-" + id)).
 		FillWidth().
-		Padding(8, 12).
+		Padding(8, 12, 8, 12+indent).
 		Gap(10).
 		Radius(radiusControl).
 		AlignItems(gui.Center).
@@ -98,13 +114,25 @@ func (a *App) arcNavItem(c *gui.Context, id string, icon *gui.SVG, label string,
 		btn.PopoverMenu(menu)
 	}
 
+	dropHover := false
+	if onDrop != nil {
+		if _, over := gui.DragOver[assetBatchDrag](btn); over {
+			dropHover = true
+		}
+		if drag, ok := gui.Drop[assetBatchDrag](btn); ok && len(drag.IDs) > 0 {
+			onDrop(drag.IDs)
+		}
+	}
+
 	targetFg := a.pal.inkSecondary
-	if active || btn.Hovered() {
+	if active || btn.Hovered() || dropHover {
 		targetFg = a.pal.ink
 	}
 	fg := btn.AnimateColor("fg", targetFg, animFast)
 
-	if !active {
+	if dropHover {
+		btn.Background(a.pal.surfaceActive).Border(1.5, a.pal.controlOn)
+	} else if !active {
 		hoverBg := gui.Transparent
 		if btn.Hovered() {
 			hoverBg = a.pal.surfaceMuted
@@ -125,6 +153,7 @@ func (a *App) arcNavItem(c *gui.Context, id string, icon *gui.SVG, label string,
 }
 
 func (a *App) sidebar(c *gui.Context) {
+	a.ensureTagTree()
 	gui.Box(c).Fill().Padding(10, 4, 10, 10).Background(a.pal.canvas).Children(func() {
 		gui.Column(c).
 			Fill().
@@ -168,32 +197,69 @@ func (a *App) sidebar(c *gui.Context) {
 					track := gui.Column(c.Key("sidebar-nav-track")).Padding(4, 10, 12, 10).Gap(2)
 					var activeBtn gui.Element
 					var hasActive bool
-					addNav := func(id string, icon *gui.SVG, label string, count int, menu func(m *gui.Menu)) {
-						btn, active := a.arcNavItem(c, id, icon, label, count, menu)
+					addNav := func(id string, icon *gui.SVG, label string, count int, indent float32, menu func(m *gui.Menu), onDrop func([]string)) {
+						btn, active := a.arcNavItem(c, id, icon, label, count, indent, menu, onDrop)
 						if active {
 							activeBtn = btn
 							hasActive = true
 						}
 					}
+
+					var renderTagNodes func(list []model.Tag, depth int)
+					renderTagNodes = func(list []model.Tag, depth int) {
+						for _, tag := range list {
+							tg := tag
+							children := a.tagChildren[tg.ID]
+							indent := float32(depth * 14)
+							tagID := tg.ID
+							lbl := tg.Name
+							if len(children) > 0 {
+								if a.expandedTags[tagID] {
+									lbl = "▾ " + lbl
+								} else {
+									lbl = "▸ " + lbl
+								}
+							}
+							addNav("tag:"+tagID, iconTag, lbl, a.tagDisplayCount(tagID), indent, func(m *gui.Menu) {
+								if len(children) > 0 {
+									if m.Item(a.t("tags.manage")).Chosen() {
+										a.toggleTagExpand(tagID)
+									}
+								}
+								if m.Item(a.t("tags.addChild")).Chosen() {
+									a.newChildParentID = tagID
+									a.newChildTagName = ""
+									a.handleNav("manage-tags")
+								}
+								if m.Item(a.t("tags.edit")).Chosen() {
+									a.openEditTagModal(tg)
+								}
+								m.Separator()
+								if m.Item(a.t("tag.delete")).Chosen() {
+									a.deleteTagPrompt(tagID)
+								}
+							}, func(ids []string) {
+								a.batchApplyTag(ids, tagID)
+							})
+							if len(children) > 0 && a.expandedTags[tagID] {
+								renderTagNodes(children, depth+1)
+							}
+						}
+					}
+
 					track.Children(func() {
-						addNav("tag-all", iconLibrary, a.t("shell.allAssets"), a.allAssetsCount, nil)
-						addNav("filter-untagged", iconInbox, a.t("shell.untagged"), a.untaggedCount, nil)
+						addNav("tag-all", iconLibrary, a.t("shell.allAssets"), a.allAssetsCount, 0, nil, nil)
+						addNav("filter-untagged", iconInbox, a.t("shell.untagged"), a.untaggedCount, 0, nil, nil)
+						addNav("manage-tags", iconTag, a.t("tags.manage"), len(a.tags), 0, nil, nil)
 						if a.missingCount > 0 {
-							addNav("filter-missing", iconAlert, a.t("shell.missing"), a.missingCount, nil)
+							addNav("filter-missing", iconAlert, a.t("shell.missing"), a.missingCount, 0, nil, nil)
 						}
 
 						if len(a.tags) > 0 {
 							gui.Box(c).Padding(14, 10, 4, 10).Children(func() {
 								a.sectionLabel(c, a.t("shell.tags"))
 							})
-							for _, tag := range a.tags {
-								tg := tag
-								addNav("tag:"+tg.ID, iconTag, tg.Name, a.tagCounts[tg.ID], func(m *gui.Menu) {
-									if m.Item(a.t("tag.delete")).Chosen() {
-										a.deleteTagPrompt(tg.ID)
-									}
-								})
-							}
+							renderTagNodes(a.tagChildren[""], 0)
 						}
 
 						if len(a.projectList) > 0 {
@@ -202,7 +268,10 @@ func (a *App) sidebar(c *gui.Context) {
 							})
 							for _, p := range a.projectList {
 								proj := p
-								addNav("project:"+proj.ID, iconFolder, proj.Name, 0, nil)
+								projID := proj.ID
+								addNav("project:"+projID, iconFolder, proj.Name, 0, 0, nil, func(ids []string) {
+									a.batchReferenceToProject(ids, projID)
+								})
 							}
 						}
 					})
@@ -278,7 +347,7 @@ func (a *App) deleteTagPrompt(id string) {
 }
 
 // workspaceBar is the integrated frameless Library top bar: draggable empty
-// chrome, search, filter/sort/import/zoom controls, and custom window controls.
+// chrome, search, filter/layout/sort/import/multi-select/zoom controls, and custom window controls.
 func (a *App) workspaceBar(c *gui.Context) {
 	gui.Box(c).Padding(10, 12, 4, 8).Children(func() {
 		gui.Row(c.Key("floating-navbar")).
@@ -300,7 +369,7 @@ func (a *App) workspaceBar(c *gui.Context) {
 					Bind(&a.searchHandle).
 					Placeholder(a.t("library.search")).
 					Label(a.t("library.search")).
-					Width(260).
+					Width(240).
 					OnChange(func() {
 						a.applyFilters()
 					})
@@ -385,9 +454,16 @@ func (a *App) workspaceBar(c *gui.Context) {
 					}
 				})
 
+				a.iconButton(c, "top-multiselect", iconCheckSquare, a.t("batch.multiMode"), a.multiSelectMode || len(a.selectedIDs) > 1).OnClick(func() {
+					a.multiSelectMode = !a.multiSelectMode
+					if !a.multiSelectMode && len(a.selectedIDs) > 1 {
+						a.selectedIDs = map[string]bool{}
+					}
+				})
+
 				gui.Row(c).Gap(6).AlignItems(gui.Center).Children(func() {
 					gui.Icon(c, iconZoomIn).Size(13, 13).TextColor(a.pal.inkMuted)
-					gui.Slider(c.Key("card-zoom"), &a.cardSize, 128, 300).Width(70).OnChange(func() {
+					gui.Slider(c.Key("card-zoom"), &a.cardSize, 128, 300).Width(64).OnChange(func() {
 						a.syncConfigFromState()
 					})
 				})
