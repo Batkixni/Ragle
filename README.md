@@ -22,18 +22,14 @@
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/library.png" alt="Ragle Library — Bento Layout & Inspector" width="100%" />
+  <img src="docs/screenshots/cover.png" alt="Ragle — Local-first digital asset manager and infinite moodboard" width="100%" />
 </p>
 
-## Screenshots
+## Workspace Previews
 
 | Project Workspace & Board Previews | Infinite Moodboard & Floating Reference |
 | :---: | :---: |
 | <img src="docs/screenshots/project.png" alt="Project Workspace" width="100%" /> | <img src="docs/screenshots/board.png" alt="Infinite Moodboard" width="100%" /> |
-
-| Light Mode Workspace |
-| :---: |
-| <img src="docs/screenshots/library-light.png" alt="Ragle Light Mode" width="88%" /> |
 
 ---
 

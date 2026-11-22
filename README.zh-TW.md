@@ -22,7 +22,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/library.png" alt="Ragle 資料庫介面 — Bento 拼接排版與右側資訊欄" width="100%" />
+  <img src="docs/screenshots/cover.png" alt="Ragle — 開源本地優先數位素材管理與無限靈感白板" width="100%" />
 </p>
 
 ## 介面預覽
@@ -30,10 +30,6 @@
 | 專案空間與白板即時預覽 | 無限靈感白板與置頂參考浮窗 |
 | :---: | :---: |
 | <img src="docs/screenshots/project.png" alt="專案空間" width="100%" /> | <img src="docs/screenshots/board.png" alt="無限靈感白板" width="100%" /> |
-
-| 淺色極簡主題 |
-| :---: |
-| <img src="docs/screenshots/library-light.png" alt="Ragle 淺色模式" width="88%" /> |
 
 ---
 
