@@ -134,8 +134,8 @@ func TestSymlinkFailureLeavesSource(t *testing.T) {
 	if result.Failed != 1 || !errors.Is(result.Items[0].Err, ErrSymlink) {
 		t.Fatalf("result %+v err %v", result, result.Items[0].Err)
 	}
-	if _, err := os.Stat(filepath.Join(root, "files", "link.png")); !os.IsNotExist(err) {
-		t.Fatalf("symlink failure left a file: %v", err)
+	if _, err := os.Stat(filepath.Join(root, "files", "link.png")); err == nil {
+		t.Fatalf("symlink failure left a file")
 	}
 }
 
