@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -25,6 +26,7 @@ import (
 	"ragle/internal/library"
 	"ragle/internal/model"
 	"ragle/internal/project"
+	"ragle/internal/server"
 	"ragle/internal/share"
 	"ragle/internal/thumbnail"
 	"ragle/internal/watcher"
@@ -208,6 +210,14 @@ type App struct {
 	layaURL           string
 	layaModel         string
 	layaSuggestions   map[string][]laya.TagSuggestion
+
+	// Stage 15 & 16: Built-in Server (Web Gallery, Companion API, MCP, Signaling).
+	localSrv        *server.Server
+	serverRunning   bool
+	serverPortStr   string
+	serverBindAll   bool
+	serverAutoStart bool
+	serverToken     string
 
 	// Quick Preview Lightbox & Video Player state.
 	previewOpen     bool
@@ -468,6 +478,14 @@ func (a *App) applyConfig(cfg config.Config) {
 	if a.layaModel == "" {
 		a.layaModel = laya.DefaultModel
 	}
+	port := cfg.ServerPort
+	if port <= 0 || port > 65535 {
+		port = server.DefaultPort
+	}
+	a.serverPortStr = strconv.Itoa(port)
+	a.serverBindAll = cfg.ServerBindAll
+	a.serverAutoStart = cfg.ServerAutoStart
+	a.serverToken = cfg.ServerToken
 }
 
 func (a *App) syncConfigFromState() {
@@ -499,6 +517,10 @@ func (a *App) syncConfigFromState() {
 	a.cfg.SignalingURL = strings.TrimSpace(a.signalURL)
 	a.cfg.LayaURL = strings.TrimSpace(a.layaURL)
 	a.cfg.LayaModel = strings.TrimSpace(a.layaModel)
+	a.cfg.ServerPort = a.serverPortValue()
+	a.cfg.ServerBindAll = a.serverBindAll
+	a.cfg.ServerAutoStart = a.serverAutoStart
+	a.cfg.ServerToken = strings.TrimSpace(a.serverToken)
 	a.saveConfig()
 }
 
@@ -594,6 +616,7 @@ func (a *App) shutdown() {
 		_ = node.Close()
 	}
 	a.closePreview()
+	a.stopBuiltInServer()
 	a.flushBoard(true)
 	watch, thumbs, lib := a.watch, a.thumbs, a.lib
 	a.watch, a.thumbs, a.lib = nil, nil, nil
@@ -686,6 +709,9 @@ func (a *App) attach(lib *library.Library, root string) {
 	a.loading = map[string]bool{}
 	a.queued = map[string]bool{}
 	a.reload()
+	if a.serverAutoStart {
+		a.startBuiltInServer()
+	}
 	if !a.ffmpeg {
 		a.status = a.t("library.noFfmpeg")
 	} else if a.shareDown {

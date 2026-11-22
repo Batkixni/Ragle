@@ -507,6 +507,21 @@ var pairs = []pair{
 	{"laya.test", "測試連線", "Test connection"},
 	{"laya.connected", "已連線至本地 Ollaya（%s）", "Connected to local Ollaya (%s)"},
 	{"laya.needTags", "請先建立至少一個標籤，再使用 Laya 自動分類", "Create at least one tag before running Laya classification"},
+
+	// Stage 15 & 16: Built-in Server, Web Viewer, Browser Companion & MCP.
+	{"server.section", "內建伺服器（網頁分享 / 瀏覽器擴充 / MCP / 信令）", "Built-in Server (Web Gallery / Extension / MCP / Signaling)"},
+	{"server.enable", "啟動內建伺服器", "Run built-in server"},
+	{"server.port", "監聽連接埠 (Port)", "Listen port"},
+	{"server.bindAll", "允許區網裝置存取 (0.0.0.0)", "Allow LAN access (0.0.0.0)"},
+	{"server.autoStart", "開啟母庫時自動啟動伺服器", "Auto-start server when opening library"},
+	{"server.token", "API 配對權杖 (Token)", "API Token"},
+	{"server.copyToken", "複製權杖", "Copy token"},
+	{"server.openWeb", "在瀏覽器開啟網頁圖庫", "Open Web Gallery"},
+	{"server.copyLAN", "複製區網分享網址", "Copy LAN URL"},
+	{"server.copyMCP", "複製 MCP 設定 JSON", "Copy MCP Config JSON"},
+	{"server.started", "內建伺服器已啟動：%s", "Built-in server running at %s"},
+	{"server.stopped", "內建伺服器已停止", "Built-in server stopped"},
+	{"server.mcpCopied", "已複製 MCP JSON 設定至剪貼簿", "Copied MCP JSON config to clipboard"},
 }
 
 var (

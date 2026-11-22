@@ -714,6 +714,8 @@ func (a *App) settingsImportTab(c *gui.Context) {
 }
 
 func (a *App) settingsSharingTab(c *gui.Context) {
+	services := c.Services()
+
 	// Device & defaults card.
 	a.settingsGroup(c, a.t("settings.shareDevice"), func() {
 		gui.Column(c).FillWidth().Gap(6).Children(func() {
@@ -753,6 +755,58 @@ func (a *App) settingsSharingTab(c *gui.Context) {
 				a.pairRecvOpen = true
 			})
 		})
+	})
+
+	// Stage 15 & 16: Built-in Server (Web Gallery, Companion API, MCP, Signaling).
+	a.settingsGroup(c, a.t("server.section"), func() {
+		a.settingsSwitchRow(c, "pref-srv-run", a.t("server.enable"), &a.serverRunning, func() {
+			a.toggleBuiltInServer()
+		})
+		gui.Row(c).FillWidth().Gap(8).AlignItems(gui.Center).Children(func() {
+			gui.Text(c, a.t("server.port")).FontSize(12).TextColor(a.pal.inkSecondary).Width(130)
+			gui.TextInput(c.Key("pref-srv-port"), &a.serverPortStr).
+				Placeholder("41595").
+				Width(96).
+				OnSubmit(func() { a.syncConfigFromState() })
+			gui.Spacer(c)
+			a.toolButton(c, "pref-srv-mcp", iconCopy, a.t("server.copyMCP"), false).OnClick(func() {
+				services.WriteClipboard(a.buildMCPConfigJSON())
+				a.notify(a.t("server.mcpCopied"))
+			})
+		})
+		a.settingsSwitchRow(c, "pref-srv-lan", a.t("server.bindAll"), &a.serverBindAll, func() {
+			a.syncConfigFromState()
+			if a.localSrv != nil && a.localSrv.Running() {
+				a.stopBuiltInServer()
+				a.startBuiltInServer()
+			}
+		})
+		a.settingsSwitchRow(c, "pref-srv-auto", a.t("server.autoStart"), &a.serverAutoStart, func() {
+			a.syncConfigFromState()
+		})
+		gui.Row(c).FillWidth().Gap(8).AlignItems(gui.Center).Children(func() {
+			gui.Text(c, a.t("server.token")).FontSize(12).TextColor(a.pal.inkSecondary).Width(130)
+			gui.Text(c, a.ensureServerToken()).FontSize(11).TextColor(a.pal.inkMuted).Grow(1).SingleLine()
+			a.toolButton(c, "pref-srv-tok", iconCopy, a.t("server.copyToken"), false).OnClick(func() {
+				services.WriteClipboard(a.ensureServerToken())
+				a.notify(a.t("common.copied"))
+			})
+		})
+		if a.localSrv != nil && a.localSrv.Running() {
+			localURL := a.localSrv.LocalURL()
+			lanURL := a.localSrv.LANURL()
+			gui.Row(c).FillWidth().Gap(8).Wrap().AlignItems(gui.Center).Children(func() {
+				a.arcButton(c, "pref-srv-open", a.t("server.openWeb"), true).OnClick(func() {
+					services.OpenURL(localURL)
+				})
+				if lanURL != "" && a.serverBindAll {
+					a.toolButton(c, "pref-srv-lan-copy", iconLink, a.t("server.copyLAN")+" ("+lanURL+")", false).OnClick(func() {
+						services.WriteClipboard(lanURL)
+						a.notify(a.t("common.copied"))
+					})
+				}
+			})
+		}
 	})
 }
 
