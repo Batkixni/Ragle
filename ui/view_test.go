@@ -175,8 +175,10 @@ func TestPairingShareUIControls(t *testing.T) {
 
 	tt := gui.NewTester(a.View, 1360, 860)
 
-	// Open receive-by-code modal from top bar.
-	if err := tt.Click("輸入配對碼"); err != nil {
+	// Open receive-by-code modal via Preferences -> Sharing.
+	a.openSettings(settingsTabSharing)
+	tt.Advance(300 * time.Millisecond)
+	if err := tt.Click("輸入配對碼接收專案…"); err != nil {
 		t.Fatal(err)
 	}
 	tt.Frame()
@@ -245,6 +247,12 @@ func TestRenderScreenshots(t *testing.T) {
 	t3, _ := lib.CreateTag("Typography")
 	t4, _ := lib.CreateTagWithParent("Poster", t1.ID)
 	t5, _ := lib.CreateTagWithParent("Magazine", t1.ID)
+	_ = lib.SetTagColor(t1.ID, "#22C55E")
+	_ = lib.SetTagColor(t2.ID, "#EAB308")
+	_ = lib.SetTagColor(t3.ID, "#EC4899")
+	t1.Color = "#22C55E"
+	t2.Color = "#EAB308"
+	t3.Color = "#EC4899"
 	store := project.New(lib.DB)
 	proj, _ := store.Create("Brand Identity 2026", "Visual direction, typography & grid references", []string{t1.ID, t3.ID})
 	b1, _ := store.CreateBoard(proj.ID, "Hero Moodboard")
@@ -345,13 +353,13 @@ func TestRenderScreenshots(t *testing.T) {
 	a.themeMode = "light"
 	save("library_light.png", 1360, 860)
 
-	// 2a. Dedicated Tag Management page (dark).
+	// 2a. Tag Manager popup modal (dark).
 	a.themeMode = "dark"
-	a.screen = screenTags
+	a.screen = screenLibrary
+	a.tagManagerOpen = true
 	a.syncNavSelection()
 	save("tags_manager_dark.png", 1360, 860)
-	a.screen = screenLibrary
-	a.syncNavSelection()
+	a.tagManagerOpen = false
 
 	// 2b. Preferences modal screenshots (General, Database, Import — dark).
 	a.themeMode = "dark"
@@ -374,14 +382,22 @@ func TestRenderScreenshots(t *testing.T) {
 	save("onboarding_step5_dark.png", 1360, 860)
 	a.onboardingOpen = false
 
-	// 3. Project view dark (redesigned unified header).
+	// 3. Project view dark (Arc UI Editorial Hero + live visual Moodboard previews).
 	a.themeMode = "dark"
 	a.screen = screenProject
 	a.projectID = proj.ID
 	a.project = proj
 	a.projectTags = map[string]bool{t1.ID: true, t3.ID: true}
 	a.boards = []model.Board{b1, {ID: "b2", ProjectID: proj.ID, Name: "Color Explorations"}}
-	a.boardCounts = map[string]int{b1.ID: 4, "b2": 2}
+	a.boardCounts = map[string]int{b1.ID: 4, "b2": 0}
+	a.boardPlacements = map[string][]model.Placement{
+		b1.ID: {
+			{ID: "p1", Kind: model.KindImage, AssetID: "art-a", X: 220, Y: 200, Width: 300, Height: 200, Scale: 1, ZIndex: 1},
+			{ID: "p2", Kind: model.KindImage, AssetID: "art-b", X: 560, Y: 240, Width: 220, Height: 300, Scale: 1, Rotation: 6, ZIndex: 2},
+			{ID: "p3", Kind: model.KindImage, AssetID: "art-c", X: 250, Y: 440, Width: 320, Height: 180, Scale: 1, Rotation: -3, ZIndex: 3},
+			{ID: "p4", Kind: model.KindText, X: 540, Y: 460, Width: 240, Height: 48, Scale: 1, Text: "Hero Direction", FontSize: 20, ZIndex: 4},
+		},
+	}
 	a.projectAssets = a.allAssets[:4]
 	a.syncNavSelection()
 	save("project_dark.png", 1360, 860)

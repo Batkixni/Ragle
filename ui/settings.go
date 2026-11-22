@@ -488,6 +488,9 @@ func (a *App) settingsGeneralTab(c *gui.Context) {
 		a.settingsSwitchRow(c, "pref-sb-counts", a.t("settings.sidebarCounts"), &a.showSidebarCounts, func() {
 			a.syncConfigFromState()
 		})
+		a.settingsSwitchRow(c, "pref-tag-colors", a.t("settings.tagColors"), &a.showTagColors, func() {
+			a.syncConfigFromState()
+		})
 		a.settingsSwitchRow(c, "pref-card-caption", a.t("settings.cardCaption"), &a.showCardCaption, func() {
 			a.syncConfigFromState()
 		})
@@ -722,6 +725,12 @@ func (a *App) settingsSharingTab(c *gui.Context) {
 				})
 		})
 		gui.Text(c, a.t("settings.shareSignalDesc")).FontSize(12).TextColor(a.pal.inkSecondary).LineHeight(1.45)
+		gui.Row(c).Padding(4, 0, 0, 0).Children(func() {
+			a.arcButton(c, "pref-recv-code", a.t("settings.receiveByCodeBtn"), true).OnClick(func() {
+				a.settingsOpen = false
+				a.pairRecvOpen = true
+			})
+		})
 	})
 }
 

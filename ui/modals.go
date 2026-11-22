@@ -397,6 +397,13 @@ func (a *App) editTagModal(c *gui.Context) {
 				}).FillWidth()
 			})
 
+			gui.Column(c).Gap(8).Children(func() {
+				a.sectionLabel(c, a.t("tags.color"))
+				a.tagColorDots(c, "et-col", a.editTagColor, func(hex string) {
+					a.editTagColor = hex
+				})
+			})
+
 			gui.Divider(c)
 			gui.Row(c).Gap(8).Justify(gui.End).Children(func() {
 				a.arcButton(c, "et-cancel", a.t("common.cancel"), false).OnClick(func() {

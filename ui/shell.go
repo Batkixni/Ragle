@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	gui "github.com/egoist/mygo/ui"
 
@@ -12,7 +13,7 @@ import (
 
 func (a *App) shell(c *gui.Context) {
 	if a.sidebarWidth <= 0 {
-		a.sidebarWidth = 236
+		a.sidebarWidth = 240
 	}
 	if a.cardSize < 128 || a.cardSize > 300 {
 		a.cardSize = 184
@@ -29,11 +30,7 @@ func (a *App) shell(c *gui.Context) {
 			gui.Column(c).Fill().Background(a.pal.canvas).Children(func() {
 				switch a.screen {
 				case screenProject:
-					// Project view owns its single unified top header.
 					a.projectView(c)
-				case screenTags:
-					// Dedicated hierarchical Tag Management page.
-					a.tagsView(c)
 				default:
 					a.workspaceBar(c)
 					a.libraryView(c)
@@ -55,9 +52,6 @@ func (a *App) currentViewTitle() string {
 	if a.screen == screenProject {
 		return a.project.Name
 	}
-	if a.screen == screenTags {
-		return a.t("tags.manage")
-	}
 	switch a.navFilter {
 	case "untagged":
 		return a.t("shell.untagged")
@@ -72,15 +66,30 @@ func (a *App) currentViewTitle() string {
 	return a.t("shell.allAssets")
 }
 
-// arcNavItem renders a stationary monochrome sidebar item. The active highlight
-// pill glides smoothly underneath all labels via attachGlidingPill on the parent
-// track (zero text jitter or stretching).
-func (a *App) arcNavItem(c *gui.Context, id string, icon *gui.SVG, label string, count int, indent float32, menu func(m *gui.Menu), onDrop func([]string)) (gui.Element, bool) {
+// arcNavItem renders a stationary sidebar row with optional colored icon,
+// subtle nested tree guide line, left chevron toggle, right-click menu, and
+// drag-drop target support. The active pill glides smoothly behind labels.
+func (a *App) arcNavItem(
+	c *gui.Context,
+	id string,
+	icon *gui.SVG,
+	iconTint *gui.Color,
+	label string,
+	count int,
+	depth int,
+	hasChildren bool,
+	expanded bool,
+	onToggleExpand func(),
+	menu func(m *gui.Menu),
+	onDrop func([]string),
+) (gui.Element, bool) {
 	active := a.selectedNav == id
+	indent := float32(depth * 16)
+
 	btn := gui.ButtonBase(c.Key("nav-" + id)).
 		FillWidth().
-		Padding(8, 12, 8, 12+indent).
-		Gap(10).
+		Padding(7, 10, 7, 10+indent).
+		Gap(8).
 		Radius(radiusControl).
 		AlignItems(gui.Center).
 		OnClick(func() {
@@ -116,9 +125,41 @@ func (a *App) arcNavItem(c *gui.Context, id string, icon *gui.SVG, label string,
 		btn.Background(btn.AnimateColor("hbg", hoverBg, animFast))
 	}
 
+	// Subtle vertical tree connector rail for nested child tags (Eagle-inspired).
+	if depth > 0 {
+		railCol := a.pal.surfaceActive
+		if iconTint != nil {
+			railCol = gui.RGBA(iconTint.R, iconTint.G, iconTint.B, 0.35)
+		}
+		btn.Draw(func(p *gui.Painter, r gui.Rect) {
+			x := r.X + float32((depth-1)*16) + 17
+			p.Fill(gui.Rect{X: x, Y: r.Y, W: 1.5, H: r.H}, railCol, 0.75)
+		})
+	}
+
 	btn.Children(func() {
+		if hasChildren && onToggleExpand != nil {
+			chev := "▸"
+			if expanded {
+				chev = "▾"
+			}
+			gui.ButtonBase(c.Key("nav-exp-" + id)).
+				Size(16, 18).
+				Center().
+				Radius(4).
+				OnClick(onToggleExpand).
+				Children(func() {
+					gui.Text(c, chev).FontSize(10).TextColor(a.pal.inkMuted)
+				})
+		} else if depth > 0 {
+			gui.Box(c).Size(6, 1)
+		}
 		if icon != nil {
-			gui.Icon(c, icon).Size(15, 15).TextColor(fg)
+			ic := fg
+			if iconTint != nil {
+				ic = *iconTint
+			}
+			gui.Icon(c, icon).Size(15, 15).TextColor(ic)
 		}
 		gui.Text(c, label).FontSize(13).Bold().TextColor(fg).Grow(1).SingleLine()
 		if a.showSidebarCounts && count > 0 {
@@ -130,6 +171,9 @@ func (a *App) arcNavItem(c *gui.Context, id string, icon *gui.SVG, label string,
 
 func (a *App) sidebar(c *gui.Context) {
 	a.ensureTagTree()
+	services := c.Services()
+	sf := strings.ToLower(strings.TrimSpace(a.sidebarFilter))
+
 	gui.Box(c).Fill().Padding(10, 4, 10, 10).Background(a.pal.canvas).Children(func() {
 		gui.Column(c).
 			Fill().
@@ -137,17 +181,17 @@ func (a *App) sidebar(c *gui.Context) {
 			Clip().
 			Background(a.pal.surface).
 			Children(func() {
-				// Top brand & library header (48px, draggable to move frameless window).
+				// Top brand & quick utility header (48px, draggable to move frameless window).
 				gui.Row(c).
 					Height(48).
-					Padding(0, 10, 0, 14).
-					Gap(8).
+					Padding(0, 8, 0, 14).
+					Gap(4).
 					AlignItems(gui.Center).
 					Children(func() {
 						gui.Row(c).
 							Grow(1).
 							FillHeight().
-							Gap(10).
+							Gap(9).
 							AlignItems(gui.Center).
 							DragWindow().
 							Children(func() {
@@ -163,18 +207,21 @@ func (a *App) sidebar(c *gui.Context) {
 								}
 								gui.Text(c, a.libraryTitle()).Bold().FontSize(13).Grow(1).SingleLine()
 							})
+						a.iconButton(c, "sb-help-guide", iconHelp, a.t("onboarding.open"), a.onboardingOpen).OnClick(func() {
+							a.openOnboarding()
+						})
 						a.iconButton(c, "sb-settings", iconSettings, a.t("settings.open"), a.settingsOpen).OnClick(func() {
 							a.openSettings(a.settingsTab)
 						})
 					})
 
-				// Arc UI frameless scrollable navigation with gliding pill highlight underneath labels.
+				// Scrollable navigation tree with gliding pill highlight.
 				gui.Scroll(c.Key("nav-scroll")).Grow(1).FillWidth().Children(func() {
 					track := gui.Column(c.Key("sidebar-nav-track")).Padding(4, 10, 12, 10).Gap(2)
 					var activeBtn gui.Element
 					var hasActive bool
-					addNav := func(id string, icon *gui.SVG, label string, count int, indent float32, menu func(m *gui.Menu), onDrop func([]string)) {
-						btn, active := a.arcNavItem(c, id, icon, label, count, indent, menu, onDrop)
+					addNav := func(id string, icon *gui.SVG, tint *gui.Color, label string, count int, depth int, hasChildren, expanded bool, onToggle func(), menu func(m *gui.Menu), onDrop func([]string)) {
+						btn, active := a.arcNavItem(c, id, icon, tint, label, count, depth, hasChildren, expanded, onToggle, menu, onDrop)
 						if active {
 							activeBtn = btn
 							hasActive = true
@@ -185,129 +232,135 @@ func (a *App) sidebar(c *gui.Context) {
 					renderTagNodes = func(list []model.Tag, depth int) {
 						for _, tag := range list {
 							tg := tag
-							children := a.tagChildren[tg.ID]
-							indent := float32(depth * 14)
-							tagID := tg.ID
-							lbl := tg.Name
-							if len(children) > 0 {
-								if a.expandedTags[tagID] {
-									lbl = "▾ " + lbl
-								} else {
-									lbl = "▸ " + lbl
-								}
+							if sf != "" && !a.tagBranchMatches(tg.ID, sf) {
+								continue
 							}
-							addNav("tag:"+tagID, iconTag, lbl, a.tagDisplayCount(tagID), indent, func(m *gui.Menu) {
-								if len(children) > 0 {
-									if m.Item(a.t("tags.manage")).Chosen() {
-										a.toggleTagExpand(tagID)
-									}
-								}
-								if m.Item(a.t("tags.addChild")).Chosen() {
-									a.newChildParentID = tagID
-									a.newChildTagName = ""
-									a.handleNav("manage-tags")
-								}
-								if m.Item(a.t("tags.edit")).Chosen() {
-									a.openEditTagModal(tg)
-								}
-								m.Separator()
-								if m.Item(a.t("tag.delete")).Chosen() {
-									a.deleteTagPrompt(tagID)
-								}
-							}, func(ids []string) {
-								a.batchApplyTag(ids, tagID)
-							})
-							if len(children) > 0 && a.expandedTags[tagID] {
+							children := a.tagChildren[tg.ID]
+							hasCh := len(children) > 0
+							expanded := a.expandedTags[tg.ID] || sf != ""
+							tagID := tg.ID
+							var tint *gui.Color
+							if col, ok := a.effectiveTagColor(tagID); ok {
+								cc := col
+								tint = &cc
+							}
+							addNav(
+								"tag:"+tagID,
+								iconTag,
+								tint,
+								tg.Name,
+								a.tagDisplayCount(tagID),
+								depth,
+								hasCh,
+								expanded,
+								func() { a.toggleTagExpand(tagID) },
+								func(m *gui.Menu) { a.buildTagContextMenu(m, tg, services) },
+								func(ids []string) { a.batchApplyTag(ids, tagID) },
+							)
+							if hasCh && expanded {
 								renderTagNodes(children, depth+1)
 							}
 						}
 					}
 
 					track.Children(func() {
-						addNav("tag-all", iconLibrary, a.t("shell.allAssets"), a.allAssetsCount, 0, nil, nil)
-						addNav("filter-untagged", iconInbox, a.t("shell.untagged"), a.untaggedCount, 0, nil, nil)
-						addNav("manage-tags", iconTag, a.t("tags.manage"), len(a.tags), 0, nil, nil)
+						addNav("tag-all", iconLibrary, nil, a.t("shell.allAssets"), a.allAssetsCount, 0, false, false, nil, nil, nil)
+						addNav("filter-untagged", iconInbox, nil, a.t("shell.untagged"), a.untaggedCount, 0, false, false, nil, nil, nil)
 						if a.missingCount > 0 {
-							addNav("filter-missing", iconAlert, a.t("shell.missing"), a.missingCount, 0, nil, nil)
+							addNav("filter-missing", iconAlert, nil, a.t("shell.missing"), a.missingCount, 0, false, false, nil, nil, nil)
+						}
+						// Tag Manager opens a sleek popup modal instead of a separate full-page view.
+						addNav("manage-tags", iconTag, nil, a.t("tags.manage"), len(a.tags), 0, false, false, nil, nil, nil)
+
+						// Tags section header with inline "+" creator button.
+						gui.Row(c).FillWidth().Padding(14, 4, 4, 10).AlignItems(gui.Center).Children(func() {
+							a.sectionLabel(c, a.t("shell.tags"))
+							gui.Spacer(c)
+							a.miniHeaderButton(c, "sb-add-tag", iconPlus, a.t("tag.new"), a.newTagOpen).OnClick(func() {
+								a.newTagOpen = !a.newTagOpen
+							})
+						})
+
+						if a.newTagOpen {
+							gui.Row(c.Key("inline-new-tag-row")).
+								Padding(4, 4, 6, 4).
+								Gap(4).
+								AlignItems(gui.Center).
+								Transition(gui.ElementTransition{
+									Animation: &springSmooth,
+									Enter:     &gui.Motion{Y: -6, Opacity: 0, Collapse: true},
+									Exit:      &gui.Motion{Y: -6, Opacity: 0, Collapse: true},
+								}).
+								Children(func() {
+									gui.TextInput(c.Key("new-tag"), &a.newTagName).
+										Placeholder(a.t("tag.new")).
+										AutoFocus().
+										Grow(1).
+										OnSubmit(func() { a.createTag() })
+									a.iconButton(c, "new-tag-ok", iconCheck, a.t("tag.create"), true).OnClick(func() {
+										a.createTag()
+									})
+									a.iconButton(c, "new-tag-x", iconX, a.t("common.cancel"), false).OnClick(func() {
+										a.newTagOpen = false
+										a.newTagName = ""
+									})
+								})
 						}
 
 						if len(a.tags) > 0 {
-							gui.Box(c).Padding(14, 10, 4, 10).Children(func() {
-								a.sectionLabel(c, a.t("shell.tags"))
-							})
 							renderTagNodes(a.tagChildren[""], 0)
 						}
 
-						if len(a.projectList) > 0 {
-							gui.Box(c).Padding(14, 10, 4, 10).Children(func() {
-								a.sectionLabel(c, a.t("shell.projects"))
+						// Projects section header with inline "+" creator button.
+						gui.Row(c).FillWidth().Padding(14, 4, 4, 10).AlignItems(gui.Center).Children(func() {
+							a.sectionLabel(c, a.t("shell.projects"))
+							gui.Spacer(c)
+							a.miniHeaderButton(c, "sb-add-proj", iconPlus, a.t("project.new"), false).OnClick(func() {
+								a.openNewProjectModal()
 							})
-							for _, p := range a.projectList {
-								proj := p
-								projID := proj.ID
-								addNav("project:"+projID, iconFolder, proj.Name, 0, 0, nil, func(ids []string) {
-									a.batchReferenceToProject(ids, projID)
-								})
+						})
+
+						for _, p := range a.projectList {
+							proj := p
+							if sf != "" && !strings.Contains(strings.ToLower(proj.Name), sf) {
+								continue
 							}
+							projID := proj.ID
+							addNav("project:"+projID, iconFolder, nil, proj.Name, 0, 0, false, false, nil, nil, func(ids []string) {
+								a.batchReferenceToProject(ids, projID)
+							})
 						}
 					})
 					attachGlidingPill(track, activeBtn, hasActive, radiusControl, a.pal.pillActive, a.pal.shadowResting)
 				})
 
-				// Smooth critically-damped inline tag creator.
-				if a.newTagOpen {
-					gui.Row(c.Key("inline-new-tag-row")).
-						Padding(8, 10).
-						Gap(6).
-						AlignItems(gui.Center).
-						Transition(gui.ElementTransition{
-							Animation: &springSmooth,
-							Enter:     &gui.Motion{Y: -6, Opacity: 0, Collapse: true},
-							Exit:      &gui.Motion{Y: -6, Opacity: 0, Collapse: true},
-						}).
-						Children(func() {
-							gui.TextInput(c.Key("new-tag"), &a.newTagName).
-								Placeholder(a.t("tag.new")).
-								AutoFocus().
-								Grow(1).
-								OnSubmit(func() { a.createTag() })
-							a.iconButton(c, "new-tag-ok", iconCheck, a.t("tag.create"), true).OnClick(func() {
-								a.createTag()
-							})
-							a.iconButton(c, "new-tag-x", iconX, a.t("common.cancel"), false).OnClick(func() {
-								a.newTagOpen = false
-								a.newTagName = ""
-							})
-						})
-				}
-
-				// Quiet bottom actions.
-				gui.Column(c).Padding(10, 12).Gap(8).Children(func() {
-					gui.Row(c).Gap(6).Children(func() {
-						a.toolButton(c, "sb-add-tag", iconPlus, a.t("tag.new"), a.newTagOpen).
-							Grow(1).
-							OnClick(func() { a.newTagOpen = !a.newTagOpen })
-						a.toolButton(c, "sb-add-proj", iconFolder, a.t("project.new"), false).
-							Grow(1).
-							OnClick(func() { a.openNewProjectModal() })
-					})
-					if a.tagID != "" {
-						a.toolButton(c, "sb-del-tag", iconTrash, a.t("tag.delete"), false).
-							FillWidth().
-							OnClick(func() { a.deleteTagPrompt(a.tagID) })
-					}
-					gui.Row(c).AlignItems(gui.Center).Gap(2).Padding(2, 4).Children(func() {
-						gui.Text(c, a.t("shell.localFirst")).FontSize(10).TextColor(a.pal.inkFaint).Grow(1).SingleLine()
-						a.iconButton(c, "sb-help-guide", iconHelp, a.t("onboarding.open"), a.onboardingOpen).OnClick(func() {
-							a.openOnboarding()
-						})
-						a.iconButton(c, "sb-recv-pair", iconLink, a.t("share.receiveByCode"), false).OnClick(func() {
-							a.pairRecvOpen = true
-						})
-					})
+				// Clean bottom sidebar filter bar (Eagle-inspired, replaces old footer clutter).
+				gui.Box(c).Padding(8, 10, 10, 10).Children(func() {
+					gui.SearchField(c.Key("sidebar-filter"), &a.sidebarFilter).
+						Placeholder(a.t("sidebar.filter")).
+						FillWidth()
 				})
 			})
 	})
+}
+
+func (a *App) miniHeaderButton(c *gui.Context, key string, icon *gui.SVG, tip string, active bool) gui.Element {
+	btn := gui.ButtonBase(c.Key(key)).Size(22, 22).Center().Radius(6).Label(tip).Tooltip(tip)
+	bg := gui.Transparent
+	fg := a.pal.inkMuted
+	if active {
+		bg = a.pal.surfaceMuted
+		fg = a.pal.ink
+	} else if btn.Hovered() || btn.Pressed() {
+		bg = a.pal.surfaceMuted
+		fg = a.pal.ink
+	}
+	btn.Background(btn.AnimateColor("bg", bg, animFast)).
+		TextColor(btn.AnimateColor("fg", fg, animFast)).
+		Children(func() {
+			gui.Icon(c, icon).Size(13, 13)
+		})
+	return btn
 }
 
 func (a *App) deleteTagPrompt(id string) {

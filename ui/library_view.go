@@ -1112,7 +1112,7 @@ func (a *App) inspector(c *gui.Context) {
 									for _, tag := range a.tags {
 										tg := tag
 										isOn := owned[tg.ID]
-										a.tagChip(c, "insp-tag-"+asset.ID+"-"+tg.ID, tg.Name, isOn).OnClick(func() {
+										a.coloredTagChip(c, "insp-tag-"+asset.ID+"-"+tg.ID, tg, isOn).OnClick(func() {
 											if err := a.lib.SetAssetTag(asset.ID, tg.ID, !isOn); err != nil {
 												a.status = err.Error()
 												return

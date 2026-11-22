@@ -162,6 +162,19 @@ func (l *Library) UpdateTag(id, name, parentID string) (model.Tag, error) {
 	return updated, err
 }
 
+// SetTagColor sets or clears the #RRGGBB display color on a tag.
+func (l *Library) SetTagColor(id, color string) error {
+	color = strings.TrimSpace(color)
+	return l.DB.Update(func(tx *bbolt.Tx) error {
+		cur, err := db.GetTag(tx, id)
+		if err != nil {
+			return err
+		}
+		cur.Color = color
+		return db.PutTag(tx, cur)
+	})
+}
+
 // Tags lists every tag.
 func (l *Library) Tags() ([]model.Tag, error) {
 	var tags []model.Tag

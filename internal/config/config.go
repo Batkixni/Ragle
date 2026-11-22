@@ -28,6 +28,7 @@ type Config struct {
 
 	// Workspace & appearance preferences.
 	ShowSidebarCounts *bool  `json:"show_sidebar_counts,omitempty"`
+	ShowTagColors     *bool  `json:"show_tag_colors,omitempty"`
 	ShowCardCaption   *bool  `json:"show_card_caption,omitempty"`
 	DefaultSort       int    `json:"default_sort,omitempty"`
 	LayoutMode        string `json:"layout_mode,omitempty"` // "bento", "masonry", "grid"

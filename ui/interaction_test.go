@@ -371,26 +371,39 @@ func TestRealUserClicksEveryControl(t *testing.T) {
 		t.Fatalf("frameless minimize button missing: %v", err)
 	}
 
-	// 16. Hierarchical Tag Manager flow: open Tag Manager, create a child tag under tagA,
-	// verify parent/child filtering and cycle protection.
+	// 16. Hierarchical Tag Manager popup flow: open Tag Manager popup, create a child tag under tagA,
+	// assign tag color, verify cycle protection, and close popup.
 	if err := tt.Click("標籤管理"); err != nil {
 		t.Fatalf("clicking Tag Manager in sidebar failed: %v", err)
 	}
 	tt.Advance(250 * time.Millisecond)
-	if a.screen != screenTags {
-		t.Fatalf("expected screenTags, got %v", a.screen)
+	if !a.tagManagerOpen {
+		t.Fatal("expected tagManagerOpen=true after clicking Tag Manager")
 	}
 	child, err := lib.CreateTagWithParent("Character", tagA.ID)
 	if err != nil {
 		t.Fatalf("CreateTagWithParent failed: %v", err)
 	}
+	if err := lib.SetTagColor(tagA.ID, "#22C55E"); err != nil {
+		t.Fatalf("SetTagColor failed: %v", err)
+	}
 	if _, err := lib.UpdateTag(tagA.ID, tagA.Name, child.ID); err == nil {
 		t.Fatal("expected cycle error when reparenting parent under its own child")
 	}
+	a.expandedTags[tagA.ID] = true
 	a.reload()
 	tt.Advance(200 * time.Millisecond)
 	if !tt.HasText("Character") {
-		t.Fatalf("child tag missing in Tag Manager, texts=%v", tt.Texts())
+		t.Fatalf("child tag missing in Tag Manager popup, texts=%v", tt.Texts())
+	}
+	if _, ok := a.effectiveTagColor(child.ID); !ok {
+		t.Fatal("expected child tag to inherit parent tag color")
+	}
+	if err := tt.Click("完成"); err != nil {
+		t.Fatalf("closing Tag Manager popup failed: %v", err)
+	}
+	if a.tagManagerOpen {
+		t.Fatal("expected tagManagerOpen=false after clicking Done")
 	}
 
 	// 17. Multi-select mode & Batch Action Bar flow in Library.

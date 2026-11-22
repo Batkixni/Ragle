@@ -36,7 +36,6 @@ const (
 	screenLibrary
 	screenProject
 	screenBoard
-	screenTags
 )
 
 const (
@@ -121,8 +120,9 @@ type App struct {
 	allAssetsCount     int
 	untaggedCount      int
 	missingCount       int
-	projectTags        map[string]bool
-	boardCounts        map[string]int
+	projectTags     map[string]bool
+	boardCounts     map[string]int
+	boardPlacements map[string][]model.Placement
 
 	// Navigation, search, sort, multi-select & library display state.
 	tagID           string
@@ -155,15 +155,19 @@ type App struct {
 	storageMode     int
 	importing       bool
 
-	// Tag management view & edit modal state.
+	// Tag management popup & edit modal state.
+	tagManagerOpen   bool
+	sidebarFilter    string
 	tagSearch        string
 	newRootTagName   string
+	newRootTagColor  string
 	newChildParentID string
 	newChildTagName  string
 	editTagOpen      bool
 	editTagID        string
 	editTagName      string
 	editTagParentID  string
+	editTagColor     string
 
 	// Inspector persistent bound state (avoids local-variable loss on rebuild).
 	inspectorAssetID  string
@@ -200,6 +204,7 @@ type App struct {
 	settingsTab          int
 	settingsPrevTab      int
 	showSidebarCounts    bool
+	showTagColors        bool
 	showCardCaption      bool
 	autoSelectImported   bool
 	autoTagOnImport      bool
@@ -297,6 +302,7 @@ func NewApp() *App {
 		screen:               screenWelcome,
 		shareFiles:           true,
 		showSidebarCounts:    true,
+		showTagColors:        true,
 		showCardCaption:      true,
 		autoSelectImported:   true,
 		autoTagOnImport:      true,
@@ -327,6 +333,7 @@ func NewApp() *App {
 		tagCounts:            map[string]int{},
 		projectTags:          map[string]bool{},
 		boardCounts:          map[string]int{},
+		boardPlacements:      map[string][]model.Placement{},
 		newProjTags:          map[string]bool{},
 		sidebarWidth:         232,
 		libraryPercent:       74,
@@ -401,6 +408,7 @@ func (a *App) applyConfig(cfg config.Config) {
 		}
 	}
 	a.showSidebarCounts = config.BoolOr(cfg.ShowSidebarCounts, true)
+	a.showTagColors = config.BoolOr(cfg.ShowTagColors, true)
 	a.showCardCaption = config.BoolOr(cfg.ShowCardCaption, true)
 	a.autoSelectImported = config.BoolOr(cfg.AutoSelectImported, true)
 	a.autoTagOnImport = config.BoolOr(cfg.AutoTagOnImport, true)
@@ -428,6 +436,7 @@ func (a *App) syncConfigFromState() {
 		a.cfg.DefaultStorageMode = storageModes[a.storageMode]
 	}
 	a.cfg.ShowSidebarCounts = config.BoolPtr(a.showSidebarCounts)
+	a.cfg.ShowTagColors = config.BoolPtr(a.showTagColors)
 	a.cfg.ShowCardCaption = config.BoolPtr(a.showCardCaption)
 	a.cfg.AutoSelectImported = config.BoolPtr(a.autoSelectImported)
 	a.cfg.AutoTagOnImport = config.BoolPtr(a.autoTagOnImport)
@@ -727,6 +736,7 @@ func (a *App) reload() {
 
 	a.projectTags = map[string]bool{}
 	a.boardCounts = map[string]int{}
+	a.boardPlacements = map[string][]model.Placement{}
 	if a.projectID != "" && a.projects != nil {
 		projects, err := a.projects.List()
 		if err != nil {
@@ -769,6 +779,7 @@ func (a *App) reload() {
 			for _, b := range a.boards {
 				if items, err := a.projects.LoadPlacements(b.ID); err == nil {
 					a.boardCounts[b.ID] = len(items)
+					a.boardPlacements[b.ID] = items
 				}
 			}
 		}
@@ -1778,12 +1789,8 @@ func (a *App) handleNav(nav string) {
 	a.clearSelection()
 	switch {
 	case nav == "manage-tags":
-		a.closePreview()
-		a.flushBoard(true)
-		a.session = nil
-		a.referenceMode = false
-		a.screen = screenTags
-		a.reload()
+		a.tagManagerOpen = true
+		return
 	case nav == "library" || nav == "tag-all":
 		a.closePreview()
 		a.flushBoard(true)
@@ -1837,10 +1844,7 @@ func (a *App) handleNav(nav string) {
 }
 
 func (a *App) syncNavSelection() {
-	if a.screen == screenTags {
-		a.selectedNav = "manage-tags"
-		a.lastNav = a.selectedNav
-	} else if a.screen == screenProject || a.screen == screenBoard {
+	if a.screen == screenProject || a.screen == screenBoard {
 		if a.projectID != "" {
 			a.selectedNav = "project:" + a.projectID
 			a.lastNav = a.selectedNav
@@ -1973,6 +1977,7 @@ func (a *App) canRunLibraryShortcut() bool {
 	return a.lib != nil &&
 		a.screen == screenLibrary &&
 		!a.onboardingOpen &&
+		!a.tagManagerOpen &&
 		!a.previewOpen &&
 		!a.settingsOpen &&
 		!a.newProjOpen &&
@@ -2191,15 +2196,106 @@ func (a *App) batchDeletePrompt(ids []string) {
 	})
 }
 
-// --- Hierarchical Tag Management Helpers ---
+// --- Hierarchical Tag Management & Color Helpers ---
+
+type tagColorChoice struct {
+	key string
+	hex string
+}
+
+var tagColorPalette = []tagColorChoice{
+	{key: "tags.color.red", hex: "#EF4444"},
+	{key: "tags.color.orange", hex: "#F97316"},
+	{key: "tags.color.amber", hex: "#EAB308"},
+	{key: "tags.color.green", hex: "#22C55E"},
+	{key: "tags.color.cyan", hex: "#06B6D4"},
+	{key: "tags.color.blue", hex: "#3B82F6"},
+	{key: "tags.color.purple", hex: "#A855F7"},
+	{key: "tags.color.pink", hex: "#EC4899"},
+}
+
+// effectiveTagColor returns a tag's display color (inheriting its nearest colored
+// ancestor so child folders stay visually cohesive, like Eagle), or false when
+// ShowTagColors is disabled or no color is assigned.
+func (a *App) effectiveTagColor(tagID string) (gui.Color, bool) {
+	if !a.showTagColors || tagID == "" {
+		return gui.Color{}, false
+	}
+	walk := tagID
+	for depth := 0; walk != "" && depth < 16; depth++ {
+		tg, ok := a.tagByID[walk]
+		if !ok {
+			break
+		}
+		if tg.Color != "" {
+			if col, ok := parseHexColor(tg.Color); ok {
+				return col, true
+			}
+		}
+		walk = tg.ParentID
+	}
+	return gui.Color{}, false
+}
+
+func (a *App) setTagColor(id, hex string) {
+	if a.lib == nil || id == "" {
+		return
+	}
+	if err := a.lib.SetTagColor(id, hex); err != nil {
+		a.status = err.Error()
+		return
+	}
+	a.reload()
+}
+
+func (a *App) moveTagParent(id, parentID string) {
+	if a.lib == nil || id == "" {
+		return
+	}
+	tg, ok := a.tagByID[id]
+	if !ok {
+		return
+	}
+	if _, err := a.lib.UpdateTag(id, tg.Name, parentID); err != nil {
+		if errors.Is(err, library.ErrTagCycle) {
+			a.status = a.t("tags.cycleErr")
+		} else {
+			a.status = err.Error()
+		}
+		return
+	}
+	if parentID != "" {
+		a.expandedTags[parentID] = true
+	}
+	a.reload()
+}
+
+func (a *App) expandAllTags(expand bool) {
+	if a.expandedTags == nil {
+		a.expandedTags = map[string]bool{}
+	}
+	if !expand {
+		a.expandedTags = map[string]bool{}
+		return
+	}
+	for _, tg := range a.tags {
+		if len(a.tagChildren[tg.ID]) > 0 {
+			a.expandedTags[tg.ID] = true
+		}
+	}
+}
 
 func (a *App) createTagWithParent(name, parentID string) {
+	a.createTagWithParentAndColor(name, parentID, "")
+}
+
+func (a *App) createTagWithParentAndColor(name, parentID, color string) {
 	name = trim(name)
 	if name == "" {
 		a.status = a.t("tag.needName")
 		return
 	}
-	_, err := a.lib.CreateTagWithParent(name, parentID)
+	created, err := a.lib.CreateTagWithParent(name, parentID)
 	if err != nil {
 		if errors.Is(err, library.ErrDuplicateName) {
 			a.status = a.t("tag.exists")
@@ -2207,6 +2303,9 @@ func (a *App) createTagWithParent(name, parentID string) {
 		}
 		a.status = err.Error()
 		return
+	}
+	if color != "" {
+		_ = a.lib.SetTagColor(created.ID, color)
 	}
 	if parentID != "" {
 		a.expandedTags[parentID] = true
@@ -2218,6 +2317,7 @@ func (a *App) openEditTagModal(tg model.Tag) {
 	a.editTagID = tg.ID
 	a.editTagName = tg.Name
 	a.editTagParentID = tg.ParentID
+	a.editTagColor = tg.Color
 	a.editTagOpen = true
 }
 
@@ -2241,6 +2341,7 @@ func (a *App) saveEditTag() {
 		}
 		return
 	}
+	_ = a.lib.SetTagColor(a.editTagID, a.editTagColor)
 	if a.editTagParentID != "" {
 		a.expandedTags[a.editTagParentID] = true
 	}
