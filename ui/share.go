@@ -69,7 +69,7 @@ func (a *App) shareModal(c *gui.Context) {
 	a.styledDialog(c, "share-modal", &a.shareOpen, 520, 0, func(_ gui.Element) {
 		gui.Column(c).Padding(22, 24).Gap(16).Children(func() {
 			gui.Row(c).Gap(10).AlignItems(gui.Center).Children(func() {
-				gui.Icon(c, iconShare).Size(18, 18).TextColor(a.pal.ring)
+				gui.Icon(c, iconShare).Size(18, 18).TextColor(a.pal.ink)
 				gui.Text(c, a.t("share.send")+" · "+a.project.Name).FontSize(16).Bold().Grow(1).SingleLine()
 				a.iconButton(c, "share-close", iconX, a.t("common.close"), false).OnClick(func() {
 					a.shareOpen = false
@@ -130,14 +130,14 @@ func (a *App) shareModal(c *gui.Context) {
 						Gap(10).
 						Radius(radiusControl).
 						AlignItems(gui.Center).
-						Background(a.pal.ring.Alpha(0.12)).
+						Background(a.pal.surfaceMuted).
 						Children(func() {
 							gui.Text(c, fmt.Sprintf(a.t("share.codeWaiting"), code)).
 								FontSize(14).
 								Bold().
-								TextColor(a.pal.ring).
+								TextColor(a.pal.ink).
 								Grow(1)
-							gui.Button(c.Key("pair-copy"), a.t("share.copyCode")).OnClick(func() {
+							a.arcButton(c, "pair-copy", a.t("share.copyCode"), true).OnClick(func() {
 								services.WriteClipboard(code)
 								a.status = a.t("share.codeCopied")
 							})
@@ -160,7 +160,7 @@ func (a *App) receivePairModal(c *gui.Context) {
 	a.styledDialog(c, "recv-pair-modal", &a.pairRecvOpen, 440, 0, func(_ gui.Element) {
 		gui.Column(c).Padding(22, 24).Gap(14).Children(func() {
 			gui.Row(c).Gap(8).AlignItems(gui.Center).Children(func() {
-				gui.Icon(c, iconLink).Size(17, 17).TextColor(a.pal.ring)
+				gui.Icon(c, iconLink).Size(17, 17).TextColor(a.pal.ink)
 				gui.Text(c, a.t("share.pairTitle")).FontSize(15).Bold().Grow(1)
 				a.iconButton(c, "recv-pair-x", iconX, a.t("common.close"), false).OnClick(func() {
 					a.cancelPair()

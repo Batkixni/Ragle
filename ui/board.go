@@ -63,8 +63,7 @@ func (a *App) boardToolbar(c *gui.Context) {
 			Radius(radiusPanel).
 			AlignItems(gui.Center).
 			Background(a.pal.surfaceRaised).
-			Shadow(0, 6, 22, 0, a.pal.shadowMd).
-			InsetShadow(0, 1, 1, 0, a.pal.rimLight).
+			Shadow(0, 6, 20, 0, a.pal.shadowRaised).
 			Children(func() {
 				// Back & breadcrumb.
 				a.toolButton(c, "board-leave", iconArrowLeft, a.t("board.leave"), false).OnClick(func() {
@@ -163,10 +162,9 @@ func (a *App) boardTray(c *gui.Context) {
 			Radius(radiusPanel).
 			Clip().
 			Background(a.pal.surfaceRaised).
-			Shadow(0, 8, 24, 0, a.pal.shadowMd).
-			InsetShadow(0, 1, 1, 0, a.pal.rimLight).
+			Shadow(0, 8, 24, 0, a.pal.shadowRaised).
 			Transition(gui.ElementTransition{
-				Animation: &arcEnterAnim,
+				Animation: &springSmooth,
 				Enter:     &gui.Motion{Y: 20, Opacity: 0, Collapse: true},
 				Exit:      &gui.Motion{Y: 20, Opacity: 0, Collapse: true},
 			}).
@@ -209,8 +207,8 @@ func (a *App) boardTray(c *gui.Context) {
 							} else if card.Hovered() {
 								bg = a.pal.surfaceMuted
 							}
-							card.Background(card.AnimateColor("bg", bg, arcColorAnim)).
-								AnimatePose(gui.Pose{Scale: scale}, arcSpringSnappy)
+							card.Background(card.AnimateColor("bg", bg, animFast)).
+								AnimatePose(gui.Pose{Scale: scale}, springResponsive)
 							card.Children(func() {
 								gui.Box(c).Grow(1).FillWidth().Center().Clip().Children(func() {
 									if bm := a.bitmaps[item.ID]; bm != nil {
@@ -237,10 +235,9 @@ func (a *App) boardInspector(c *gui.Context) {
 			Radius(radiusPanel).
 			Clip().
 			Background(a.pal.surfaceRaised).
-			Shadow(0, 8, 24, 0, a.pal.shadowMd).
-			InsetShadow(0, 1, 1, 0, a.pal.rimLight).
+			Shadow(0, 8, 24, 0, a.pal.shadowRaised).
 			Transition(gui.ElementTransition{
-				Animation: &arcEnterAnim,
+				Animation: &springSmooth,
 				Enter:     &gui.Motion{X: 20, Opacity: 0},
 			}).
 			Children(func() {

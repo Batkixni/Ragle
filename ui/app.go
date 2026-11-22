@@ -118,6 +118,7 @@ type App struct {
 	cardSize      float64
 	inspectorOpen bool
 	filterBarOpen bool
+	revealGen     int
 	storageMode   int
 	importing     bool
 
@@ -208,7 +209,7 @@ func NewApp() *App {
 		assetIndex:         -1,
 		cardSize:           184,
 		inspectorOpen:      true,
-		filterBarOpen:      true,
+		filterBarOpen:      false,
 		boardDrawerOpen:    true,
 		boardInspectorOpen: true,
 		bitmaps:            map[string]*gui.Bitmap{},
@@ -1288,6 +1289,7 @@ func (a *App) handleNav(nav string) {
 	}
 	a.selectedNav = nav
 	a.lastNav = nav
+	a.revealGen++
 	switch {
 	case nav == "library" || nav == "tag-all":
 		a.flushBoard(true)

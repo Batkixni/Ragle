@@ -3,11 +3,17 @@ package ui
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	gui "github.com/egoist/mygo/ui"
 
 	"ragle/internal/model"
 )
+
+type cardRevealKey struct {
+	gen int
+	id  string
+}
 
 func (a *App) libraryView(c *gui.Context) {
 	if !a.inspectorOpen {
@@ -25,18 +31,17 @@ func (a *App) libraryView(c *gui.Context) {
 }
 
 func (a *App) libraryMain(c *gui.Context) {
-	t := c.Theme()
-	dropZone := gui.Column(c.Key("library-dropzone")).Fill().Padding(6, 12, 10, 6).Gap(10).Background(a.pal.canvas)
+	dropZone := gui.Column(c.Key("library-dropzone")).Fill().Padding(6, 12, 10, 8).Gap(10).Background(a.pal.canvas)
 	if files := dropZone.DroppedFiles(); len(files) > 0 {
 		a.importPaths(files)
 	}
 	dragOver := dropZone.FileDragOver()
 	if dragOver {
-		dropZone.Background(a.pal.ring.Alpha(0.06))
+		dropZone.Background(a.pal.surface)
 	}
 
 	dropZone.Children(func() {
-		// Drag-and-drop import indicator banner.
+		// Drag-and-drop import indicator banner (monochrome).
 		if dragOver {
 			modeLbl := a.modeLabel(storageModes[a.storageMode])
 			gui.Row(c.Key("dnd-banner")).
@@ -44,44 +49,44 @@ func (a *App) libraryMain(c *gui.Context) {
 				Radius(radiusPanel).
 				Gap(8).
 				AlignItems(gui.Center).
-				Background(a.pal.ring.Alpha(0.14)).
+				Background(a.pal.surfaceMuted).
 				Transition(gui.ElementTransition{
-					Animation: &arcEnterAnim,
+					Animation: &springSmooth,
 					Enter:     &gui.Motion{Y: -6, Opacity: 0, Collapse: true},
 					Exit:      &gui.Motion{Y: -6, Opacity: 0, Collapse: true},
 				}).
 				Children(func() {
-					gui.Icon(c, iconImport).Size(16, 16).TextColor(a.pal.ring)
-					gui.Text(c, fmt.Sprintf(a.t("library.dropHint"), modeLbl)).Bold().FontSize(13).TextColor(a.pal.ring)
+					gui.Icon(c, iconImport).Size(16, 16).TextColor(a.pal.ink)
+					gui.Text(c, fmt.Sprintf(a.t("library.dropHint"), modeLbl)).Bold().FontSize(13).TextColor(a.pal.ink)
 				})
 		}
 
-		// Arc UI Sliding Pill Filter & Storage Bar (smooth collapse/expand).
+		// Arc UI Sliding Pill Filter & Storage Bar (smooth zero-bounce collapse/expand).
 		if a.filterBarOpen {
 			a.filterBar(c)
 		}
 
-		// Project reference mode banner.
+		// Project reference mode banner (pure monochrome).
 		if a.referenceMode && a.project.Name != "" {
 			gui.Row(c.Key("ref-banner")).
 				Padding(10, 16).
 				Radius(radiusPanel).
 				Gap(10).
 				AlignItems(gui.Center).
-				Background(a.pal.ring.Alpha(0.12)).
+				Background(a.pal.surface).
 				Transition(gui.ElementTransition{
-					Animation: &arcEnterAnim,
+					Animation: &springSmooth,
 					Enter:     &gui.Motion{Y: -6, Opacity: 0, Collapse: true},
 					Exit:      &gui.Motion{Y: -6, Opacity: 0, Collapse: true},
 				}).
 				Children(func() {
-					gui.Icon(c, iconFolder).Size(15, 15).TextColor(a.pal.ring)
-					gui.Text(c, fmt.Sprintf(a.t("library.referencing"), a.project.Name)).Bold().FontSize(12).TextColor(a.pal.ring)
+					gui.Icon(c, iconFolder).Size(15, 15).TextColor(a.pal.ink)
+					gui.Text(c, fmt.Sprintf(a.t("library.referencing"), a.project.Name)).Bold().FontSize(12).TextColor(a.pal.ink)
 					gui.Spacer(c)
-					gui.PrimaryButton(c.Key("ref-selected-btn"), a.t("library.reference")).Radius(radiusControl).OnClick(func() {
+					a.arcButton(c, "ref-selected-btn", a.t("library.reference"), true).OnClick(func() {
 						a.referenceSelected()
 					})
-					gui.Button(c.Key("ref-done-btn"), a.t("common.done")).Radius(radiusControl).OnClick(func() {
+					a.arcButton(c, "ref-done-btn", a.t("common.done"), false).OnClick(func() {
 						a.referenceMode = false
 						if a.projectID != "" {
 							a.screen = screenProject
@@ -91,7 +96,7 @@ func (a *App) libraryMain(c *gui.Context) {
 				})
 		}
 
-		// Smooth status toast strip.
+		// Quiet monochrome status toast strip.
 		if a.status != "" {
 			gui.Row(c.Key("status-toast")).
 				Padding(6, 12).
@@ -100,12 +105,12 @@ func (a *App) libraryMain(c *gui.Context) {
 				AlignItems(gui.Center).
 				Gap(8).
 				Transition(gui.ElementTransition{
-					Animation: &arcEnterAnim,
+					Animation: &springSmooth,
 					Enter:     &gui.Motion{Y: -6, Opacity: 0, Collapse: true},
 					Exit:      &gui.Motion{Y: -6, Opacity: 0, Collapse: true},
 				}).
 				Children(func() {
-					gui.Text(c, a.status).FontSize(12).TextColor(t.TextMuted).Grow(1).SingleLine()
+					gui.Text(c, a.status).FontSize(12).TextColor(a.pal.inkSecondary).Grow(1).SingleLine()
 					a.iconButton(c, "status-dismiss", iconX, a.t("common.close"), false).OnClick(func() {
 						a.status = ""
 					})
@@ -119,21 +124,20 @@ func (a *App) libraryMain(c *gui.Context) {
 				Radius(radiusPanel).
 				Gap(8).
 				AlignItems(gui.Center).
-				Background(t.Danger.Alpha(0.12)).
+				Background(a.pal.surface).
 				Children(func() {
-					gui.Icon(c, iconAlert).Size(15, 15).TextColor(t.Danger)
-					gui.Text(c, fmt.Sprintf("%s (%d)", a.t("shell.missing"), len(a.assets))).FontSize(12).Bold().TextColor(t.Danger)
+					gui.Icon(c, iconAlert).Size(15, 15).TextColor(a.pal.danger)
+					gui.Text(c, fmt.Sprintf("%s (%d)", a.t("shell.missing"), len(a.assets))).FontSize(12).Bold().TextColor(a.pal.danger)
 					gui.Spacer(c)
-					gui.Button(c.Key("relink-file-all"), a.t("inspector.relinkFile")).Radius(radiusControl).OnClick(func() {
+					a.arcButton(c, "relink-file-all", a.t("inspector.relinkFile"), false).OnClick(func() {
 						a.relinkMissing(false)
 					})
-					gui.Button(c.Key("relink-dir-all"), a.t("inspector.relink")).Radius(radiusControl).OnClick(func() {
+					a.arcButton(c, "relink-dir-all", a.t("inspector.relink"), true).OnClick(func() {
 						a.relinkMissing(true)
 					})
 				})
 		}
 
-		// Gallery grid or refined empty state.
 		if len(a.assets) == 0 {
 			a.libraryEmptyState(c)
 		} else {
@@ -158,25 +162,23 @@ func (a *App) filterBar(c *gui.Context) {
 	}
 
 	gui.Row(c.Key("arc-filter-bar")).
-		Padding(6, 10).
+		Padding(4, 2).
 		Gap(10).
 		Radius(radiusPanel).
 		AlignItems(gui.Center).
-		Background(a.pal.canvas).
 		Wrap().
 		Transition(gui.ElementTransition{
-			Animation: &arcEnterAnim,
+			Animation: &springSmooth,
 			Enter:     &gui.Motion{Y: -8, Opacity: 0, Collapse: true},
 			Exit:      &gui.Motion{Y: -8, Opacity: 0, Collapse: true},
 		}).
 		Children(func() {
-			// Arc UI sliding pill navigator for media format.
 			a.arcPillTabs(c, "filter-kind", a.kindFilter, kinds, func(idx int) {
 				a.kindFilter = idx
+				a.revealGen++
 				a.applyFilters()
 			})
 
-			// Compact rating toggle pills.
 			gui.Row(c).Gap(4).AlignItems(gui.Center).Children(func() {
 				for i, lbl := range ratings {
 					idx := i
@@ -190,6 +192,7 @@ func (a *App) filterBar(c *gui.Context) {
 						} else {
 							a.minRating = idx
 						}
+						a.revealGen++
 						a.applyFilters()
 					})
 				}
@@ -197,13 +200,13 @@ func (a *App) filterBar(c *gui.Context) {
 
 			if a.hasActiveFilters() {
 				a.toolButton(c, "fbar-clear", iconX, a.t("common.clear"), false).OnClick(func() {
+					a.revealGen++
 					a.clearFilters()
 				})
 			}
 
 			gui.Spacer(c)
 
-			// Arc UI sliding pill navigator for storage strategy.
 			gui.Row(c).Gap(6).AlignItems(gui.Center).Children(func() {
 				gui.Text(c, a.t("library.mode")).FontSize(11).TextColor(a.pal.inkMuted)
 				a.arcPillTabs(c, "storage-mode", a.storageMode, modes, func(idx int) {
@@ -214,27 +217,28 @@ func (a *App) filterBar(c *gui.Context) {
 }
 
 func (a *App) libraryEmptyState(c *gui.Context) {
-	t := c.Theme()
-	gui.Column(c).Grow(1).Center().Gap(14).Padding(32).Children(func() {
-		gui.Box(c).Size(58, 58).Radius(radiusPanel).Background(a.pal.surface).Center().Children(func() {
-			gui.Icon(c, iconImage).Size(26, 26).TextColor(a.pal.inkMuted)
+	empty := gui.Column(c.Key("lib-empty")).Grow(1).Center().Gap(14).Padding(32)
+	applyBlurReveal(empty, a.revealGen, 0)
+	empty.Children(func() {
+		gui.Box(c).Size(56, 56).Radius(radiusPanel).Background(a.pal.surface).Center().Children(func() {
+			gui.Icon(c, iconImage).Size(24, 24).TextColor(a.pal.inkMuted)
 		})
 		if a.hasActiveFilters() {
 			gui.Text(c, a.t("library.noMatch")).FontSize(15).Bold()
-			gui.Button(c.Key("empty-clear"), a.t("common.clear")).Radius(radiusControl).OnClick(func() { a.clearFilters() })
+			a.arcButton(c, "empty-clear", a.t("common.clear"), false).OnClick(func() { a.clearFilters() })
 		} else {
 			gui.Text(c, a.t("library.empty")).FontSize(16).Bold()
 			gui.Text(c, a.t("library.emptyHint")).
 				Width(380).
 				TextAlign(gui.Center).
 				FontSize(12).
-				TextColor(t.TextMuted).
+				TextColor(a.pal.inkSecondary).
 				LineHeight(1.55)
 			gui.Row(c).Gap(10).Padding(6, 0).Children(func() {
-				gui.PrimaryButton(c.Key("empty-import-files"), a.t("library.files")).Radius(radiusControl).OnClick(func() {
+				a.arcButton(c, "empty-import-files", a.t("library.files"), true).OnClick(func() {
 					a.startImport(false)
 				})
-				gui.Button(c.Key("empty-import-folder"), a.t("library.folder")).Radius(radiusControl).OnClick(func() {
+				a.arcButton(c, "empty-import-folder", a.t("library.folder"), false).OnClick(func() {
 					a.startImport(true)
 				})
 			})
@@ -246,7 +250,10 @@ func (a *App) assetGrid(c *gui.Context) {
 	if a.assetIndex >= len(a.assets) {
 		a.assetIndex = -1
 	}
-	a.grid.Selected = &a.assetIndex
+	// Keep GridState.Selected nil so GridView does NOT paint its default boxy
+	// selection chrome; each frameless Arc card manages its own click,
+	// double-click, hover lift, press scale, and monochrome selected state.
+	a.grid.Selected = nil
 	a.grid.Key = func(i int) any {
 		if i < 0 || i >= len(a.assets) {
 			return i
@@ -261,22 +268,14 @@ func (a *App) assetGrid(c *gui.Context) {
 	}
 
 	cellW := float32(a.cardSize)
-	cellH := cellW + 34
+	cellH := cellW + 38
 
 	gv := gui.GridView(c.Key("asset-grid"), &a.grid, len(a.assets), cellW, cellH, func(i int) {
 		asset := a.assets[i]
-		a.assetCard(c, asset, i == a.assetIndex)
+		a.assetCard(c, i, asset, i == a.assetIndex)
 	}).
 		Gap(16).
-		Grow(1).
-		OnChange(func() {
-			a.syncInspectorSelection(false)
-		}).
-		OnSubmit(func() {
-			if asset, ok := a.selectedAsset(); ok {
-				a.openPreview(asset)
-			}
-		})
+		Grow(1)
 
 	gv.OnShortcut(0, gui.KeySpace, func() {
 		if asset, ok := a.selectedAsset(); ok {
@@ -290,17 +289,23 @@ func (a *App) assetGrid(c *gui.Context) {
 	})
 }
 
-// assetCard renders an Arc UI frameless card: zero borders, surface-level fill
-// transitions on hover, subtle physical lift (-2px), and soft elevation shadow.
-func (a *App) assetCard(c *gui.Context, asset model.Asset, selected bool) {
-	t := c.Theme()
+// assetCard is a pure monochrome frameless Arc UI card:
+// - Staggered blur-in reveal (4px -> 0px, 35ms stagger, easeArcEnter)
+// - Hover lift (-3px, springGentle), image subtle scale (1.04x), shadow lift
+// - Active press scale (0.985, springResponsive)
+// - Full-bleed edge-to-edge rounded artwork, zero borders, zero blue
+func (a *App) assetCard(c *gui.Context, index int, asset model.Asset, selected bool) {
 	services := c.Services()
 	name := a.assetName(asset)
 	ext := a.assetExt(asset)
 
-	// No .Drag() inside GridView cell so single-click selection & double-click
-	// preview work 100% reliably.
-	card := gui.Column(c).Fill().Padding(4).Gap(8)
+	card := gui.ButtonBase(c.Key("card-" + asset.ID)).
+		Column().
+		Fill().
+		Radius(radiusPanel).
+		Clip().
+		Label(name)
+
 	card.PopoverMenu(func(m *gui.Menu) {
 		if m.Item(a.t("library.preview")).Chosen() {
 			a.openPreview(asset)
@@ -356,34 +361,59 @@ func (a *App) assetCard(c *gui.Context, asset model.Asset, selected bool) {
 		}
 	})
 
+	card.OnClick(func() {
+		a.assetIndex = index
+		a.syncInspectorSelection(false)
+	})
+	if card.DoubleClicked() {
+		a.assetIndex = index
+		a.syncInspectorSelection(false)
+		a.openPreview(asset)
+	}
+
 	hovered := card.Hovered()
+	pressed := card.Pressed()
+
 	targetBg := a.pal.surface
 	liftY := float32(0)
-	shadowColor := a.pal.shadowSm
-	if selected {
+	cardScale := float32(1)
+	imgScale := float32(1)
+	shadow := a.pal.shadowResting
+	switch {
+	case pressed:
+		targetBg = a.pal.surfaceActive
+		cardScale = 0.985
+	case selected:
 		targetBg = a.pal.surfaceMuted
-		shadowColor = a.pal.shadowMd
-	} else if hovered {
+		shadow = a.pal.shadowRaised
+		if hovered {
+			imgScale = 1.03
+		}
+	case hovered:
 		targetBg = a.pal.surfaceMuted
-		liftY = -2
-		shadowColor = a.pal.shadowMd
+		liftY = -3
+		imgScale = 1.04
+		shadow = a.pal.shadowRaised
 	}
-	bg := card.AnimateColor("card-bg", targetBg, arcColorAnim)
-	card.AnimatePose(gui.Pose{Y: liftY}, arcSpring)
+
+	bg := card.AnimateColor("card-bg", targetBg, animFast)
+	card.Background(bg).Shadow(0, 4, 14, 0, shadow)
+	if pressed {
+		card.AnimatePose(gui.Pose{Y: liftY, Scale: cardScale}, springResponsive)
+	} else {
+		card.AnimatePose(gui.Pose{Y: liftY, Scale: cardScale}, springGentle)
+	}
+	stagger := time.Duration(min(index, 8)) * arcStaggerItem
+	applyStaggerReveal(card, cardRevealKey{gen: a.revealGen, id: asset.ID}, stagger)
 
 	card.Children(func() {
-		// Frameless rounded media surface (Arc UI: no borders, surface fill + shadow).
-		frame := gui.Box(c).
-			Grow(1).
-			FillWidth().
-			Radius(radiusPanel).
-			Clip().
-			Background(bg).
-			Shadow(0, 4, 14, 0, shadowColor).
-			Center()
-		frame.Children(func() {
+		// Full-bleed edge-to-edge media slot with subtle hover zoom.
+		gui.Box(c).Grow(1).FillWidth().Clip().Background(a.pal.surfaceMuted).Center().Children(func() {
 			if bm := a.bitmaps[asset.ID]; bm != nil {
-				gui.Image(c, bm).Fit(gui.Contain).Grow(1).Padding(6).Radius(radiusControl)
+				gui.Image(c, bm).
+					Fit(gui.Cover).
+					Fill().
+					AnimatePose(gui.Pose{Scale: imgScale}, springGentle)
 			} else {
 				gui.Column(c).Center().Gap(6).Children(func() {
 					ic := iconFile
@@ -399,17 +429,16 @@ func (a *App) assetCard(c *gui.Context, asset model.Asset, selected bool) {
 			}
 		})
 
-		// Clean caption footer.
-		gui.Row(c).Gap(6).AlignItems(gui.Center).Padding(0, 4).Children(func() {
-			nameColor := t.Text
+		// Clean frameless caption strip (pure monochrome).
+		gui.Row(c).FillWidth().Padding(8, 11).Gap(6).AlignItems(gui.Center).Children(func() {
 			if selected {
-				nameColor = a.pal.ring
+				gui.Box(c).Size(6, 6).Radius(radiusPill).Background(a.pal.controlOn)
 			}
-			gui.Text(c, name).Grow(1).FontSize(12).Bold().TextColor(nameColor).SingleLine()
+			gui.Text(c, name).Grow(1).FontSize(12).Bold().TextColor(a.pal.ink).SingleLine()
 			if asset.Missing {
-				a.pillBadge(c, a.t("library.missing"), t.Danger, t.Danger.Alpha(0.14))
+				gui.Text(c, a.t("library.missing")).FontSize(10).Bold().TextColor(a.pal.danger).SingleLine()
 			} else if asset.Rating > 0 {
-				gui.Text(c, fmt.Sprintf("★%d", asset.Rating)).FontSize(11).Bold().TextColor(a.pal.gold).SingleLine()
+				gui.Text(c, fmt.Sprintf("★%d", asset.Rating)).FontSize(11).TextColor(a.pal.inkSecondary).SingleLine()
 			} else {
 				gui.Text(c, ext).FontSize(10).TextColor(a.pal.inkMuted).SingleLine()
 			}
@@ -418,30 +447,29 @@ func (a *App) assetCard(c *gui.Context, asset model.Asset, selected bool) {
 }
 
 func (a *App) inspector(c *gui.Context) {
-	t := c.Theme()
 	services := c.Services()
 	asset, ok := a.selectedAsset()
 	a.syncInspectorSelection(false)
 
-	gui.Box(c).Fill().Padding(6, 12, 10, 6).Background(a.pal.canvas).Children(func() {
+	gui.Box(c).Fill().Padding(6, 12, 10, 4).Background(a.pal.canvas).Children(func() {
 		gui.Column(c.Key("arc-inspector")).
 			Fill().
 			Radius(radiusPanel).
 			Clip().
 			Background(a.pal.surface).
 			Transition(gui.ElementTransition{
-				Animation: &arcEnterAnim,
-				Enter:     &gui.Motion{X: 20, Opacity: 0},
+				Animation: &springSmooth,
+				Enter:     &gui.Motion{X: 18, Opacity: 0},
 			}).
 			Children(func() {
 				if !ok {
 					gui.Column(c).Fill().Center().Padding(24).Gap(12).Children(func() {
 						gui.Box(c).Size(46, 46).Radius(radiusControl).Background(a.pal.surfaceMuted).Center().Children(func() {
-							gui.Icon(c, iconPanelRight).Size(22, 22).TextColor(a.pal.inkMuted)
+							gui.Icon(c, iconPanelRight).Size(20, 20).TextColor(a.pal.inkMuted)
 						})
 						gui.Text(c, a.t("inspector.none")).
 							FontSize(12).
-							TextColor(t.TextMuted).
+							TextColor(a.pal.inkSecondary).
 							TextAlign(gui.Center).
 							LineHeight(1.55)
 					})
@@ -449,15 +477,16 @@ func (a *App) inspector(c *gui.Context) {
 				}
 
 				gui.Scroll(c).Fill().Children(func() {
-					gui.Column(c).Padding(14, 16).Gap(11).Children(func() {
-						// Frameless clickable hero preview with gentle Arc hover scale.
+					body := gui.Column(c.Key("insp-body-" + asset.ID)).Padding(16).Gap(14)
+					applyBlurReveal(body, asset.ID, 0)
+					body.Children(func() {
+						// Full uncropped hero preview with gentle hover zoom.
 						hero := gui.ButtonBase(c.Key("insp-hero-" + asset.ID)).
 							FillWidth().
-							Height(156).
+							Height(176).
 							Radius(radiusControl).
 							Clip().
 							Background(a.pal.surfaceRaised).
-							Shadow(0, 4, 14, 0, a.pal.shadowSm).
 							Center().
 							Label(a.t("library.preview")).
 							Tooltip(a.t("library.preview")).
@@ -468,9 +497,9 @@ func (a *App) inspector(c *gui.Context) {
 						if hero.Pressed() {
 							heroScale = 0.985
 						} else if hero.Hovered() {
-							heroScale = 1.015
+							heroScale = 1.02
 						}
-						hero.AnimatePose(gui.Pose{Scale: heroScale}, arcSpring)
+						hero.AnimatePose(gui.Pose{Scale: heroScale}, springGentle)
 						hero.Children(func() {
 							if bm := a.bitmaps[asset.ID]; bm != nil {
 								gui.Image(c, bm).Fit(gui.Contain).Grow(1).Padding(6).Radius(radiusControl)
@@ -508,42 +537,32 @@ func (a *App) inspector(c *gui.Context) {
 							})
 						})
 
-						// Title + frameless pill badges.
-						gui.Column(c).Gap(7).Children(func() {
+						// Title + quiet monochrome metadata chain (design.md §13 inspired).
+						gui.Column(c).Gap(6).Children(func() {
 							gui.Text(c, a.assetName(asset)).FontSize(14).Bold().LineHeight(1.3)
-							gui.Row(c).Gap(6).Wrap().AlignItems(gui.Center).Children(func() {
-								a.pillBadge(c, a.assetExt(asset), t.Text, a.pal.surfaceMuted)
-								a.pillBadge(c, a.modeLabel(asset.StorageMode), a.pal.inkSecondary, a.pal.surfaceMuted)
-								if asset.Width > 0 && asset.Height > 0 {
-									a.pillBadge(c, fmt.Sprintf("%d × %d", asset.Width, asset.Height), a.pal.inkSecondary, a.pal.surfaceMuted)
-								}
-								if asset.Missing {
-									a.pillBadge(c, a.t("library.missing"), t.Danger, t.Danger.Alpha(0.16))
-								}
-							})
+							parts := []string{a.assetExt(asset), a.modeLabel(asset.StorageMode)}
+							if asset.Width > 0 && asset.Height > 0 {
+								parts = append(parts, fmt.Sprintf("%d × %d", asset.Width, asset.Height))
+							}
+							gui.Text(c, strings.Join(parts, "  ·  ")).FontSize(11).TextColor(a.pal.inkMuted).SingleLine()
 						})
 
 						// Missing file alert & relink CTAs.
 						if asset.Missing {
-							gui.Column(c).
-								Padding(12).
-								Gap(8).
-								Radius(radiusControl).
-								Background(t.Danger.Alpha(0.12)).
-								Children(func() {
-									gui.Row(c).Gap(6).AlignItems(gui.Center).Children(func() {
-										gui.Icon(c, iconAlert).Size(14, 14).TextColor(t.Danger)
-										gui.Text(c, a.t("library.missing")).FontSize(12).Bold().TextColor(t.Danger)
+							gui.Column(c).Padding(12).Gap(8).Radius(radiusControl).Background(a.pal.surfaceRaised).Children(func() {
+								gui.Row(c).Gap(6).AlignItems(gui.Center).Children(func() {
+									gui.Icon(c, iconAlert).Size(14, 14).TextColor(a.pal.danger)
+									gui.Text(c, a.t("library.missing")).FontSize(12).Bold().TextColor(a.pal.danger)
+								})
+								gui.Row(c).Gap(6).Children(func() {
+									a.arcButton(c, "insp-relink-file", a.t("inspector.relinkFile"), false).Grow(1).OnClick(func() {
+										a.relinkMissing(false)
 									})
-									gui.Row(c).Gap(6).Children(func() {
-										gui.Button(c.Key("insp-relink-file"), a.t("inspector.relinkFile")).Grow(1).Radius(radiusControl).OnClick(func() {
-											a.relinkMissing(false)
-										})
-										gui.Button(c.Key("insp-relink-dir"), a.t("inspector.relink")).Grow(1).Radius(radiusControl).OnClick(func() {
-											a.relinkMissing(true)
-										})
+									a.arcButton(c, "insp-relink-dir", a.t("inspector.relink"), true).Grow(1).OnClick(func() {
+										a.relinkMissing(true)
 									})
 								})
+							})
 						}
 
 						// Interactive Rating.
@@ -556,7 +575,7 @@ func (a *App) inspector(c *gui.Context) {
 							})
 						})
 
-						// Wrapping frameless tag pills + inline quick-add.
+						// Wrapping monochrome tag pills + quick-add.
 						gui.Column(c).Gap(8).Children(func() {
 							a.sectionLabel(c, a.t("library.tags"))
 							owned := map[string]bool{}
@@ -589,8 +608,8 @@ func (a *App) inspector(c *gui.Context) {
 							})
 						})
 
-						// Used in Projects / References.
-						gui.Column(c).Gap(8).Padding(12).Radius(radiusControl).Background(a.pal.surfaceRaised).Children(func() {
+						// Used in Projects.
+						gui.Column(c).Gap(8).Children(func() {
 							gui.Row(c).AlignItems(gui.Center).Children(func() {
 								a.sectionLabel(c, a.t("inspector.usedIn"))
 								gui.Spacer(c)
@@ -622,8 +641,8 @@ func (a *App) inspector(c *gui.Context) {
 							}
 						})
 
-						// Frameless metadata card.
-						gui.Column(c).Gap(6).Padding(12).Radius(radiusControl).Background(a.pal.surfaceRaised).Children(func() {
+						// Clean key-value metadata (no noisy nested card boxes).
+						gui.Column(c).Gap(5).Children(func() {
 							a.sectionLabel(c, a.t("inspector.details"))
 							if asset.Width > 0 && asset.Height > 0 {
 								a.metaRow(c, a.t("inspector.dimensions"), fmt.Sprintf("%d × %d px", asset.Width, asset.Height))
@@ -635,22 +654,18 @@ func (a *App) inspector(c *gui.Context) {
 							if asset.Mime != "" {
 								a.metaRow(c, a.t("library.mime"), asset.Mime)
 							}
-							a.metaRow(c, a.t("library.storage"), a.modeLabel(asset.StorageMode))
 							if len(asset.Hash) >= 12 {
 								a.metaRow(c, a.t("inspector.hash"), asset.Hash[:12]+"…")
 							}
 							if !asset.CreatedAt.IsZero() {
 								a.metaRow(c, a.t("inspector.added"), asset.CreatedAt.Local().Format("2006-01-02 15:04"))
 							}
-							gui.Box(c).Padding(8, 10).Radius(8).Background(a.pal.surface).Children(func() {
-								gui.Text(c, asset.Path).FontSize(11).TextColor(a.pal.inkSecondary).LineHeight(1.4)
-							})
+							gui.Text(c, asset.Path).FontSize(11).TextColor(a.pal.inkMuted).LineHeight(1.4)
 						})
 
-						gui.Button(c.Key("insp-delete"), a.t("library.delete")).
+						a.arcButton(c, "insp-delete", a.t("library.delete"), false).
 							FillWidth().
-							Radius(radiusControl).
-							TextColor(t.Danger).
+							TextColor(a.pal.danger).
 							OnClick(func() { a.deleteAssetPrompt(asset) })
 					})
 				})

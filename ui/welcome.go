@@ -33,75 +33,68 @@ func (a *App) captureTheme(c *gui.Context) {
 	a.pal = pal
 	a.paper = pal.paper
 	a.ink = pal.paperInk
-	a.accent = pal.ring
+	a.accent = pal.controlOn
 	a.muted = pal.inkMuted
 	a.line = pal.surfaceMuted
 }
 
 func (a *App) welcome(c *gui.Context) {
-	t := c.Theme()
 	gui.Column(c).Fill().Background(a.pal.canvas).Center().Padding(32).Children(func() {
-		gui.Column(c.Key("welcome-card")).
-			Width(472).
-			Padding(38, 38).
+		card := gui.Column(c.Key("welcome-card")).
+			Width(468).
+			Padding(40, 40).
 			Gap(22).
 			Radius(radiusSurface).
 			Background(a.pal.surface).
-			Shadow(0, 16, 40, 0, a.pal.shadowMd).
-			InsetShadow(0, 1, 1, 0, a.pal.rimLight).
-			AlignItems(gui.Center).
-			Transition(gui.ElementTransition{
-				Animation: &arcEnterAnim,
-				Enter:     &gui.Motion{Scale: 0.96, Y: 10, Opacity: 0},
-			}).
-			Children(func() {
-				if bm := a.brandLogo(); bm != nil {
-					gui.Box(c).
-						Size(68, 68).
-						Radius(radiusPanel).
-						Background(a.pal.surfaceRaised).
-						Shadow(0, 4, 14, 0, a.pal.shadowSm).
-						Center().
-						Children(func() {
-							gui.Image(c, bm).Size(44, 44).Fit(gui.Contain)
-						})
-				}
-				gui.Column(c).Gap(6).AlignItems(gui.Center).Children(func() {
-					gui.Text(c, "Ragle").FontSize(28).Bold().LetterSpacing(-0.5)
-					gui.Text(c, a.t("shell.localFirst")).FontSize(12).TextColor(a.pal.inkMuted)
-				})
-				gui.Text(c, a.t("welcome.lead")).
-					Width(388).
-					TextAlign(gui.Center).
-					TextColor(t.TextMuted).
-					LineHeight(1.55)
-
-				gui.Column(c).FillWidth().Gap(10).AlignItems(gui.Center).Children(func() {
-					gui.PrimaryButton(c.Key("welcome-choose"), a.t("welcome.choose")).
-						FillWidth().
-						Padding(11, 18).
-						Radius(radiusControl).
-						OnClick(func() { a.chooseLibrary() })
-					if a.canRestore {
-						gui.Button(c.Key("welcome-restore"), a.t("welcome.restore")).
-							FillWidth().
-							Radius(radiusControl).
-							OnClick(func() { a.restoreLibrary() })
-					}
-				})
-
-				if a.status != "" {
-					gui.Box(c).FillWidth().Padding(10, 14).Radius(radiusControl).Background(a.pal.surfaceMuted).Children(func() {
-						gui.Text(c, a.status).FontSize(12).TextColor(t.TextMuted).TextAlign(gui.Center)
+			Shadow(0, 12, 36, 0, a.pal.shadowRaised).
+			AlignItems(gui.Center)
+		applyBlurReveal(card, "welcome", 0)
+		card.Children(func() {
+			if bm := a.brandLogo(); bm != nil {
+				gui.Box(c).
+					Size(64, 64).
+					Radius(radiusPanel).
+					Background(a.pal.surfaceRaised).
+					Shadow(0, 2, 8, 0, a.pal.shadowResting).
+					Center().
+					Children(func() {
+						gui.Image(c, bm).Size(40, 40).Fit(gui.Contain)
 					})
-				}
-
-				gui.Row(c).FillWidth().AlignItems(gui.Center).Padding(4, 0, 0, 0).Children(func() {
-					a.langButtons(c)
-					gui.Spacer(c)
-					a.themeQuickToggle(c)
-				})
+			}
+			gui.Column(c).Gap(6).AlignItems(gui.Center).Children(func() {
+				gui.Text(c, "Ragle").FontSize(28).Bold().LetterSpacing(-0.5)
+				gui.Text(c, a.t("shell.localFirst")).FontSize(12).TextColor(a.pal.inkMuted)
 			})
+			gui.Text(c, a.t("welcome.lead")).
+				Width(380).
+				TextAlign(gui.Center).
+				TextColor(a.pal.inkSecondary).
+				LineHeight(1.6)
+
+			gui.Column(c).FillWidth().Gap(10).AlignItems(gui.Center).Children(func() {
+				a.arcButton(c, "welcome-choose", a.t("welcome.choose"), true).
+					FillWidth().
+					Padding(11, 18).
+					OnClick(func() { a.chooseLibrary() })
+				if a.canRestore {
+					a.arcButton(c, "welcome-restore", a.t("welcome.restore"), false).
+						FillWidth().
+						OnClick(func() { a.restoreLibrary() })
+				}
+			})
+
+			if a.status != "" {
+				gui.Box(c).FillWidth().Padding(10, 14).Radius(radiusControl).Background(a.pal.surfaceMuted).Children(func() {
+					gui.Text(c, a.status).FontSize(12).TextColor(a.pal.inkSecondary).TextAlign(gui.Center)
+				})
+			}
+
+			gui.Row(c).FillWidth().AlignItems(gui.Center).Padding(6, 0, 0, 0).Children(func() {
+				a.langButtons(c)
+				gui.Spacer(c)
+				a.themeQuickToggle(c)
+			})
+		})
 	})
 }
 

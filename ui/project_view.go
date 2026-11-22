@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"time"
 
 	gui "github.com/egoist/mygo/ui"
 
@@ -9,10 +10,11 @@ import (
 )
 
 func (a *App) projectView(c *gui.Context) {
-	t := c.Theme()
 	gui.Scroll(c).Grow(1).FillHeight().Background(a.pal.canvas).Children(func() {
-		gui.Column(c).Padding(16, 24, 28, 18).Gap(26).Children(func() {
-			// Frameless Arc UI project header card.
+		col := gui.Column(c.Key("proj-view-" + a.projectID)).Padding(14, 24, 28, 16).Gap(26)
+		applyBlurReveal(col, a.projectID, 0)
+		col.Children(func() {
+			// Frameless monochrome project header card.
 			gui.Column(c).
 				Padding(22, 24).
 				Gap(16).
@@ -20,24 +22,24 @@ func (a *App) projectView(c *gui.Context) {
 				Background(a.pal.surface).
 				Children(func() {
 					gui.Row(c).Gap(14).AlignItems(gui.Center).Children(func() {
-						gui.Box(c).Size(44, 44).Radius(radiusControl).Background(a.pal.surfaceRaised).Shadow(0, 2, 8, 0, a.pal.shadowSm).Center().Children(func() {
-							gui.Icon(c, iconFolder).Size(20, 20).TextColor(a.pal.ring)
+						gui.Box(c).Size(44, 44).Radius(radiusControl).Background(a.pal.surfaceRaised).Center().Children(func() {
+							gui.Icon(c, iconFolder).Size(20, 20).TextColor(a.pal.ink)
 						})
 						gui.Column(c).Grow(1).Gap(4).Children(func() {
 							gui.Text(c, a.project.Name).FontSize(22).Bold().LetterSpacing(-0.3)
 							if a.project.Description != "" {
-								gui.Text(c, a.project.Description).FontSize(13).TextColor(t.TextMuted)
+								gui.Text(c, a.project.Description).FontSize(13).TextColor(a.pal.inkSecondary)
 							}
 						})
 						gui.Row(c).Gap(8).AlignItems(gui.Center).Children(func() {
-							gui.PrimaryButton(c.Key("proj-from-lib"), a.t("project.fromLibrary")).Radius(radiusControl).OnClick(func() {
+							a.arcButton(c, "proj-from-lib", a.t("project.fromLibrary"), true).OnClick(func() {
 								a.referenceMode = true
 								a.screen = screenLibrary
 							})
-							gui.Button(c.Key("proj-edit-btn"), a.t("project.edit")).Radius(radiusControl).OnClick(func() {
+							a.arcButton(c, "proj-edit-btn", a.t("project.edit"), false).OnClick(func() {
 								a.openEditProjectModal()
 							})
-							gui.Button(c.Key("proj-share-btn"), a.t("share.send")).Radius(radiusControl).OnClick(func() {
+							a.arcButton(c, "proj-share-btn", a.t("share.send"), false).OnClick(func() {
 								a.shareOpen = true
 							})
 							a.iconButton(c, "proj-del-btn", iconTrash, a.t("project.delete"), false).OnClick(func() {
@@ -83,13 +85,13 @@ func (a *App) projectView(c *gui.Context) {
 			gui.Column(c).Gap(14).Children(func() {
 				gui.Row(c).Gap(10).AlignItems(gui.Center).Children(func() {
 					gui.Text(c, a.t("project.boards")).FontSize(16).Bold()
-					a.pillBadge(c, fmt.Sprintf("%d", len(a.boards)), t.TextMuted, a.pal.surface)
+					a.pillBadge(c, fmt.Sprintf("%d", len(a.boards)), a.pal.inkSecondary, a.pal.surface)
 					gui.Spacer(c)
 					gui.TextInput(c.Key("new-board"), &a.newBoardName).
 						Placeholder(a.t("project.newBoard")).
 						Width(200).
 						OnSubmit(func() { a.createBoard() })
-					gui.PrimaryButton(c.Key("create-board-btn"), "+ "+a.t("project.newBoard")).Radius(radiusControl).OnClick(func() {
+					a.arcButton(c, "create-board-btn", "+ "+a.t("project.newBoard"), true).OnClick(func() {
 						a.createBoard()
 					})
 				})
@@ -105,13 +107,12 @@ func (a *App) projectView(c *gui.Context) {
 						Children(func() {
 							gui.Icon(c, iconBoard).Size(24, 24).TextColor(a.pal.inkFaint)
 							gui.Text(c, a.t("project.emptyBoards")).FontSize(14).Bold()
-							gui.Text(c, a.t("project.emptyBoardsHint")).FontSize(12).TextColor(t.TextMuted)
+							gui.Text(c, a.t("project.emptyBoardsHint")).FontSize(12).TextColor(a.pal.inkSecondary)
 						})
 				} else {
 					gui.Row(c).Gap(14).Wrap().Children(func() {
-						for _, b := range a.boards {
-							board := b
-							a.boardCard(c, board)
+						for i, b := range a.boards {
+							a.boardCard(c, i, b)
 						}
 					})
 				}
@@ -121,7 +122,7 @@ func (a *App) projectView(c *gui.Context) {
 			gui.Column(c).Gap(14).Children(func() {
 				gui.Row(c).Gap(10).AlignItems(gui.Center).Children(func() {
 					gui.Text(c, a.t("project.assets")).FontSize(16).Bold()
-					a.pillBadge(c, fmt.Sprintf("%d", len(a.projectAssets)), t.TextMuted, a.pal.surface)
+					a.pillBadge(c, fmt.Sprintf("%d", len(a.projectAssets)), a.pal.inkSecondary, a.pal.surface)
 				})
 
 				if len(a.projectAssets) == 0 {
@@ -135,13 +136,12 @@ func (a *App) projectView(c *gui.Context) {
 						Children(func() {
 							gui.Icon(c, iconImage).Size(24, 24).TextColor(a.pal.inkFaint)
 							gui.Text(c, a.t("project.emptyAssets")).FontSize(14).Bold()
-							gui.Text(c, a.t("project.emptyAssetsHint")).FontSize(12).TextColor(t.TextMuted)
+							gui.Text(c, a.t("project.emptyAssetsHint")).FontSize(12).TextColor(a.pal.inkSecondary)
 						})
 				} else {
 					gui.Row(c).Gap(16).Wrap().Children(func() {
-						for _, asset := range a.projectAssets {
-							item := asset
-							a.projectAssetCard(c, item)
+						for i, asset := range a.projectAssets {
+							a.projectAssetCard(c, i, asset)
 						}
 					})
 				}
@@ -150,8 +150,7 @@ func (a *App) projectView(c *gui.Context) {
 	})
 }
 
-func (a *App) boardCard(c *gui.Context, board model.Board) {
-	t := c.Theme()
+func (a *App) boardCard(c *gui.Context, index int, board model.Board) {
 	count := a.boardCounts[board.ID]
 
 	card := gui.Column(c.Key("board-card-" + board.ID)).
@@ -172,20 +171,21 @@ func (a *App) boardCard(c *gui.Context, board model.Board) {
 
 	targetBg := a.pal.surface
 	liftY := float32(0)
-	shadow := a.pal.shadowSm
+	shadow := a.pal.shadowResting
 	if card.Hovered() {
 		targetBg = a.pal.surfaceMuted
 		liftY = -2
-		shadow = a.pal.shadowMd
+		shadow = a.pal.shadowRaised
 	}
-	card.Background(card.AnimateColor("bg", targetBg, arcColorAnim)).
+	card.Background(card.AnimateColor("bg", targetBg, animFast)).
 		Shadow(0, 4, 14, 0, shadow).
-		AnimatePose(gui.Pose{Y: liftY}, arcSpring)
+		AnimatePose(gui.Pose{Y: liftY}, springGentle)
+	applyStaggerReveal(card, board.ID, time.Duration(min(index, 6))*arcStaggerItem)
 
 	card.Children(func() {
 		gui.Row(c).Gap(10).AlignItems(gui.Center).Children(func() {
-			gui.Box(c).Size(36, 36).Radius(radiusControl).Background(a.pal.surfaceRaised).Shadow(0, 2, 6, 0, a.pal.shadowSm).Center().Children(func() {
-				gui.Icon(c, iconBoard).Size(17, 17).TextColor(t.Text)
+			gui.Box(c).Size(36, 36).Radius(radiusControl).Background(a.pal.surfaceRaised).Center().Children(func() {
+				gui.Icon(c, iconBoard).Size(17, 17).TextColor(a.pal.ink)
 			})
 			gui.Column(c).Grow(1).Gap(2).Children(func() {
 				gui.Text(c, board.Name).FontSize(13).Bold().SingleLine()
@@ -193,7 +193,7 @@ func (a *App) boardCard(c *gui.Context, board model.Board) {
 			})
 		})
 		gui.Row(c).Gap(6).AlignItems(gui.Center).Children(func() {
-			gui.Button(c.Key("open-b-"+board.ID), a.t("project.openBoard")).Grow(1).Radius(radiusControl).OnClick(func() {
+			a.arcButton(c, "open-b-"+board.ID, a.t("project.openBoard"), false).Grow(1).OnClick(func() {
 				a.openBoard(board)
 			})
 			a.iconButton(c, "del-b-"+board.ID, iconTrash, a.t("project.deleteBoard"), false).OnClick(func() {
@@ -217,14 +217,14 @@ func (a *App) deleteBoardPrompt(board model.Board) {
 	})
 }
 
-func (a *App) projectAssetCard(c *gui.Context, item model.Asset) {
-	t := c.Theme()
+func (a *App) projectAssetCard(c *gui.Context, index int, item model.Asset) {
 	services := c.Services()
 	name := a.assetName(item)
 
 	card := gui.Column(c.Key("pref-" + item.ID)).
-		Width(172).
-		Gap(8)
+		Width(176).
+		Radius(radiusPanel).
+		Clip()
 
 	card.PopoverMenu(func(m *gui.Menu) {
 		if m.Item(a.t("library.preview")).Chosen() {
@@ -248,38 +248,39 @@ func (a *App) projectAssetCard(c *gui.Context, item model.Asset) {
 		}
 	})
 
+	hovered := card.Hovered()
+	targetBg := a.pal.surface
+	liftY := float32(0)
+	imgScale := float32(1)
+	shadow := a.pal.shadowResting
+	if hovered {
+		targetBg = a.pal.surfaceMuted
+		liftY = -3
+		imgScale = 1.04
+		shadow = a.pal.shadowRaised
+	}
+	card.Background(card.AnimateColor("bg", targetBg, animFast)).
+		Shadow(0, 4, 14, 0, shadow).
+		AnimatePose(gui.Pose{Y: liftY}, springGentle)
+	applyStaggerReveal(card, item.ID, time.Duration(min(index, 8))*arcStaggerItem)
+
 	card.Children(func() {
 		thumb := gui.ButtonBase(c.Key("pref-open-" + item.ID)).
-			Size(172, 136).
-			Radius(radiusPanel).
+			Size(176, 132).
 			Clip().
+			Background(a.pal.surfaceMuted).
 			Center().
 			OnClick(func() { a.openPreview(item) })
-		targetBg := a.pal.surface
-		liftY := float32(0)
-		scale := float32(1)
-		shadow := a.pal.shadowSm
-		if thumb.Pressed() {
-			scale = 0.985
-			targetBg = a.pal.surfaceMuted
-		} else if thumb.Hovered() {
-			liftY = -2
-			targetBg = a.pal.surfaceMuted
-			shadow = a.pal.shadowMd
-		}
-		thumb.Background(thumb.AnimateColor("bg", targetBg, arcColorAnim)).
-			Shadow(0, 4, 14, 0, shadow).
-			AnimatePose(gui.Pose{Y: liftY, Scale: scale}, arcSpring)
 		thumb.Children(func() {
 			if bm := a.bitmaps[item.ID]; bm != nil {
-				gui.Image(c, bm).Fit(gui.Contain).Grow(1).Padding(6).Radius(radiusControl)
+				gui.Image(c, bm).Fit(gui.Cover).Fill().AnimatePose(gui.Pose{Scale: imgScale}, springGentle)
 			} else {
 				gui.Text(c, a.assetExt(item)).FontSize(11).Bold().TextColor(a.pal.inkMuted)
 			}
 		})
 
-		gui.Row(c).Gap(4).AlignItems(gui.Center).Padding(0, 4).Children(func() {
-			gui.Text(c, name).Grow(1).FontSize(12).Bold().TextColor(t.Text).SingleLine()
+		gui.Row(c).Gap(4).AlignItems(gui.Center).Padding(7, 10).Children(func() {
+			gui.Text(c, name).Grow(1).FontSize(12).Bold().TextColor(a.pal.ink).SingleLine()
 			a.iconButton(c, "unref-"+item.ID, iconX, a.t("project.unreference"), false).OnClick(func() {
 				a.unreferencePrompt(item)
 			})

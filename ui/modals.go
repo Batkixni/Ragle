@@ -13,18 +13,14 @@ func (a *App) styledDialog(c *gui.Context, key string, open *bool, w, h float32,
 			Radius(radiusSurface).
 			Clip().
 			Background(a.pal.surfaceRaised).
-			Shadow(0, 24, 56, 0, a.pal.shadowLg).
-			InsetShadow(0, 1, 1, 0, a.pal.rimLight).
-			Transition(gui.ElementTransition{
-				Animation: &arcEnterAnim,
-				Enter:     &gui.Motion{Scale: 0.96, Y: 10, Opacity: 0},
-			})
+			Shadow(0, 22, 54, 0, a.pal.shadowFloating)
 		if w > 0 {
 			panel.Width(w)
 		}
 		if h > 0 {
 			panel.Height(h)
 		}
+		applyBlurReveal(panel, key, 0)
 		fn(panel)
 	})
 }
@@ -124,7 +120,7 @@ func (a *App) previewModal(c *gui.Context) {
 					}
 					gui.Row(c).Gap(6).Grow(1).AlignItems(gui.Center).Children(func() {
 						for _, tg := range a.assetTags[asset.ID] {
-							a.pillBadge(c, "#"+tg.Name, a.pal.ring, a.pal.ring.Alpha(0.14))
+							a.pillBadge(c, "#"+tg.Name, a.pal.inkSecondary, a.pal.surface)
 						}
 					})
 					gui.Text(c, asset.Path).FontSize(11).TextColor(a.pal.inkFaint).MaxWidth(320).SingleLine()

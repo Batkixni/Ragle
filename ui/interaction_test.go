@@ -80,6 +80,7 @@ func TestRealUserClicksEveryControl(t *testing.T) {
 	a.reload()
 
 	tt := gui.NewTester(a.View, 1360, 860)
+	tt.Advance(500 * time.Millisecond)
 
 	// 1. REAL CLICK on an asset card MUST select it & populate Right Inspector!
 	if a.assetIndex != -1 {
@@ -88,6 +89,7 @@ func TestRealUserClicksEveryControl(t *testing.T) {
 	if err := tt.Click("alpha_poster.png"); err != nil {
 		t.Fatalf("failed to click asset card: %v", err)
 	}
+	tt.Advance(300 * time.Millisecond)
 	if a.assetIndex < 0 {
 		t.Fatalf("clicking asset card did NOT select it! assetIndex=%d", a.assetIndex)
 	}
@@ -157,7 +159,14 @@ func TestRealUserClicksEveryControl(t *testing.T) {
 	}
 	tt.Key(0, gui.KeyEscape)
 
-	// 7. 1-click Filter Bar pills (Kind, Rating, Storage Mode)!
+	// 7. Toggle Filter Bar open, let collapse animation settle, then test 1-click Filter Bar pills!
+	if err := tt.Click("篩選"); err != nil {
+		t.Fatalf("clicking Filter toggle failed: %v", err)
+	}
+	if !a.filterBarOpen {
+		t.Fatal("filterBarOpen did not toggle true")
+	}
+	tt.Advance(450 * time.Millisecond)
 	if err := tt.Click("影片"); err != nil {
 		t.Fatalf("clicking Video filter pill failed: %v", err)
 	}

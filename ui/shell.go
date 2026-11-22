@@ -10,7 +10,7 @@ import (
 
 func (a *App) shell(c *gui.Context) {
 	if a.sidebarWidth <= 0 {
-		a.sidebarWidth = 244
+		a.sidebarWidth = 236
 	}
 	if a.cardSize < 128 || a.cardSize > 300 {
 		a.cardSize = 184
@@ -76,21 +76,87 @@ func (a *App) currentViewTitle() string {
 	return a.t("shell.allAssets")
 }
 
+// arcNavItem is a frameless monochrome sidebar item whose active highlight
+// smoothly morphs between items using springMorph (420ms, zero bounce).
+func (a *App) arcNavItem(c *gui.Context, id string, icon *gui.SVG, label string, count int, menu func(m *gui.Menu)) {
+	active := a.selectedNav == id
+	btn := gui.ButtonBase(c.Key("nav-" + id)).
+		FillWidth().
+		Radius(radiusControl).
+		OnClick(func() {
+			a.handleNav(id)
+		})
+	if menu != nil {
+		btn.PopoverMenu(menu)
+	}
+	scale := float32(1)
+	if btn.Pressed() {
+		scale = 0.98
+	}
+	btn.AnimatePose(gui.Pose{Scale: scale}, springResponsive)
+
+	targetFg := a.pal.inkSecondary
+	if active || btn.Hovered() {
+		targetFg = a.pal.ink
+	}
+	fg := btn.AnimateColor("fg", targetFg, animFast)
+
+	content := func() {
+		if icon != nil {
+			gui.Icon(c, icon).Size(15, 15).TextColor(fg)
+		}
+		gui.Text(c, label).FontSize(13).Bold().TextColor(fg).Grow(1).SingleLine()
+		if count > 0 {
+			gui.Text(c, strconv.Itoa(count)).FontSize(11).TextColor(a.pal.inkMuted).SingleLine()
+		}
+	}
+
+	btn.Children(func() {
+		if active {
+			gui.Row(c.Key("nav-pill-" + id)).
+				FillWidth().
+				Padding(8, 12).
+				Gap(10).
+				Radius(radiusControl).
+				AlignItems(gui.Center).
+				Background(a.pal.surfaceRaised).
+				Shadow(0, 1, 3, 0, a.pal.shadowResting).
+				Transition(gui.ElementTransition{
+					Animation: &springMorph,
+					Match:     pillMatchKey{group: "sidebar-nav"},
+				}).
+				Children(content)
+		} else {
+			hoverBg := gui.Transparent
+			if btn.Hovered() {
+				hoverBg = a.pal.surfaceMuted
+			}
+			bg := btn.AnimateColor("hbg", hoverBg, animFast)
+			gui.Row(c).
+				FillWidth().
+				Padding(8, 12).
+				Gap(10).
+				Radius(radiusControl).
+				AlignItems(gui.Center).
+				Background(bg).
+				Children(content)
+		}
+	})
+}
+
 func (a *App) sidebar(c *gui.Context) {
-	t := c.Theme()
-	// Frameless Arc UI surface panel nested with airy outer breathing room.
-	gui.Box(c).Fill().Padding(10, 6, 10, 10).Background(a.pal.canvas).Children(func() {
+	gui.Box(c).Fill().Padding(10, 4, 10, 10).Background(a.pal.canvas).Children(func() {
 		gui.Column(c).
 			Fill().
 			Radius(radiusPanel).
 			Clip().
 			Background(a.pal.surface).
 			Children(func() {
-				// Top brand & library switcher header (52px, aligned with floating workspaceBar).
+				// Top brand & library switcher header (52px).
 				gui.Row(c).
 					Height(52).
 					Padding(0, 14).
-					Gap(9).
+					Gap(10).
 					AlignItems(gui.Center).
 					Children(func() {
 						if bm := a.brandLogo(); bm != nil {
@@ -98,10 +164,9 @@ func (a *App) sidebar(c *gui.Context) {
 								Size(26, 26).
 								Radius(8).
 								Background(a.pal.surfaceRaised).
-								Shadow(0, 2, 6, 0, a.pal.shadowSm).
 								Center().
 								Children(func() {
-									gui.Image(c, bm).Size(18, 18).Fit(gui.Contain)
+									gui.Image(c, bm).Size(17, 17).Fit(gui.Contain)
 								})
 						}
 						gui.Text(c, a.libraryTitle()).Bold().FontSize(13).Grow(1).SingleLine()
@@ -115,8 +180,8 @@ func (a *App) sidebar(c *gui.Context) {
 						if gear.Hovered() || gear.Pressed() {
 							gearBg = a.pal.surfaceMuted
 						}
-						gear.Background(gear.AnimateColor("bg", gearBg, arcColorAnim)).
-							TextColor(t.TextMuted).
+						gear.Background(gear.AnimateColor("bg", gearBg, animFast)).
+							TextColor(a.pal.inkSecondary).
 							PopoverMenuButton(func(m *gui.Menu) {
 								if m.Item(a.t("shell.switchLib")).Chosen() {
 									a.chooseLibrary()
@@ -150,61 +215,49 @@ func (a *App) sidebar(c *gui.Context) {
 							})
 					})
 
-				// Main navigation tree with icons and live count badges.
-				sb := gui.Sidebar(c.Key("nav-sidebar"), &a.selectedNav, func() {
-					gui.SidebarItem(c, "tag-all", iconLibrary, a.t("shell.allAssets")).Children(func() {
-						if a.allAssetsCount > 0 {
-							gui.Badge(c, strconv.Itoa(a.allAssetsCount))
+				// Arc UI frameless scrollable navigation with shared-layout morphing highlight.
+				gui.Scroll(c.Key("nav-scroll")).Grow(1).FillWidth().Children(func() {
+					gui.Column(c).Padding(4, 10, 12, 10).Gap(2).Children(func() {
+						a.arcNavItem(c, "tag-all", iconLibrary, a.t("shell.allAssets"), a.allAssetsCount, nil)
+						a.arcNavItem(c, "filter-untagged", iconInbox, a.t("shell.untagged"), a.untaggedCount, nil)
+						if a.missingCount > 0 {
+							a.arcNavItem(c, "filter-missing", iconAlert, a.t("shell.missing"), a.missingCount, nil)
 						}
-					})
-					gui.SidebarItem(c, "filter-untagged", iconInbox, a.t("shell.untagged")).Children(func() {
-						if a.untaggedCount > 0 {
-							gui.Badge(c, strconv.Itoa(a.untaggedCount))
-						}
-					})
-					if a.missingCount > 0 {
-						gui.SidebarItem(c, "filter-missing", iconAlert, a.t("shell.missing")).Children(func() {
-							gui.Badge(c, strconv.Itoa(a.missingCount))
-						})
-					}
 
-					gui.SidebarSection(c, a.t("shell.tags"), nil, func() {
-						for _, tag := range a.tags {
-							tg := tag
-							item := gui.SidebarItem(c, "tag:"+tg.ID, iconTag, tg.Name)
-							item.PopoverMenu(func(m *gui.Menu) {
-								if m.Item(a.t("tag.delete")).Chosen() {
-									a.deleteTagPrompt(tg.ID)
-								}
+						if len(a.tags) > 0 {
+							gui.Box(c).Padding(14, 10, 4, 10).Children(func() {
+								a.sectionLabel(c, a.t("shell.tags"))
 							})
-							item.Children(func() {
-								if cnt := a.tagCounts[tg.ID]; cnt > 0 {
-									gui.Badge(c, strconv.Itoa(cnt))
-								}
+							for _, tag := range a.tags {
+								tg := tag
+								a.arcNavItem(c, "tag:"+tg.ID, iconTag, tg.Name, a.tagCounts[tg.ID], func(m *gui.Menu) {
+									if m.Item(a.t("tag.delete")).Chosen() {
+										a.deleteTagPrompt(tg.ID)
+									}
+								})
+							}
+						}
+
+						if len(a.projectList) > 0 {
+							gui.Box(c).Padding(14, 10, 4, 10).Children(func() {
+								a.sectionLabel(c, a.t("shell.projects"))
 							})
+							for _, p := range a.projectList {
+								proj := p
+								a.arcNavItem(c, "project:"+proj.ID, iconFolder, proj.Name, 0, nil)
+							}
 						}
 					})
+				})
 
-					gui.SidebarSection(c, a.t("shell.projects"), nil, func() {
-						for _, p := range a.projectList {
-							proj := p
-							gui.SidebarItem(c, "project:"+proj.ID, iconFolder, proj.Name)
-						}
-					})
-				}).Grow(1)
-
-				if sb.Changed() || a.selectedNav != a.lastNav {
-					a.handleNav(a.selectedNav)
-				}
-
-				// Smooth animated inline tag creator.
+				// Smooth critically-damped inline tag creator.
 				if a.newTagOpen {
 					gui.Row(c.Key("inline-new-tag-row")).
 						Padding(8, 10).
 						Gap(6).
 						AlignItems(gui.Center).
 						Transition(gui.ElementTransition{
-							Animation: &arcEnterAnim,
+							Animation: &springSmooth,
 							Enter:     &gui.Motion{Y: -6, Opacity: 0, Collapse: true},
 							Exit:      &gui.Motion{Y: -6, Opacity: 0, Collapse: true},
 						}).
@@ -224,31 +277,28 @@ func (a *App) sidebar(c *gui.Context) {
 						})
 				}
 
-				// Compact frameless footer actions.
-				gui.Column(c).
-					Padding(10, 12).
-					Gap(8).
-					Children(func() {
-						gui.Row(c).Gap(6).Children(func() {
-							a.toolButton(c, "sb-add-tag", iconPlus, a.t("tag.new"), a.newTagOpen).
-								Grow(1).
-								OnClick(func() { a.newTagOpen = !a.newTagOpen })
-							a.toolButton(c, "sb-add-proj", iconFolder, a.t("project.new"), false).
-								Grow(1).
-								OnClick(func() { a.openNewProjectModal() })
-						})
-						if a.tagID != "" {
-							a.toolButton(c, "sb-del-tag", iconTrash, a.t("tag.delete"), false).
-								FillWidth().
-								OnClick(func() { a.deleteTagPrompt(a.tagID) })
-						}
-						gui.Row(c).AlignItems(gui.Center).Padding(2, 4).Children(func() {
-							gui.Text(c, a.t("shell.localFirst")).FontSize(10).TextColor(a.pal.inkFaint).Grow(1).SingleLine()
-							a.iconButton(c, "sb-recv-pair", iconLink, a.t("share.receiveByCode"), false).OnClick(func() {
-								a.pairRecvOpen = true
-							})
+				// Quiet bottom actions.
+				gui.Column(c).Padding(10, 12).Gap(8).Children(func() {
+					gui.Row(c).Gap(6).Children(func() {
+						a.toolButton(c, "sb-add-tag", iconPlus, a.t("tag.new"), a.newTagOpen).
+							Grow(1).
+							OnClick(func() { a.newTagOpen = !a.newTagOpen })
+						a.toolButton(c, "sb-add-proj", iconFolder, a.t("project.new"), false).
+							Grow(1).
+							OnClick(func() { a.openNewProjectModal() })
+					})
+					if a.tagID != "" {
+						a.toolButton(c, "sb-del-tag", iconTrash, a.t("tag.delete"), false).
+							FillWidth().
+							OnClick(func() { a.deleteTagPrompt(a.tagID) })
+					}
+					gui.Row(c).AlignItems(gui.Center).Padding(2, 4).Children(func() {
+						gui.Text(c, a.t("shell.localFirst")).FontSize(10).TextColor(a.pal.inkFaint).Grow(1).SingleLine()
+						a.iconButton(c, "sb-recv-pair", iconLink, a.t("share.receiveByCode"), false).OnClick(func() {
+							a.pairRecvOpen = true
 						})
 					})
+				})
 			})
 	})
 }
@@ -268,20 +318,16 @@ func (a *App) deleteTagPrompt(id string) {
 	})
 }
 
-// workspaceBar is an Arc UI floating frameless navbar capsule with specular rim
-// light and soft ambient shadow.
+// workspaceBar is a clean monochrome Arc floating navbar (zero glare, soft grounded shadow).
 func (a *App) workspaceBar(c *gui.Context) {
-	t := c.Theme()
-	gui.Box(c).Padding(10, 12, 4, 6).Children(func() {
+	gui.Box(c).Padding(10, 12, 4, 8).Children(func() {
 		gui.Row(c.Key("floating-navbar")).
 			Height(52).
 			Padding(0, 16).
 			Gap(10).
 			Radius(radiusPanel).
 			AlignItems(gui.Center).
-			Background(a.pal.surfaceRaised).
-			Shadow(0, 6, 22, 0, a.pal.shadowSm).
-			InsetShadow(0, 1, 1, 0, a.pal.rimLight).
+			Background(a.pal.surface).
 			Children(func() {
 				if a.screen == screenProject {
 					gui.Row(c).Gap(8).AlignItems(gui.Center).Children(func() {
@@ -289,11 +335,11 @@ func (a *App) workspaceBar(c *gui.Context) {
 							a.handleNav("tag-all")
 						})
 						gui.Text(c, a.project.Name).Bold().FontSize(15).SingleLine()
-						a.pillBadge(c, fmt.Sprintf(a.t("common.itemsCount"), len(a.projectAssets)), t.TextMuted, a.pal.surface)
+						a.pillBadge(c, fmt.Sprintf(a.t("common.itemsCount"), len(a.projectAssets)), a.pal.inkSecondary, a.pal.surfaceMuted)
 					})
 					gui.Spacer(c)
 					if a.status != "" {
-						gui.Text(c, a.status).MaxWidth(280).FontSize(12).TextColor(t.TextMuted).SingleLine()
+						gui.Text(c, a.status).MaxWidth(280).FontSize(12).TextColor(a.pal.inkSecondary).SingleLine()
 					}
 					a.toolButton(c, "top-share-proj", iconShare, a.t("share.send"), false).OnClick(func() {
 						a.shareOpen = true
@@ -304,10 +350,9 @@ func (a *App) workspaceBar(c *gui.Context) {
 					return
 				}
 
-				// Library view: Refto search-first header + Arc floating controls.
 				gui.Row(c).Gap(8).AlignItems(gui.Center).Children(func() {
 					gui.Text(c, a.currentViewTitle()).Bold().FontSize(14).SingleLine().MaxWidth(150)
-					a.pillBadge(c, fmt.Sprintf(a.t("common.itemsCount"), len(a.assets)), t.TextMuted, a.pal.surface)
+					a.pillBadge(c, fmt.Sprintf(a.t("common.itemsCount"), len(a.assets)), a.pal.inkSecondary, a.pal.surfaceMuted)
 				})
 
 				gui.Spacer(c)
@@ -325,7 +370,7 @@ func (a *App) workspaceBar(c *gui.Context) {
 
 				filterLabel := a.t("library.filter")
 				if a.kindFilter != 0 || a.minRating != 0 {
-					filterLabel = filterLabel + " ●"
+					filterLabel = filterLabel + " ·"
 				}
 				a.toolButton(c, "top-filter", iconFilter, filterLabel, a.filterBarOpen || a.kindFilter != 0 || a.minRating != 0).OnClick(func() {
 					a.filterBarOpen = !a.filterBarOpen
@@ -361,7 +406,7 @@ func (a *App) workspaceBar(c *gui.Context) {
 
 				gui.Row(c).Gap(6).AlignItems(gui.Center).Children(func() {
 					gui.Icon(c, iconZoomIn).Size(13, 13).TextColor(a.pal.inkMuted)
-					gui.Slider(c.Key("card-zoom"), &a.cardSize, 128, 300).Width(76).OnChange(func() {
+					gui.Slider(c.Key("card-zoom"), &a.cardSize, 128, 300).Width(74).OnChange(func() {
 						a.cfg.CardSize = a.cardSize
 						a.saveConfig()
 					})

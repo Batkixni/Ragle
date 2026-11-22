@@ -232,16 +232,6 @@ func TestRenderScreenshots(t *testing.T) {
 		t.Skip("set RAGLE_SNAPSHOT_DIR to render screenshots")
 	}
 	_ = os.MkdirAll(outDir, 0o755)
-	save := func(name string, img *image.RGBA) {
-		f, err := os.Create(filepath.Join(outDir, name))
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer f.Close()
-		if err := png.Encode(f, img); err != nil {
-			t.Fatal(err)
-		}
-	}
 
 	dir := t.TempDir()
 	lib, err := library.Open(dir)
@@ -265,9 +255,22 @@ func TestRenderScreenshots(t *testing.T) {
 	a.cfg.LibraryPath = filepath.Join(dir, "DesignVault")
 	a.themeMode = "dark"
 
+	save := func(name string, w, h int) {
+		tt := gui.NewTester(a.View, w, h)
+		tt.Advance(600 * time.Millisecond)
+		f, err := os.Create(filepath.Join(outDir, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer f.Close()
+		if err := png.Encode(f, tt.Image()); err != nil {
+			t.Fatal(err)
+		}
+	}
+
 	// 1. Welcome screen (dark).
 	a.screen = screenWelcome
-	save("welcome_dark.png", gui.Render(a.View, 1280, 800, 1))
+	save("welcome_dark.png", 1280, 800)
 
 	// Populate rich mock assets for visual verification.
 	colors := [][2]color.RGBA{
@@ -308,9 +311,9 @@ func TestRenderScreenshots(t *testing.T) {
 	a.syncInspectorSelection(true)
 
 	// 2. Library dark & light.
-	save("library_dark.png", gui.Render(a.View, 1360, 860, 1))
+	save("library_dark.png", 1360, 860)
 	a.themeMode = "light"
-	save("library_light.png", gui.Render(a.View, 1360, 860, 1))
+	save("library_light.png", 1360, 860)
 
 	// 3. Project view dark.
 	a.themeMode = "dark"
@@ -321,7 +324,7 @@ func TestRenderScreenshots(t *testing.T) {
 	a.boards = []model.Board{b1, {ID: "b2", ProjectID: proj.ID, Name: "Color Explorations"}}
 	a.boardCounts = map[string]int{b1.ID: 4, "b2": 2}
 	a.projectAssets = a.allAssets[:4]
-	save("project_dark.png", gui.Render(a.View, 1360, 860, 1))
+	save("project_dark.png", 1360, 860)
 
 	// 4. Moodboard view dark.
 	a.screen = screenBoard
@@ -333,5 +336,5 @@ func TestRenderScreenshots(t *testing.T) {
 		{ID: "p3", Kind: model.KindText, X: 260, Y: 380, Width: 280, Height: 48, Scale: 1, Text: "Hero Direction — High Contrast", FontSize: 20, ZIndex: 3},
 	})
 	a.session.Selected = map[string]bool{"p1": true}
-	save("board_dark.png", gui.Render(a.View, 1360, 860, 1))
+	save("board_dark.png", 1360, 860)
 }
