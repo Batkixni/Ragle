@@ -1,11 +1,5 @@
 <p align="center">
-  <img src="Logo.png" alt="Ragle Logo" width="112" height="112" />
-</p>
-
-<h1 align="center">Ragle</h1>
-
-<p align="center">
-  <strong>Open-source, local-first digital asset manager, batch file workflow tool, and infinite moodboard for creators.</strong>
+  <img src="docs/screenshots/cover.png" alt="Ragle — Organize references. Build moodboards. Stay local." width="100%" />
 </p>
 
 <p align="center">
@@ -19,10 +13,6 @@
   <img src="https://shieldcn.dev/badge/Go-1.24+-00ADD8.svg" alt="Go 1.24+" />
   <img src="https://shieldcn.dev/badge/UI-MyGo_Native-FF5C33.svg" alt="MyGo Native UI" />
   <img src="https://shieldcn.dev/badge/Platform-macOS_%7C_Windows_%7C_Linux-3F3F46.svg" alt="Platforms" />
-</p>
-
-<p align="center">
-  <img src="docs/screenshots/cover.png" alt="Ragle — Local-first digital asset manager and infinite moodboard" width="100%" />
 </p>
 
 ## Workspace Previews
