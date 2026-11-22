@@ -32,6 +32,7 @@ func (a *App) openSettings(tab int) {
 	if a.lib != nil {
 		a.aiIndexedCount = a.lib.VectorCount()
 	}
+	a.refreshLayaStatus()
 	a.refreshDBStats()
 }
 
@@ -490,7 +491,7 @@ func (a *App) settingsGeneralTab(c *gui.Context) {
 
 		a.themeColorRow(c, "pref-col-canvas", a.t("settings.colorCanvas"), &a.customCanvas, a.pal.canvas, []string{"#111111", "#18191C", "#090A0D", "#FFFFFF", "#F6F3EE"})
 		a.themeColorRow(c, "pref-col-surface", a.t("settings.colorSurface"), &a.customSurface, a.pal.surface, []string{"#18181B", "#222428", "#12141A", "#F4F4F5", "#EDE8DF"})
-		a.themeColorRow(c, "pref-col-accent", a.t("settings.colorAccent"), &a.customAccent, a.pal.controlOn, []string{"#FF5C33", "#E04722", "#EDEDED", "#18181B", "#E11D48", "#10B981"})
+		a.themeColorRow(c, "pref-col-accent", a.t("settings.colorAccent"), &a.customAccent, a.pal.controlOn, []string{"#EDEDED", "#18181B", "#FF5C33", "#E11D48", "#10B981"})
 		a.themeColorRow(c, "pref-col-text", a.t("settings.colorText"), &a.customText, a.pal.ink, []string{"#FAFAFA", "#E4E4E7", "#18181B", "#1F1B17"})
 	})
 
@@ -576,30 +577,97 @@ func (a *App) settingsAITab(c *gui.Context) {
 		})
 	})
 
-	// Built-in Laya Decision Engine + optional Ollaya acceleration.
+	// Built-in Laya Decision Engine with one-click in-app deployment & runtime management.
 	a.settingsGroup(c, a.t("laya.section"), func() {
 		a.settingsSwitchRow(c, "pref-ai-laya-en", a.t("ai.layaEnable"), &a.layaEnabled, func() {
 			a.syncConfigFromState()
 		})
 		gui.Text(c, a.t("ai.layaBuiltInDesc")).FontSize(12).TextColor(a.pal.inkSecondary).LineHeight(1.45)
+
 		if a.layaEnabled {
+			// Live runtime status badge.
+			stateLbl := a.t("ai.layaStateNotInstalled")
+			dotCol := a.pal.inkFaint
+			if a.layaStatus.Running {
+				stateLbl = a.t("ai.layaStateRunning")
+				dotCol = gui.Hex("#10B981")
+			} else if a.layaStatus.BinaryInstalled {
+				stateLbl = a.t("ai.layaStateInstalled")
+				dotCol = a.pal.inkSecondary
+			}
+			gui.Row(c).FillWidth().Gap(8).AlignItems(gui.Center).Children(func() {
+				gui.Box(c).Size(8, 8).Radius(radiusPill).Background(dotCol)
+				gui.Text(c, stateLbl).FontSize(12).Bold().TextColor(a.pal.ink).Grow(1)
+				a.iconButton(c, "pref-laya-refresh", iconRefresh, a.t("settings.recalc"), false).OnClick(func() {
+					a.refreshLayaStatus()
+				})
+			})
+			if len(a.layaStatus.InstalledModels) > 0 {
+				gui.Text(c, fmt.Sprintf(a.t("ai.layaModelsInstalled"), strings.Join(a.layaStatus.InstalledModels, ", "))).
+					FontSize(11).
+					TextColor(a.pal.inkMuted)
+			}
+
+			// Model selector pills (one-click pick).
+			models := []string{"laya:multilingual", "laya", "winnow:e4b"}
+			selMod := 0
+			for i, m := range models {
+				if strings.EqualFold(a.layaModel, m) {
+					selMod = i
+					break
+				}
+			}
+			gui.Column(c).FillWidth().Gap(6).Children(func() {
+				gui.Text(c, a.t("ai.layaModelPreset")).FontSize(12).TextColor(a.pal.inkSecondary)
+				a.arcPillTabs(c, "pref-laya-preset", selMod, []string{"Laya 多語系 (CPU)", "Laya EN", "Winnow 4B"}, func(idx int) {
+					a.layaModel = models[idx]
+					a.syncConfigFromState()
+				})
+			})
+
+			// Live deployment progress indicator.
+			if a.layaDeployBusy || a.layaDeployText != "" {
+				gui.Column(c).FillWidth().Padding(10, 12).Gap(6).Radius(radiusControl).Background(a.pal.surfaceRaised).Children(func() {
+					gui.Text(c, a.layaDeployText).FontSize(12).TextColor(a.pal.ink)
+					if a.layaDeployBusy {
+						pct := a.layaDeployPct
+						if pct < 0.04 {
+							pct = 0.04
+						} else if pct > 1 {
+							pct = 1
+						}
+						gui.Box(c).FillWidth().Height(4).Radius(radiusPill).Background(a.pal.surfaceMuted).Children(func() {
+							gui.Box(c).FillHeight().WidthPercent(float32(pct * 100)).Radius(radiusPill).Background(a.pal.controlOn)
+						})
+					}
+				})
+			}
+
+			// One-click Deploy / Start / Stop buttons directly inside the app!
+			gui.Row(c).FillWidth().Gap(8).Wrap().AlignItems(gui.Center).Children(func() {
+				a.arcButton(c, "pref-laya-deploy", a.t("ai.layaDeploy"), true).
+					Disabled(a.layaDeployBusy).
+					OnClick(func() { a.deployLayaInApp() })
+				if a.layaStatus.Running {
+					a.arcButton(c, "pref-laya-stop", a.t("ai.layaStop"), false).
+						OnClick(func() { a.stopLayaInApp() })
+				} else if a.layaStatus.BinaryInstalled {
+					a.arcButton(c, "pref-laya-start", a.t("ai.layaStart"), false).
+						Disabled(a.layaDeployBusy).
+						OnClick(func() { a.startLayaInApp() })
+				}
+				a.toolButton(c, "pref-laya-test", iconSparkle, a.t("laya.test"), false).OnClick(func() {
+					a.syncConfigFromState()
+					a.testLayaConnection()
+				})
+			})
+
 			gui.Row(c).FillWidth().Gap(8).AlignItems(gui.Center).Children(func() {
 				gui.Text(c, a.t("laya.url")).FontSize(12).TextColor(a.pal.inkSecondary).Width(130)
 				gui.TextInput(c.Key("pref-laya-url"), &a.layaURL).
 					Placeholder("http://127.0.0.1:11435").
 					Grow(1).
 					OnSubmit(func() { a.syncConfigFromState() })
-			})
-			gui.Row(c).FillWidth().Gap(8).AlignItems(gui.Center).Children(func() {
-				gui.Text(c, a.t("laya.model")).FontSize(12).TextColor(a.pal.inkSecondary).Width(130)
-				gui.TextInput(c.Key("pref-laya-model"), &a.layaModel).
-					Placeholder("laya").
-					Grow(1).
-					OnSubmit(func() { a.syncConfigFromState() })
-				a.toolButton(c, "pref-laya-test", iconSparkle, a.t("laya.test"), false).OnClick(func() {
-					a.syncConfigFromState()
-					a.testLayaConnection()
-				})
 			})
 		}
 	})

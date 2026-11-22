@@ -215,6 +215,11 @@ type App struct {
 	layaURL           string
 	layaModel         string
 	layaSuggestions   map[string][]laya.TagSuggestion
+	layaRuntime       *laya.RuntimeManager
+	layaStatus        laya.RuntimeStatus
+	layaDeployBusy    bool
+	layaDeployText    string
+	layaDeployPct     float64
 
 	// Stage 15 & 16: Built-in Server (Web Gallery, Companion API, MCP, Signaling).
 	localSrv        *server.Server
@@ -644,6 +649,9 @@ func (a *App) shutdown() {
 	}
 	a.closePreview()
 	a.stopBuiltInServer()
+	if a.layaRuntime != nil {
+		a.layaRuntime.Stop()
+	}
 	a.flushBoard(true)
 	watch, thumbs, lib := a.watch, a.thumbs, a.lib
 	a.watch, a.thumbs, a.lib = nil, nil, nil

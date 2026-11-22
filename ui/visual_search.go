@@ -361,3 +361,158 @@ func (a *App) testLayaConnection() {
 	}
 	go run()
 }
+
+func (a *App) ensureLayaRuntime() *laya.RuntimeManager {
+	if a.layaRuntime == nil {
+		a.layaRuntime = laya.NewRuntimeManager("", a.layaURL)
+	} else {
+		a.layaRuntime.SetBaseURL(a.layaURL)
+	}
+	return a.layaRuntime
+}
+
+func (a *App) refreshLayaStatus() {
+	rt := a.ensureLayaRuntime()
+	win := a.win
+	run := func() {
+		st := rt.Status(context.Background())
+		finish := func() { a.layaStatus = st }
+		if win == nil {
+			finish()
+			return
+		}
+		win.Update(func() {
+			if !a.isClosed() {
+				finish()
+			}
+		})
+	}
+	if win == nil {
+		run()
+		return
+	}
+	go run()
+}
+
+// deployLayaInApp downloads Ollaya, starts the local daemon silently, and pulls
+// the selected Laya decision model directly inside Ragle.
+func (a *App) deployLayaInApp() {
+	if a.layaDeployBusy {
+		return
+	}
+	rt := a.ensureLayaRuntime()
+	modelName := strings.TrimSpace(a.layaModel)
+	if modelName == "" {
+		modelName = laya.DefaultModelMultilingual
+		a.layaModel = modelName
+	}
+	a.layaEnabled = true
+	a.layaDeployBusy = true
+	a.layaDeployPct = 0.02
+	a.layaDeployText = fmt.Sprintf(a.t("ai.layaStageDownload"), 0.0)
+	a.syncConfigFromState()
+
+	win := a.win
+	run := func() {
+		err := rt.Deploy(context.Background(), modelName, func(stage string, pct float64) {
+			var txt string
+			switch {
+			case stage == "download":
+				txt = fmt.Sprintf(a.t("ai.layaStageDownload"), pct*100)
+			case stage == "start":
+				txt = a.t("ai.layaStageStart")
+			case strings.HasPrefix(stage, "pull:"):
+				sub := strings.TrimPrefix(stage, "pull:")
+				txt = fmt.Sprintf(a.t("ai.layaStagePull"), sub, pct*100)
+			default:
+				txt = stage
+			}
+			upd := func() {
+				a.layaDeployText = txt
+				a.layaDeployPct = pct
+			}
+			if win != nil {
+				win.Update(func() {
+					if !a.isClosed() {
+						upd()
+					}
+				})
+			} else {
+				upd()
+			}
+		})
+		st := rt.Status(context.Background())
+		finish := func() {
+			a.layaDeployBusy = false
+			a.layaStatus = st
+			if err != nil {
+				a.layaDeployText = err.Error()
+				a.notify(err.Error())
+				return
+			}
+			a.layaDeployText = ""
+			a.layaDeployPct = 1
+			a.notify(fmt.Sprintf(a.t("ai.layaDeployDone"), modelName))
+		}
+		if win == nil {
+			finish()
+			return
+		}
+		win.Update(func() {
+			if !a.isClosed() {
+				finish()
+			}
+		})
+	}
+	if win == nil {
+		run()
+		return
+	}
+	go run()
+}
+
+func (a *App) startLayaInApp() {
+	if a.layaDeployBusy {
+		return
+	}
+	rt := a.ensureLayaRuntime()
+	win := a.win
+	a.layaDeployBusy = true
+	a.layaDeployText = a.t("ai.layaStageStart")
+	run := func() {
+		err := rt.Start(context.Background())
+		st := rt.Status(context.Background())
+		finish := func() {
+			a.layaDeployBusy = false
+			a.layaDeployText = ""
+			a.layaStatus = st
+			if err != nil {
+				a.notify(err.Error())
+				return
+			}
+			a.notify(fmt.Sprintf(a.t("laya.connected"), rt.BaseURL()))
+		}
+		if win == nil {
+			finish()
+			return
+		}
+		win.Update(func() {
+			if !a.isClosed() {
+				finish()
+			}
+		})
+	}
+	if win == nil {
+		run()
+		return
+	}
+	go run()
+}
+
+func (a *App) stopLayaInApp() {
+	if a.layaRuntime != nil {
+		a.layaRuntime.Stop()
+	}
+	a.refreshLayaStatus()
+	a.notify(a.t("ai.layaStopped"))
+}

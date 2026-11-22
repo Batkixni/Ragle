@@ -21,7 +21,7 @@ import (
 
 const (
 	DefaultBaseURL = "http://127.0.0.1:11435"
-	DefaultModel   = "laya"
+	DefaultModel   = "laya:multilingual"
 )
 
 // Client calls a local Ollaya/Laya decision server.
@@ -71,7 +71,7 @@ type ClassificationResult struct {
 
 // Health verifies that the local Ollaya/Laya server is reachable.
 func (c *Client) Health(ctx context.Context) error {
-	for _, ep := range []string{"/health", "/v1/models", "/"} {
+	for _, ep := range []string{"/", "/api/version", "/health"} {
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL+ep, nil)
 		if err != nil {
 			return err
@@ -88,26 +88,41 @@ func (c *Client) Health(ctx context.Context) error {
 	return fmt.Errorf("ollaya server returned error at %s", c.BaseURL)
 }
 
-type decisionRequest struct {
-	Model    string   `json:"model"`
-	Input    string   `json:"input"`
-	State    string   `json:"state,omitempty"`
-	Question string   `json:"question"`
-	Choices  []string `json:"choices"`
+type systemOneQuestion struct {
+	Type         string `json:"type"`
+	Instructions string `json:"instructions,omitempty"`
+	Criteria     any    `json:"criteria,omitempty"`
 }
 
-// DecideChoices sends a single-pass closed-set decision query to Ollaya
-// (/v1/decisions with automatic fallback to /v1/systemone).
+type systemOneRequest struct {
+	Model     string                       `json:"model"`
+	State     string                       `json:"state"`
+	Questions map[string]systemOneQuestion `json:"questions"`
+}
+
+// DecideChoices sends a single-pass closed-set decision query to Ollaya using
+// the normative /v1/systemone & /api/decide wire contract.
 func (c *Client) DecideChoices(ctx context.Context, state, question string, choices []string) ([]ChoiceScore, error) {
 	if len(choices) == 0 {
 		return nil, errors.New("laya: no choices provided")
 	}
-	payload := decisionRequest{
-		Model:    c.Model,
-		Input:    state,
-		State:    state,
-		Question: question,
-		Choices:  choices,
+	q := systemOneQuestion{
+		Type:         "choice",
+		Instructions: question,
+		Criteria:     choices,
+	}
+	if len(choices) == 1 {
+		q = systemOneQuestion{
+			Type:         "noul",
+			Instructions: fmt.Sprintf("%s Does it belong to tag %q?", question, choices[0]),
+		}
+	}
+	payload := systemOneRequest{
+		Model: c.Model,
+		State: state,
+		Questions: map[string]systemOneQuestion{
+			"tag": q,
+		},
 	}
 	rawBody, err := json.Marshal(payload)
 	if err != nil {
@@ -115,7 +130,7 @@ func (c *Client) DecideChoices(ctx context.Context, state, question string, choi
 	}
 
 	var lastErr error
-	for _, ep := range []string{"/v1/decisions", "/v1/systemone"} {
+	for _, ep := range []string{"/v1/systemone", "/v1/decisions", "/api/decide"} {
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL+ep, bytes.NewReader(rawBody))
 		if err != nil {
 			return nil, err
@@ -242,15 +257,37 @@ func BuildAssetContext(a model.Asset) string {
 	return strings.Join(parts, "\n")
 }
 
-// parseDecisionResponse accepts common Ollaya / System-1 JSON response shapes:
-//   - {"probabilities": {"Poster": 0.85, "UI": 0.15}}
-//   - {"scores": {"Poster": 0.85, "UI": 0.15}}
-//   - {"choices": [{"choice": "Poster", "probability": 0.85}, ...]}
-//   - {"decision": "Poster", "confidence": 0.85}
+// parseDecisionResponse accepts normative Ollaya /v1/systemone responses:
+//   - {"answers": {"tag": {"choice": "Poster", "confidence": 0.8, "probabilities": {"Poster": 0.88, ...}}}}
+//   - {"answers": {"tag": {"noul": 0.82}}}
+// as well as flat {"probabilities": {...}} / {"scores": {...}} / {"choices": [...]}.
 func parseDecisionResponse(body []byte, choices []string) ([]ChoiceScore, error) {
 	var raw map[string]any
 	if err := json.Unmarshal(body, &raw); err != nil {
 		return nil, err
+	}
+
+	// Normative Ollaya /v1/systemone & /api/decide answers envelope.
+	if answers, ok := raw["answers"].(map[string]any); ok {
+		for _, v := range answers {
+			ans, ok := v.(map[string]any)
+			if !ok {
+				continue
+			}
+			if m := extractProbMap(ans, "probabilities"); len(m) > 0 {
+				return mapToSortedScores(m), nil
+			}
+			if noul, ok := ans["noul"].(float64); ok && len(choices) > 0 {
+				return []ChoiceScore{{Choice: choices[0], Probability: noul}}, nil
+			}
+			if ch, ok := ans["choice"].(string); ok && ch != "" {
+				conf := readFloat(ans, "confidence", "probability")
+				if conf <= 0 {
+					conf = 0.85
+				}
+				return []ChoiceScore{{Choice: ch, Probability: conf}}, nil
+			}
+		}
 	}
 
 	if m := extractProbMap(raw, "probabilities"); len(m) > 0 {

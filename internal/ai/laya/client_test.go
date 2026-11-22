@@ -10,25 +10,42 @@ import (
 	"ragle/internal/model"
 )
 
-func TestClassifyAssetTagsWithMockOllaya(t *testing.T) {
+func TestClassifyAssetTagsWithNormativeOllaya(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/health":
+		case "/", "/api/version":
 			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte("Ollaya is running"))
 			return
-		case "/v1/decisions":
-			var req decisionRequest
+		case "/api/tags":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"models": []map[string]string{{"name": "laya:multilingual"}},
+			})
+			return
+		case "/api/pull":
+			w.Header().Set("Content-Type", "application/x-ndjson")
+			_, _ = w.Write([]byte("{\"status\":\"downloading\",\"total\":100,\"completed\":50}\n{\"status\":\"success\",\"total\":100,\"completed\":100}\n"))
+			return
+		case "/v1/systemone":
+			var req systemOneRequest
 			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 				t.Fatalf("decode req: %v", err)
 			}
-			if len(req.Choices) != 3 {
-				t.Fatalf("expected 3 choices, got %d", len(req.Choices))
+			if _, ok := req.Questions["tag"]; !ok {
+				t.Fatalf("expected 'tag' question, got %+v", req.Questions)
 			}
 			_ = json.NewEncoder(w).Encode(map[string]any{
-				"probabilities": map[string]float64{
-					"Poster":     0.88,
-					"Typography": 0.52,
-					"3D":         0.08,
+				"model": req.Model,
+				"answers": map[string]any{
+					"tag": map[string]any{
+						"choice":     "Poster",
+						"confidence": 0.82,
+						"probabilities": map[string]float64{
+							"Poster":     0.88,
+							"Typography": 0.52,
+							"3D":         0.08,
+						},
+					},
 				},
 			})
 			return
@@ -38,9 +55,20 @@ func TestClassifyAssetTagsWithMockOllaya(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	client := NewClient(srv.URL, "laya")
+	client := NewClient(srv.URL, DefaultModelMultilingual)
 	if err := client.Health(context.Background()); err != nil {
 		t.Fatalf("Health failed: %v", err)
+	}
+	models, err := client.ListModels(context.Background())
+	if err != nil || len(models) != 1 || models[0] != "laya:multilingual" {
+		t.Fatalf("ListModels got %+v err=%v", models, err)
+	}
+	var lastPct float64
+	if err := client.PullModel(context.Background(), "laya:multilingual", func(_ string, pct float64) { lastPct = pct }); err != nil {
+		t.Fatalf("PullModel failed: %v", err)
+	}
+	if lastPct != 1.0 {
+		t.Fatalf("expected pull pct 1.0, got %v", lastPct)
 	}
 
 	asset := model.Asset{
