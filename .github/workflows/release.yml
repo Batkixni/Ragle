@@ -1,0 +1,81 @@
+name: Release Cross-Platform Binaries
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (e.g. v0.2.0-beta.2)'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Verify Vet & Tests
+        env:
+          CGO_ENABLED: '0'
+        run: |
+          go tool mygo vet .
+          go test -count=1 ./...
+
+      - name: Cross-Compile Desktop Apps (macOS Silicon/Intel, Windows x64/ARM64, Linux x64/ARM64)
+        env:
+          CGO_ENABLED: '0'
+        run: |
+          go tool mygo build -skip-installer -skip-dmg -skip-notarize \
+            -o build/release \
+            -platform "darwin/arm64,darwin/amd64,windows/amd64,windows/arm64,linux/amd64,linux/arm64"
+
+      - name: Package Release Archives & SHA256SUMS
+        run: |
+          mkdir -p dist
+
+          # macOS Apple Silicon & Intel (.app bundles)
+          (cd build/release/darwin-arm64 && zip -r ../../../dist/Ragle-darwin-arm64.zip Ragle.app)
+          (cd build/release/darwin-amd64 && zip -r ../../../dist/Ragle-darwin-amd64.zip Ragle.app)
+
+          # Windows x64 & ARM64
+          cp build/release/windows-amd64/Ragle.exe dist/Ragle-windows-amd64.exe
+          (cd build/release/windows-amd64 && zip -r ../../../dist/Ragle-windows-amd64.zip Ragle.exe)
+          cp build/release/windows-arm64/Ragle.exe dist/Ragle-windows-arm64.exe
+          (cd build/release/windows-arm64 && zip -r ../../../dist/Ragle-windows-arm64.zip Ragle.exe)
+
+          # Linux x64 & ARM64 (tar.gz + deb + rpm)
+          find build/release/linux-amd64 -maxdepth 1 \( -name '*.tar.gz' -o -name '*.deb' -o -name '*.rpm' \) -exec cp {} dist/ \;
+          find build/release/linux-arm64 -maxdepth 1 \( -name '*.tar.gz' -o -name '*.deb' -o -name '*.rpm' \) -exec cp {} dist/ \;
+
+          # Browser Companion Extension
+          (cd extensions/browser && zip -r ../../dist/ragle-browser-extension.zip .)
+
+          # Standalone CLI binaries (ragle-server & ragle-mcp)
+          for pair in "windows amd64 .exe" "windows arm64 .exe" "darwin arm64 " "darwin amd64 " "linux amd64 " "linux arm64 "; do
+            set -- $pair
+            GOOS=$1 GOARCH=$2 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o "build/cli/$1-$2/ragle-server$3" ./cmd/ragle-server
+            GOOS=$1 GOARCH=$2 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o "build/cli/$1-$2/ragle-mcp$3" ./cmd/ragle-mcp
+            (cd "build/cli/$1-$2" && zip -r "../../../dist/ragle-cli-$1-$2.zip" .)
+          done
+
+          (cd dist && sha256sum * > SHA256SUMS.txt)
+          ls -lh dist/
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag || github.ref_name }}
+          prerelease: ${{ contains(inputs.tag || github.ref_name, '-') }}
+          generate_release_notes: true
+          files: dist/*
