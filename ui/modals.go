@@ -8,13 +8,17 @@ import (
 
 func (a *App) styledDialog(c *gui.Context, key string, open *bool, w, h float32, fn func(panel gui.Element)) {
 	gui.DialogBase(c.Key(key), open, func(backdrop, panel gui.Element) {
-		backdrop.Background(gui.RGBA(0, 0, 0, 0.52))
+		backdrop.Background(gui.RGBA(0, 0, 0, 0.56))
 		panel.
-			Radius(14).
+			Radius(radiusSurface).
 			Clip().
-			Background(a.pal.card).
-			Border(1, a.pal.hairline).
-			Shadow(0, 20, 48, 0, a.pal.shadow)
+			Background(a.pal.surfaceRaised).
+			Shadow(0, 24, 56, 0, a.pal.shadowLg).
+			InsetShadow(0, 1, 1, 0, a.pal.rimLight).
+			Transition(gui.ElementTransition{
+				Animation: &arcEnterAnim,
+				Enter:     &gui.Motion{Scale: 0.96, Y: 10, Opacity: 0},
+			})
 		if w > 0 {
 			panel.Width(w)
 		}
@@ -44,18 +48,16 @@ func (a *App) previewModal(c *gui.Context) {
 		gui.Column(c).Fill().Children(func() {
 			// Header bar.
 			gui.Row(c).
-				Height(48).
-				Padding(0, 16).
+				Height(52).
+				Padding(0, 18).
 				Gap(8).
 				AlignItems(gui.Center).
-				BorderWidth(0, 0, 1, 0).
-				BorderColor(a.pal.hairline).
 				Children(func() {
 					gui.Text(c, a.assetName(asset)).Bold().FontSize(14).Grow(1).SingleLine()
 					if asset.Width > 0 && asset.Height > 0 {
-						a.pillBadge(c, fmt.Sprintf("%d × %d", asset.Width, asset.Height), t.TextMuted, a.pal.subtle)
+						a.pillBadge(c, fmt.Sprintf("%d × %d", asset.Width, asset.Height), t.TextMuted, a.pal.surface)
 					}
-					a.pillBadge(c, a.assetExt(asset), t.Text, a.pal.subtle)
+					a.pillBadge(c, a.assetExt(asset), t.Text, a.pal.surface)
 					if len(a.assets) > 1 {
 						a.iconButton(c, "prev-img", iconChevronLeft, a.t("preview.prev"), false).OnClick(func() {
 							a.stepPreview(-1)
@@ -108,11 +110,9 @@ func (a *App) previewModal(c *gui.Context) {
 
 			// Footer: rating + tags + path.
 			gui.Row(c).
-				Padding(10, 16).
+				Padding(12, 18).
 				Gap(12).
 				AlignItems(gui.Center).
-				BorderWidth(1, 0, 0, 0).
-				BorderColor(a.pal.hairline).
 				Children(func() {
 					a.syncInspectorSelection(false)
 					if a.inspectorAssetID == asset.ID {

@@ -2,200 +2,356 @@ package ui
 
 import (
 	"fmt"
+	"time"
 
 	gui "github.com/egoist/mygo/ui"
 )
 
-// palette holds extra semantic colors beyond gui.Theme so cards, sidebars,
-// hairlines, and chips share a cohesive Refto × Eagle visual hierarchy.
+// Arc UI 4-step border radius scale (from design.md §3).
+const (
+	radiusControl float32 = 12
+	radiusPanel   float32 = 16
+	radiusSurface float32 = 20
+	radiusPill    float32 = 9999
+)
+
+// Arc UI calm motion presets (critically damped springs, 150ms–260ms).
+var (
+	arcSpring = gui.Animation{
+		Spring: gui.SpringOptions{Duration: 220 * time.Millisecond, Bounce: 0.06},
+	}
+	arcSpringSnappy = gui.Animation{
+		Spring: gui.SpringOptions{Duration: 190 * time.Millisecond, Bounce: 0.10},
+	}
+	arcEnterAnim = gui.Animation{
+		Spring: gui.SpringOptions{Duration: 240 * time.Millisecond, Bounce: 0.04},
+	}
+	arcColorAnim = gui.Animation{
+		Duration: 160 * time.Millisecond,
+		Ease:     gui.EaseOut,
+	}
+)
+
+// pillMatchKey identifies a sliding pill indicator group for matched-geometry
+// spring transitions (Arc UI layoutId equivalent).
+type pillMatchKey struct {
+	group string
+}
+
+// palette holds Arc UI frameless surface fill levels (zero hard 1px borders).
 type palette struct {
-	canvas    gui.Color // main gallery background
-	sidebar   gui.Color // left sidebar & right inspector background
-	card      gui.Color // elevated card & modal surface
-	cardHover gui.Color // hovered card surface
-	hairline  gui.Color // subtle 1px divider
-	subtle    gui.Color // muted pill fill
-	inkMuted  gui.Color // secondary caption text
-	inkFaint  gui.Color // tertiary hint text
-	gold      gui.Color // star rating badge
-	shadow    gui.Color // soft card drop shadow
-	ring      gui.Color // active selection ring
-	paper     gui.Color // moodboard canvas paper
-	paperInk  gui.Color // moodboard default text ink
-	paperGrid gui.Color // moodboard subtle dot grid
+	canvas        gui.Color // --background: pure white (light) / deep charcoal (dark)
+	surface       gui.Color // --surface: frameless cards, sidebar, inspector, pill tracks
+	surfaceRaised gui.Color // --surface-raised: floating navbar, modals, active sliding pill
+	surfaceMuted  gui.Color // --surface-muted: hover fills, inputs, subtle badges
+	inkSecondary  gui.Color // secondary readable text
+	inkMuted      gui.Color // muted caption / timestamp text
+	inkFaint      gui.Color // subtle hint / placeholder
+	gold          gui.Color // star rating
+	shadowSm      gui.Color // subtle grounded shadow for cards & pills
+	shadowMd      gui.Color // floating navbar & card hover elevation
+	shadowLg      gui.Color // modal & lightbox depth shadow
+	rimLight      gui.Color // subtle specular top rim for floating surfaces
+	ring          gui.Color // calm active focus/selection accent
+	paper         gui.Color // moodboard canvas paper
+	paperInk      gui.Color // moodboard text ink
+	paperGrid     gui.Color // moodboard subtle dot grid
 }
 
 func makeTheme(dark bool) (*gui.Theme, palette) {
 	if dark {
 		t := &gui.Theme{
 			Dark:           true,
-			Background:     gui.Hex("#111113"),
-			Surface:        gui.Hex("#1C1C20"),
-			SurfaceHover:   gui.Hex("#26262C"),
-			SurfacePressed: gui.Hex("#303038"),
-			Border:         gui.Hex("#2C2C33"),
-			Text:           gui.Hex("#F4F4F6"),
-			TextMuted:      gui.Hex("#8E8E98"),
-			Accent:         gui.Hex("#3B82F6"),
-			AccentHover:    gui.Hex("#60A5FA"),
-			AccentPressed:  gui.Hex("#2563EB"),
-			AccentText:     gui.Hex("#FFFFFF"),
+			Background:     gui.Hex("#111111"),
+			Surface:        gui.Hex("#18181B"),
+			SurfaceHover:   gui.Hex("#27272A"),
+			SurfacePressed: gui.Hex("#323238"),
+			Border:         gui.Transparent, // Frameless & stroke-free
+			Text:           gui.Hex("#FAFAFA"),
+			TextMuted:      gui.Hex("#A1A1AA"),
+			Accent:         gui.Hex("#FAFAFA"),
+			AccentHover:    gui.Hex("#E4E4E7"),
+			AccentPressed:  gui.Hex("#D4D4D8"),
+			AccentText:     gui.Hex("#111111"),
 			Danger:         gui.Hex("#F87171"),
 			Warning:        gui.Hex("#FBBF24"),
 			Success:        gui.Hex("#34D399"),
 			Selection:      gui.RGBA(59, 130, 246, 0.35),
-			Focus:          gui.RGBA(96, 165, 250, 0.65),
-			Inverse:        gui.Hex("#F4F4F6"),
-			InverseText:    gui.Hex("#111113"),
-			Scrollbar:      gui.RGBA(255, 255, 255, 0.22),
+			Focus:          gui.RGBA(96, 165, 250, 0.55),
+			Inverse:        gui.Hex("#FAFAFA"),
+			InverseText:    gui.Hex("#111111"),
+			Scrollbar:      gui.RGBA(255, 255, 255, 0.20),
 			ScrollbarWidth: 6,
-			Radius:         8,
+			Radius:         radiusControl,
 			Spacing:        4,
 			FontSize:       13,
 		}
 		p := palette{
-			canvas:    gui.Hex("#111113"),
-			sidebar:   gui.Hex("#16161A"),
-			card:      gui.Hex("#1C1C20"),
-			cardHover: gui.Hex("#24242A"),
-			hairline:  gui.Hex("#25252B"),
-			subtle:    gui.Hex("#232329"),
-			inkMuted:  gui.Hex("#8E8E98"),
-			inkFaint:  gui.Hex("#63636D"),
-			gold:      gui.Hex("#F59E0B"),
-			shadow:    gui.RGBA(0, 0, 0, 0.35),
-			ring:      gui.Hex("#3B82F6"),
-			paper:     gui.Hex("#161618"),
-			paperInk:  gui.Hex("#F4F1EA"),
-			paperGrid: gui.RGBA(255, 255, 255, 0.08),
+			canvas:        gui.Hex("#111111"),
+			surface:       gui.Hex("#18181B"),
+			surfaceRaised: gui.Hex("#1F1F23"),
+			surfaceMuted:  gui.Hex("#27272A"),
+			inkSecondary:  gui.Hex("#A1A1AA"),
+			inkMuted:      gui.Hex("#71717A"),
+			inkFaint:      gui.Hex("#52525B"),
+			gold:          gui.Hex("#F59E0B"),
+			shadowSm:      gui.RGBA(0, 0, 0, 0.28),
+			shadowMd:      gui.RGBA(0, 0, 0, 0.42),
+			shadowLg:      gui.RGBA(0, 0, 0, 0.58),
+			rimLight:      gui.RGBA(255, 255, 255, 0.08),
+			ring:          gui.Hex("#3B82F6"),
+			paper:         gui.Hex("#141416"),
+			paperInk:      gui.Hex("#F4F1EA"),
+			paperGrid:     gui.RGBA(255, 255, 255, 0.07),
 		}
 		return t, p
 	}
 
 	t := &gui.Theme{
 		Dark:           false,
-		Background:     gui.Hex("#FAFAFB"),
-		Surface:        gui.Hex("#FFFFFF"),
-		SurfaceHover:   gui.Hex("#F1F1F4"),
-		SurfacePressed: gui.Hex("#E6E6EB"),
-		Border:         gui.Hex("#E3E3E8"),
-		Text:           gui.Hex("#141417"),
-		TextMuted:      gui.Hex("#6C6C75"),
+		Background:     gui.Hex("#FFFFFF"),
+		Surface:        gui.Hex("#F4F4F5"),
+		SurfaceHover:   gui.Hex("#E4E4E7"),
+		SurfacePressed: gui.Hex("#D4D4D8"),
+		Border:         gui.Transparent, // Frameless & stroke-free
+		Text:           gui.Hex("#18181B"),
+		TextMuted:      gui.Hex("#71717A"),
 		Accent:         gui.Hex("#18181B"),
-		AccentHover:    gui.Hex("#2E2E34"),
+		AccentHover:    gui.Hex("#27272A"),
 		AccentPressed:  gui.Hex("#09090B"),
 		AccentText:     gui.Hex("#FFFFFF"),
 		Danger:         gui.Hex("#DC2626"),
 		Warning:        gui.Hex("#D97706"),
 		Success:        gui.Hex("#16A34A"),
 		Selection:      gui.RGBA(37, 99, 235, 0.20),
-		Focus:          gui.RGBA(37, 99, 235, 0.55),
+		Focus:          gui.RGBA(37, 99, 235, 0.50),
 		Inverse:        gui.Hex("#18181B"),
 		InverseText:    gui.Hex("#FFFFFF"),
-		Scrollbar:      gui.RGBA(0, 0, 0, 0.22),
+		Scrollbar:      gui.RGBA(0, 0, 0, 0.18),
 		ScrollbarWidth: 6,
-		Radius:         8,
+		Radius:         radiusControl,
 		Spacing:        4,
 		FontSize:       13,
 	}
 	p := palette{
-		canvas:    gui.Hex("#FAFAFB"),
-		sidebar:   gui.Hex("#F3F3F6"),
-		card:      gui.Hex("#FFFFFF"),
-		cardHover: gui.Hex("#F7F7FA"),
-		hairline:  gui.Hex("#E7E7EC"),
-		subtle:    gui.Hex("#ECECF0"),
-		inkMuted:  gui.Hex("#6C6C75"),
-		inkFaint:  gui.Hex("#9A9AA3"),
-		gold:      gui.Hex("#D97706"),
-		shadow:    gui.RGBA(15, 23, 42, 0.07),
-		ring:      gui.Hex("#2563EB"),
-		paper:     gui.Hex("#F4F1EA"),
-		paperInk:  gui.Hex("#1C1C1C"),
-		paperGrid: gui.RGBA(0, 0, 0, 0.08),
+		canvas:        gui.Hex("#FFFFFF"),
+		surface:       gui.Hex("#F4F4F5"),
+		surfaceRaised: gui.Hex("#FFFFFF"),
+		surfaceMuted:  gui.Hex("#E4E4E7"),
+		inkSecondary:  gui.Hex("#71717A"),
+		inkMuted:      gui.Hex("#A1A1AA"),
+		inkFaint:      gui.Hex("#B4B4BC"),
+		gold:          gui.Hex("#D97706"),
+		shadowSm:      gui.RGBA(15, 23, 42, 0.06),
+		shadowMd:      gui.RGBA(15, 23, 42, 0.10),
+		shadowLg:      gui.RGBA(15, 23, 42, 0.18),
+		rimLight:      gui.RGBA(255, 255, 255, 0.80),
+		ring:          gui.Hex("#2563EB"),
+		paper:         gui.Hex("#F4F1EA"),
+		paperInk:      gui.Hex("#18181B"),
+		paperGrid:     gui.RGBA(0, 0, 0, 0.07),
 	}
 	return t, p
 }
 
-// iconButton creates a clean, flat Refto-style icon button with hover/active feedback.
+// iconButton creates an Arc-style frameless circular icon button with smooth
+// color transition and tactile spring press scale.
 func (a *App) iconButton(c *gui.Context, key string, icon *gui.SVG, tip string, active bool) gui.Element {
 	t := c.Theme()
-	btn := gui.ButtonBase(c.Key(key)).Size(30, 30).Center().Radius(7).Label(tip).Tooltip(tip)
-	bg := gui.Transparent
-	fg := t.TextMuted
+	btn := gui.ButtonBase(c.Key(key)).Size(32, 32).Center().Radius(radiusPill).Label(tip).Tooltip(tip)
+	targetBg := gui.Transparent
+	targetFg := a.pal.inkSecondary
 	if active {
-		bg = a.pal.ring.Alpha(0.14)
-		fg = a.pal.ring
+		targetBg = a.pal.ring.Alpha(0.14)
+		targetFg = a.pal.ring
 	}
+	scale := float32(1)
 	if btn.Pressed() {
-		bg = t.SurfacePressed
-		fg = t.Text
+		targetBg = a.pal.surfaceMuted
+		targetFg = t.Text
+		scale = 0.93
 	} else if btn.Hovered() {
 		if !active {
-			bg = t.SurfaceHover
+			targetBg = a.pal.surfaceMuted
 		}
-		fg = t.Text
+		targetFg = t.Text
 	}
-	btn.Background(bg).TextColor(fg).Children(func() {
+	bg := btn.AnimateColor("bg", targetBg, arcColorAnim)
+	fg := btn.AnimateColor("fg", targetFg, arcColorAnim)
+	btn.Background(bg).TextColor(fg).AnimatePose(gui.Pose{Scale: scale}, arcSpringSnappy).Children(func() {
 		gui.Icon(c, icon).Size(15, 15)
 	})
 	return btn
 }
 
-// toolButton creates a compact toolbar button with icon + optional label.
+// toolButton creates an Arc-style frameless tactile button with smooth color &
+// spring press feedback.
 func (a *App) toolButton(c *gui.Context, key string, icon *gui.SVG, label string, active bool) gui.Element {
 	t := c.Theme()
-	btn := gui.ButtonBase(c.Key(key)).Padding(5, 10).Gap(6).Radius(7).AlignItems(gui.Center)
-	bg := gui.Transparent
-	fg := t.Text
+	btn := gui.ButtonBase(c.Key(key)).Padding(6, 12).Gap(6).Radius(radiusControl).AlignItems(gui.Center)
+	targetBg := gui.Transparent
+	targetFg := t.Text
 	if active {
-		bg = a.pal.ring
-		fg = gui.Hex("#FFFFFF")
+		targetBg = t.Accent
+		targetFg = t.AccentText
 	}
+	scale := float32(1)
 	if btn.Pressed() {
-		bg = t.SurfacePressed
-		if active {
-			bg = a.pal.ring.Alpha(0.85)
+		scale = 0.96
+		if !active {
+			targetBg = a.pal.surfaceMuted
 		}
 	} else if btn.Hovered() && !active {
-		bg = t.SurfaceHover
+		targetBg = a.pal.surfaceMuted
 	}
-	btn.Background(bg).TextColor(fg).Children(func() {
+	bg := btn.AnimateColor("bg", targetBg, arcColorAnim)
+	fg := btn.AnimateColor("fg", targetFg, arcColorAnim)
+	btn.Background(bg).TextColor(fg).AnimatePose(gui.Pose{Scale: scale}, arcSpringSnappy).Children(func() {
 		if icon != nil {
 			gui.Icon(c, icon).Size(14, 14)
 		}
 		if label != "" {
-			gui.Text(c, label).FontSize(12).SingleLine()
+			gui.Text(c, label).FontSize(12).Bold().SingleLine()
 		}
 	})
 	return btn
 }
 
-// tagChip renders a compact, tactile pill for a tag (removable or toggleable).
+// arcPillTabs renders an Arc UI sliding pill navigator: a frameless muted track
+// with a raised indicator pill that glides smoothly between options using
+// matched-geometry spring physics (ElementTransition.Match).
+func (a *App) arcPillTabs(c *gui.Context, group string, selected int, labels []string, onSelect func(int)) {
+	t := c.Theme()
+	gui.Row(c.Key("track-" + group)).
+		Padding(3).
+		Gap(2).
+		Radius(radiusPill).
+		Background(a.pal.surface).
+		AlignItems(gui.Center).
+		Children(func() {
+			for i, lbl := range labels {
+				idx := i
+				active := selected == idx
+				btn := gui.ButtonBase(c.Key(fmt.Sprintf("%s-%d", group, idx))).
+					Radius(radiusPill).
+					AlignItems(gui.Center).
+					OnClick(func() { onSelect(idx) })
+				scale := float32(1)
+				if btn.Pressed() {
+					scale = 0.96
+				}
+				btn.AnimatePose(gui.Pose{Scale: scale}, arcSpringSnappy)
+				targetFg := a.pal.inkSecondary
+				if active || btn.Hovered() {
+					targetFg = t.Text
+				}
+				fg := btn.AnimateColor("fg", targetFg, arcColorAnim)
+				btn.Children(func() {
+					if active {
+						gui.Row(c.Key(fmt.Sprintf("%s-pill-%d", group, idx))).
+							Padding(5, 12).
+							Radius(radiusPill).
+							AlignItems(gui.Center).
+							Background(a.pal.surfaceRaised).
+							Shadow(0, 2, 8, 0, a.pal.shadowSm).
+							InsetShadow(0, 1, 1, 0, a.pal.rimLight).
+							Transition(gui.ElementTransition{
+								Animation: &arcSpringSnappy,
+								Match:     pillMatchKey{group: group},
+							}).
+							Children(func() {
+								gui.Text(c, lbl).FontSize(12).Bold().TextColor(fg).SingleLine()
+							})
+					} else {
+						gui.Row(c).Padding(5, 12).Radius(radiusPill).AlignItems(gui.Center).Children(func() {
+							gui.Text(c, lbl).FontSize(12).Bold().TextColor(fg).SingleLine()
+						})
+					}
+				})
+			}
+		})
+}
+
+// arcPillTabsWithIcons is arcPillTabs with leading SVG icons (e.g. Board tool switcher).
+func (a *App) arcPillTabsWithIcons(c *gui.Context, group string, selected int, items []struct {
+	icon  *gui.SVG
+	label string
+}, onSelect func(int)) {
+	t := c.Theme()
+	gui.Row(c.Key("track-" + group)).
+		Padding(3).
+		Gap(2).
+		Radius(radiusPill).
+		Background(a.pal.surface).
+		AlignItems(gui.Center).
+		Children(func() {
+			for i, it := range items {
+				idx := i
+				item := it
+				active := selected == idx
+				btn := gui.ButtonBase(c.Key(fmt.Sprintf("%s-%d", group, idx))).
+					Radius(radiusPill).
+					AlignItems(gui.Center).
+					OnClick(func() { onSelect(idx) })
+				scale := float32(1)
+				if btn.Pressed() {
+					scale = 0.96
+				}
+				btn.AnimatePose(gui.Pose{Scale: scale}, arcSpringSnappy)
+				targetFg := a.pal.inkSecondary
+				if active || btn.Hovered() {
+					targetFg = t.Text
+				}
+				fg := btn.AnimateColor("fg", targetFg, arcColorAnim)
+				btn.Children(func() {
+					content := func() {
+						if item.icon != nil {
+							gui.Icon(c, item.icon).Size(14, 14).TextColor(fg)
+						}
+						gui.Text(c, item.label).FontSize(12).Bold().TextColor(fg).SingleLine()
+					}
+					if active {
+						gui.Row(c.Key(fmt.Sprintf("%s-pill-%d", group, idx))).
+							Padding(5, 12).
+							Gap(6).
+							Radius(radiusPill).
+							AlignItems(gui.Center).
+							Background(a.pal.surfaceRaised).
+							Shadow(0, 2, 8, 0, a.pal.shadowSm).
+							InsetShadow(0, 1, 1, 0, a.pal.rimLight).
+							Transition(gui.ElementTransition{
+								Animation: &arcSpringSnappy,
+								Match:     pillMatchKey{group: group},
+							}).
+							Children(content)
+					} else {
+						gui.Row(c).Padding(5, 12).Gap(6).Radius(radiusPill).AlignItems(gui.Center).Children(content)
+					}
+				})
+			}
+		})
+}
+
+// tagChip renders a frameless Arc UI pill chip with smooth color & spring press.
 func (a *App) tagChip(c *gui.Context, key, label string, active bool) gui.Element {
 	t := c.Theme()
-	btn := gui.ButtonBase(c.Key(key)).Padding(4, 10).Gap(5).Radius(999).AlignItems(gui.Center)
-	bg := a.pal.subtle
-	fg := t.TextMuted
-	border := gui.Transparent
+	btn := gui.ButtonBase(c.Key(key)).Padding(5, 11).Gap(5).Radius(radiusPill).AlignItems(gui.Center)
+	targetBg := a.pal.surfaceMuted
+	targetFg := a.pal.inkSecondary
 	if active {
-		bg = a.pal.ring.Alpha(0.14)
-		fg = a.pal.ring
-		border = a.pal.ring.Alpha(0.35)
+		targetBg = t.Accent
+		targetFg = t.AccentText
 	}
-	if btn.Hovered() {
-		if active {
-			bg = a.pal.ring.Alpha(0.22)
-		} else {
-			bg = t.SurfaceHover
-			fg = t.Text
-		}
+	scale := float32(1)
+	if btn.Pressed() {
+		scale = 0.95
+	} else if btn.Hovered() && !active {
+		targetFg = t.Text
+		targetBg = t.SurfacePressed
 	}
-	btn.Background(bg).TextColor(fg)
-	if border.A > 0 {
-		btn.Border(1, border)
-	}
-	btn.Children(func() {
+	bg := btn.AnimateColor("bg", targetBg, arcColorAnim)
+	fg := btn.AnimateColor("fg", targetFg, arcColorAnim)
+	btn.Background(bg).TextColor(fg).AnimatePose(gui.Pose{Scale: scale}, arcSpringSnappy).Children(func() {
 		if active {
 			gui.Icon(c, iconCheck).Size(11, 11)
 		}
@@ -204,15 +360,15 @@ func (a *App) tagChip(c *gui.Context, key, label string, active bool) gui.Elemen
 	return btn
 }
 
-// pillBadge renders a non-interactive small metadata pill.
+// pillBadge renders a frameless small metadata capsule.
 func (a *App) pillBadge(c *gui.Context, text string, fg, bg gui.Color) {
-	gui.Box(c).Padding(2, 7).Radius(5).Background(bg).Children(func() {
+	gui.Box(c).Padding(3, 8).Radius(radiusPill).Background(bg).Children(func() {
 		gui.Text(c, text).FontSize(10).Bold().TextColor(fg).SingleLine()
 	})
 }
 
 func (a *App) sectionLabel(c *gui.Context, text string) {
-	gui.Text(c, text).FontSize(11).Bold().TextColor(a.pal.inkMuted).LetterSpacing(0.3)
+	gui.Text(c, text).FontSize(11).Bold().TextColor(a.pal.inkMuted).LetterSpacing(0.4)
 }
 
 func (a *App) metaRow(c *gui.Context, label, value string) {

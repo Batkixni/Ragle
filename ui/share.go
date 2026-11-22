@@ -79,7 +79,7 @@ func (a *App) shareModal(c *gui.Context) {
 			gui.Checkbox(c.Key("share-files"), &a.shareFiles, a.t("share.files"))
 
 			// LAN section.
-			gui.Column(c).Padding(14).Gap(10).Radius(10).Background(a.pal.canvas).Border(1, a.pal.hairline).Children(func() {
+			gui.Column(c).Padding(16).Gap(10).Radius(radiusPanel).Background(a.pal.surface).Children(func() {
 				a.sectionLabel(c, a.t("share.title"))
 				node := a.shareNode()
 				if node == nil || !node.DiscoveryOK() {
@@ -107,7 +107,7 @@ func (a *App) shareModal(c *gui.Context) {
 			})
 
 			// Pairing code E2E section.
-			gui.Column(c).Padding(14).Gap(10).Radius(10).Background(a.pal.canvas).Border(1, a.pal.hairline).Children(func() {
+			gui.Column(c).Padding(16).Gap(10).Radius(radiusPanel).Background(a.pal.surface).Children(func() {
 				a.sectionLabel(c, a.t("share.pairTitle"))
 				gui.Row(c).Gap(8).AlignItems(gui.Center).Children(func() {
 					gui.TextInput(c.Key("signal-url"), &a.signalURL).
@@ -128,10 +128,9 @@ func (a *App) shareModal(c *gui.Context) {
 					gui.Row(c).
 						Padding(12, 14).
 						Gap(10).
-						Radius(8).
+						Radius(radiusControl).
 						AlignItems(gui.Center).
-						Background(a.pal.ring.Alpha(0.10)).
-						Border(1, a.pal.ring.Alpha(0.30)).
+						Background(a.pal.ring.Alpha(0.12)).
 						Children(func() {
 							gui.Text(c, fmt.Sprintf(a.t("share.codeWaiting"), code)).
 								FontSize(14).

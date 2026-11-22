@@ -26,54 +26,62 @@ func (a *App) libraryView(c *gui.Context) {
 
 func (a *App) libraryMain(c *gui.Context) {
 	t := c.Theme()
-	dropZone := gui.Column(c.Key("library-dropzone")).Fill().Padding(12, 16).Gap(10).Background(a.pal.canvas)
+	dropZone := gui.Column(c.Key("library-dropzone")).Fill().Padding(6, 12, 10, 6).Gap(10).Background(a.pal.canvas)
 	if files := dropZone.DroppedFiles(); len(files) > 0 {
 		a.importPaths(files)
 	}
 	dragOver := dropZone.FileDragOver()
 	if dragOver {
-		dropZone.Border(2, a.pal.ring).Background(a.pal.ring.Alpha(0.05))
+		dropZone.Background(a.pal.ring.Alpha(0.06))
 	}
 
 	dropZone.Children(func() {
 		// Drag-and-drop import indicator banner.
 		if dragOver {
 			modeLbl := a.modeLabel(storageModes[a.storageMode])
-			gui.Row(c).
-				Padding(10, 14).
-				Radius(10).
+			gui.Row(c.Key("dnd-banner")).
+				Padding(12, 16).
+				Radius(radiusPanel).
 				Gap(8).
 				AlignItems(gui.Center).
 				Background(a.pal.ring.Alpha(0.14)).
-				Border(1, a.pal.ring.Alpha(0.45)).
+				Transition(gui.ElementTransition{
+					Animation: &arcEnterAnim,
+					Enter:     &gui.Motion{Y: -6, Opacity: 0, Collapse: true},
+					Exit:      &gui.Motion{Y: -6, Opacity: 0, Collapse: true},
+				}).
 				Children(func() {
 					gui.Icon(c, iconImport).Size(16, 16).TextColor(a.pal.ring)
 					gui.Text(c, fmt.Sprintf(a.t("library.dropHint"), modeLbl)).Bold().FontSize(13).TextColor(a.pal.ring)
 				})
 		}
 
-		// Serpent / Eagle 1-click Filter + Storage Mode strip.
+		// Arc UI Sliding Pill Filter & Storage Bar (smooth collapse/expand).
 		if a.filterBarOpen {
 			a.filterBar(c)
 		}
 
 		// Project reference mode banner.
 		if a.referenceMode && a.project.Name != "" {
-			gui.Row(c).
-				Padding(8, 14).
-				Radius(10).
+			gui.Row(c.Key("ref-banner")).
+				Padding(10, 16).
+				Radius(radiusPanel).
 				Gap(10).
 				AlignItems(gui.Center).
 				Background(a.pal.ring.Alpha(0.12)).
-				Border(1, a.pal.ring.Alpha(0.30)).
+				Transition(gui.ElementTransition{
+					Animation: &arcEnterAnim,
+					Enter:     &gui.Motion{Y: -6, Opacity: 0, Collapse: true},
+					Exit:      &gui.Motion{Y: -6, Opacity: 0, Collapse: true},
+				}).
 				Children(func() {
 					gui.Icon(c, iconFolder).Size(15, 15).TextColor(a.pal.ring)
 					gui.Text(c, fmt.Sprintf(a.t("library.referencing"), a.project.Name)).Bold().FontSize(12).TextColor(a.pal.ring)
 					gui.Spacer(c)
-					gui.PrimaryButton(c.Key("ref-selected-btn"), a.t("library.reference")).OnClick(func() {
+					gui.PrimaryButton(c.Key("ref-selected-btn"), a.t("library.reference")).Radius(radiusControl).OnClick(func() {
 						a.referenceSelected()
 					})
-					gui.Button(c.Key("ref-done-btn"), a.t("common.done")).OnClick(func() {
+					gui.Button(c.Key("ref-done-btn"), a.t("common.done")).Radius(radiusControl).OnClick(func() {
 						a.referenceMode = false
 						if a.projectID != "" {
 							a.screen = screenProject
@@ -83,33 +91,43 @@ func (a *App) libraryMain(c *gui.Context) {
 				})
 		}
 
-		// Status message strip (when non-empty).
+		// Smooth status toast strip.
 		if a.status != "" {
-			gui.Row(c).Padding(4, 10).Radius(7).Background(a.pal.subtle).AlignItems(gui.Center).Gap(8).Children(func() {
-				gui.Text(c, a.status).FontSize(12).TextColor(t.TextMuted).Grow(1).SingleLine()
-				a.iconButton(c, "status-dismiss", iconX, a.t("common.close"), false).OnClick(func() {
-					a.status = ""
+			gui.Row(c.Key("status-toast")).
+				Padding(6, 12).
+				Radius(radiusControl).
+				Background(a.pal.surface).
+				AlignItems(gui.Center).
+				Gap(8).
+				Transition(gui.ElementTransition{
+					Animation: &arcEnterAnim,
+					Enter:     &gui.Motion{Y: -6, Opacity: 0, Collapse: true},
+					Exit:      &gui.Motion{Y: -6, Opacity: 0, Collapse: true},
+				}).
+				Children(func() {
+					gui.Text(c, a.status).FontSize(12).TextColor(t.TextMuted).Grow(1).SingleLine()
+					a.iconButton(c, "status-dismiss", iconX, a.t("common.close"), false).OnClick(func() {
+						a.status = ""
+					})
 				})
-			})
 		}
 
-		// Missing-assets quick relink banner when viewing Missing section.
+		// Missing-assets quick relink banner.
 		if a.navFilter == "missing" && len(a.assets) > 0 {
-			gui.Row(c).
-				Padding(10, 14).
-				Radius(10).
+			gui.Row(c.Key("missing-banner")).
+				Padding(10, 16).
+				Radius(radiusPanel).
 				Gap(8).
 				AlignItems(gui.Center).
-				Background(t.Danger.Alpha(0.10)).
-				Border(1, t.Danger.Alpha(0.28)).
+				Background(t.Danger.Alpha(0.12)).
 				Children(func() {
 					gui.Icon(c, iconAlert).Size(15, 15).TextColor(t.Danger)
 					gui.Text(c, fmt.Sprintf("%s (%d)", a.t("shell.missing"), len(a.assets))).FontSize(12).Bold().TextColor(t.Danger)
 					gui.Spacer(c)
-					gui.Button(c.Key("relink-file-all"), a.t("inspector.relinkFile")).OnClick(func() {
+					gui.Button(c.Key("relink-file-all"), a.t("inspector.relinkFile")).Radius(radiusControl).OnClick(func() {
 						a.relinkMissing(false)
 					})
-					gui.Button(c.Key("relink-dir-all"), a.t("inspector.relink")).OnClick(func() {
+					gui.Button(c.Key("relink-dir-all"), a.t("inspector.relink")).Radius(radiusControl).OnClick(func() {
 						a.relinkMissing(true)
 					})
 				})
@@ -139,27 +157,26 @@ func (a *App) filterBar(c *gui.Context) {
 		a.t("library.mode.copy"),
 	}
 
-	gui.Row(c).
+	gui.Row(c.Key("arc-filter-bar")).
 		Padding(6, 10).
 		Gap(10).
-		Radius(9).
+		Radius(radiusPanel).
 		AlignItems(gui.Center).
-		Background(a.pal.card).
-		Border(1, a.pal.hairline).
+		Background(a.pal.canvas).
 		Wrap().
+		Transition(gui.ElementTransition{
+			Animation: &arcEnterAnim,
+			Enter:     &gui.Motion{Y: -8, Opacity: 0, Collapse: true},
+			Exit:      &gui.Motion{Y: -8, Opacity: 0, Collapse: true},
+		}).
 		Children(func() {
-			// Format 1-click pills.
-			gui.Row(c).Gap(4).AlignItems(gui.Center).Children(func() {
-				for i, lbl := range kinds {
-					idx := i
-					a.tagChip(c, fmt.Sprintf("fkind-%d", idx), lbl, a.kindFilter == idx).OnClick(func() {
-						a.kindFilter = idx
-						a.applyFilters()
-					})
-				}
+			// Arc UI sliding pill navigator for media format.
+			a.arcPillTabs(c, "filter-kind", a.kindFilter, kinds, func(idx int) {
+				a.kindFilter = idx
+				a.applyFilters()
 			})
 
-			// Rating 1-click pills.
+			// Compact rating toggle pills.
 			gui.Row(c).Gap(4).AlignItems(gui.Center).Children(func() {
 				for i, lbl := range ratings {
 					idx := i
@@ -186,41 +203,38 @@ func (a *App) filterBar(c *gui.Context) {
 
 			gui.Spacer(c)
 
-			// Storage mode 1-click selector (clearly visible before importing or dropping files).
-			gui.Row(c).Gap(4).AlignItems(gui.Center).Children(func() {
-				gui.Text(c, a.t("library.mode")+":").FontSize(11).TextColor(a.pal.inkMuted)
-				for i, lbl := range modes {
-					idx := i
-					a.tagChip(c, fmt.Sprintf("fmode-%d", idx), lbl, a.storageMode == idx).OnClick(func() {
-						a.storageMode = idx
-					})
-				}
+			// Arc UI sliding pill navigator for storage strategy.
+			gui.Row(c).Gap(6).AlignItems(gui.Center).Children(func() {
+				gui.Text(c, a.t("library.mode")).FontSize(11).TextColor(a.pal.inkMuted)
+				a.arcPillTabs(c, "storage-mode", a.storageMode, modes, func(idx int) {
+					a.storageMode = idx
+				})
 			})
 		})
 }
 
 func (a *App) libraryEmptyState(c *gui.Context) {
 	t := c.Theme()
-	gui.Column(c).Grow(1).Center().Gap(12).Padding(32).Children(func() {
-		gui.Box(c).Size(52, 52).Radius(14).Background(a.pal.subtle).Center().Children(func() {
-			gui.Icon(c, iconImage).Size(24, 24).TextColor(a.pal.inkMuted)
+	gui.Column(c).Grow(1).Center().Gap(14).Padding(32).Children(func() {
+		gui.Box(c).Size(58, 58).Radius(radiusPanel).Background(a.pal.surface).Center().Children(func() {
+			gui.Icon(c, iconImage).Size(26, 26).TextColor(a.pal.inkMuted)
 		})
 		if a.hasActiveFilters() {
 			gui.Text(c, a.t("library.noMatch")).FontSize(15).Bold()
-			gui.Button(c.Key("empty-clear"), a.t("common.clear")).OnClick(func() { a.clearFilters() })
+			gui.Button(c.Key("empty-clear"), a.t("common.clear")).Radius(radiusControl).OnClick(func() { a.clearFilters() })
 		} else {
-			gui.Text(c, a.t("library.empty")).FontSize(15).Bold()
+			gui.Text(c, a.t("library.empty")).FontSize(16).Bold()
 			gui.Text(c, a.t("library.emptyHint")).
 				Width(380).
 				TextAlign(gui.Center).
 				FontSize(12).
 				TextColor(t.TextMuted).
-				LineHeight(1.5)
-			gui.Row(c).Gap(8).Padding(6, 0).Children(func() {
-				gui.PrimaryButton(c.Key("empty-import-files"), a.t("library.files")).OnClick(func() {
+				LineHeight(1.55)
+			gui.Row(c).Gap(10).Padding(6, 0).Children(func() {
+				gui.PrimaryButton(c.Key("empty-import-files"), a.t("library.files")).Radius(radiusControl).OnClick(func() {
 					a.startImport(false)
 				})
-				gui.Button(c.Key("empty-import-folder"), a.t("library.folder")).OnClick(func() {
+				gui.Button(c.Key("empty-import-folder"), a.t("library.folder")).Radius(radiusControl).OnClick(func() {
 					a.startImport(true)
 				})
 			})
@@ -247,13 +261,13 @@ func (a *App) assetGrid(c *gui.Context) {
 	}
 
 	cellW := float32(a.cardSize)
-	cellH := cellW + 30
+	cellH := cellW + 34
 
 	gv := gui.GridView(c.Key("asset-grid"), &a.grid, len(a.assets), cellW, cellH, func(i int) {
 		asset := a.assets[i]
 		a.assetCard(c, asset, i == a.assetIndex)
 	}).
-		Gap(14).
+		Gap(16).
 		Grow(1).
 		OnChange(func() {
 			a.syncInspectorSelection(false)
@@ -276,15 +290,17 @@ func (a *App) assetGrid(c *gui.Context) {
 	})
 }
 
+// assetCard renders an Arc UI frameless card: zero borders, surface-level fill
+// transitions on hover, subtle physical lift (-2px), and soft elevation shadow.
 func (a *App) assetCard(c *gui.Context, asset model.Asset, selected bool) {
 	t := c.Theme()
 	services := c.Services()
 	name := a.assetName(asset)
 	ext := a.assetExt(asset)
 
-	// IMPORTANT: Do NOT set .Drag() on a child inside GridView's cell, because
-	// flagDraggable intercepts pointerDown before GridView's cell can select it.
-	card := gui.Column(c).Fill().Padding(3).Gap(6)
+	// No .Drag() inside GridView cell so single-click selection & double-click
+	// preview work 100% reliably.
+	card := gui.Column(c).Fill().Padding(4).Gap(8)
 	card.PopoverMenu(func(m *gui.Menu) {
 		if m.Item(a.t("library.preview")).Chosen() {
 			a.openPreview(asset)
@@ -340,24 +356,34 @@ func (a *App) assetCard(c *gui.Context, asset model.Asset, selected bool) {
 		}
 	})
 
+	hovered := card.Hovered()
+	targetBg := a.pal.surface
+	liftY := float32(0)
+	shadowColor := a.pal.shadowSm
+	if selected {
+		targetBg = a.pal.surfaceMuted
+		shadowColor = a.pal.shadowMd
+	} else if hovered {
+		targetBg = a.pal.surfaceMuted
+		liftY = -2
+		shadowColor = a.pal.shadowMd
+	}
+	bg := card.AnimateColor("card-bg", targetBg, arcColorAnim)
+	card.AnimatePose(gui.Pose{Y: liftY}, arcSpring)
+
 	card.Children(func() {
-		// Artwork frame: clean rounded surface, crisp ring on selection.
+		// Frameless rounded media surface (Arc UI: no borders, surface fill + shadow).
 		frame := gui.Box(c).
 			Grow(1).
 			FillWidth().
-			Radius(10).
+			Radius(radiusPanel).
 			Clip().
-			Background(a.pal.card).
-			Shadow(0, 2, 8, 0, a.pal.shadow).
+			Background(bg).
+			Shadow(0, 4, 14, 0, shadowColor).
 			Center()
-		if selected {
-			frame.Border(2, a.pal.ring)
-		} else {
-			frame.Border(1, a.pal.hairline)
-		}
 		frame.Children(func() {
 			if bm := a.bitmaps[asset.ID]; bm != nil {
-				gui.Image(c, bm).Fit(gui.Contain).Grow(1).Padding(4).Radius(8)
+				gui.Image(c, bm).Fit(gui.Contain).Grow(1).Padding(6).Radius(radiusControl)
 			} else {
 				gui.Column(c).Center().Gap(6).Children(func() {
 					ic := iconFile
@@ -373,19 +399,19 @@ func (a *App) assetCard(c *gui.Context, asset model.Asset, selected bool) {
 			}
 		})
 
-		// Clean caption footer: single-line filename + compact meta badge.
-		gui.Row(c).Gap(6).AlignItems(gui.Center).Padding(0, 2).Children(func() {
+		// Clean caption footer.
+		gui.Row(c).Gap(6).AlignItems(gui.Center).Padding(0, 4).Children(func() {
 			nameColor := t.Text
 			if selected {
 				nameColor = a.pal.ring
 			}
-			gui.Text(c, name).Grow(1).FontSize(12).TextColor(nameColor).SingleLine()
+			gui.Text(c, name).Grow(1).FontSize(12).Bold().TextColor(nameColor).SingleLine()
 			if asset.Missing {
 				a.pillBadge(c, a.t("library.missing"), t.Danger, t.Danger.Alpha(0.14))
 			} else if asset.Rating > 0 {
 				gui.Text(c, fmt.Sprintf("★%d", asset.Rating)).FontSize(11).Bold().TextColor(a.pal.gold).SingleLine()
 			} else {
-				gui.Text(c, ext).FontSize(10).TextColor(a.pal.inkFaint).SingleLine()
+				gui.Text(c, ext).FontSize(10).TextColor(a.pal.inkMuted).SingleLine()
 			}
 		})
 	})
@@ -397,228 +423,237 @@ func (a *App) inspector(c *gui.Context) {
 	asset, ok := a.selectedAsset()
 	a.syncInspectorSelection(false)
 
-	gui.Column(c).
-		Fill().
-		Background(a.pal.sidebar).
-		BorderWidth(0, 0, 0, 1).
-		BorderColor(a.pal.hairline).
-		Children(func() {
-			if !ok {
-				gui.Column(c).Fill().Center().Padding(24).Gap(10).Children(func() {
-					gui.Icon(c, iconPanelRight).Size(26, 26).TextColor(a.pal.inkFaint)
-					gui.Text(c, a.t("inspector.none")).
-						FontSize(12).
-						TextColor(t.TextMuted).
-						TextAlign(gui.Center).
-						LineHeight(1.5)
-				})
-				return
-			}
-
-			gui.Scroll(c).Fill().Children(func() {
-				gui.Column(c).Padding(14, 16).Gap(12).Children(func() {
-					// Clickable hero preview thumbnail -> opens full-res Lightbox.
-					hero := gui.ButtonBase(c.Key("insp-hero-" + asset.ID)).
-						FillWidth().
-						Height(176).
-						Radius(10).
-						Clip().
-						Background(a.pal.card).
-						Border(1, a.pal.hairline).
-						Center().
-						Label(a.t("library.preview")).
-						Tooltip(a.t("library.preview")).
-						OnClick(func() {
-							a.openPreview(asset)
+	gui.Box(c).Fill().Padding(6, 12, 10, 6).Background(a.pal.canvas).Children(func() {
+		gui.Column(c.Key("arc-inspector")).
+			Fill().
+			Radius(radiusPanel).
+			Clip().
+			Background(a.pal.surface).
+			Transition(gui.ElementTransition{
+				Animation: &arcEnterAnim,
+				Enter:     &gui.Motion{X: 20, Opacity: 0},
+			}).
+			Children(func() {
+				if !ok {
+					gui.Column(c).Fill().Center().Padding(24).Gap(12).Children(func() {
+						gui.Box(c).Size(46, 46).Radius(radiusControl).Background(a.pal.surfaceMuted).Center().Children(func() {
+							gui.Icon(c, iconPanelRight).Size(22, 22).TextColor(a.pal.inkMuted)
 						})
-					hero.Children(func() {
-						if bm := a.bitmaps[asset.ID]; bm != nil {
-							gui.Image(c, bm).Fit(gui.Contain).Grow(1).Padding(6).Radius(8)
-						} else {
-							gui.Column(c).Center().Gap(6).Children(func() {
-								ic := iconFile
-								switch model.MediaKind(asset.Mime) {
-								case model.MediaVideo:
-									ic = iconVideo
-								case model.MediaImage:
-									ic = iconImage
-								}
-								gui.Icon(c, ic).Size(28, 28).TextColor(a.pal.inkFaint)
-								gui.Text(c, a.assetExt(asset)).Bold().TextColor(a.pal.inkMuted)
-							})
-						}
+						gui.Text(c, a.t("inspector.none")).
+							FontSize(12).
+							TextColor(t.TextMuted).
+							TextAlign(gui.Center).
+							LineHeight(1.55)
 					})
+					return
+				}
 
-					// Quick action toolbar directly below preview (Serpent / Eagle style).
-					gui.Row(c).Gap(6).AlignItems(gui.Center).Children(func() {
-						a.toolButton(c, "insp-preview-btn", iconEye, a.t("library.preview"), false).
-							Grow(1).
-							OnClick(func() { a.openPreview(asset) })
-						if !asset.Missing && asset.Path != "" {
-							a.iconButton(c, "insp-open-btn", iconExternal, a.t("common.openFile"), false).OnClick(func() {
-								_ = openLocalFile(asset.Path)
+				gui.Scroll(c).Fill().Children(func() {
+					gui.Column(c).Padding(14, 16).Gap(11).Children(func() {
+						// Frameless clickable hero preview with gentle Arc hover scale.
+						hero := gui.ButtonBase(c.Key("insp-hero-" + asset.ID)).
+							FillWidth().
+							Height(156).
+							Radius(radiusControl).
+							Clip().
+							Background(a.pal.surfaceRaised).
+							Shadow(0, 4, 14, 0, a.pal.shadowSm).
+							Center().
+							Label(a.t("library.preview")).
+							Tooltip(a.t("library.preview")).
+							OnClick(func() {
+								a.openPreview(asset)
 							})
-							a.iconButton(c, "insp-reveal-btn", iconFolder, a.t("common.revealFile"), false).OnClick(func() {
-								_ = revealLocalFile(asset.Path)
-							})
+						heroScale := float32(1)
+						if hero.Pressed() {
+							heroScale = 0.985
+						} else if hero.Hovered() {
+							heroScale = 1.015
 						}
-						a.iconButton(c, "insp-copy-path", iconCopy, a.t("common.copyPath"), false).OnClick(func() {
-							services.WriteClipboard(asset.Path)
-							a.status = a.t("common.copied")
-						})
-					})
-
-					// Title + compact badge strip.
-					gui.Column(c).Gap(6).Children(func() {
-						gui.Text(c, a.assetName(asset)).FontSize(14).Bold().LineHeight(1.3)
-						gui.Row(c).Gap(6).Wrap().AlignItems(gui.Center).Children(func() {
-							a.pillBadge(c, a.assetExt(asset), t.Text, a.pal.subtle)
-							a.pillBadge(c, a.modeLabel(asset.StorageMode), t.TextMuted, a.pal.subtle)
-							if asset.Width > 0 && asset.Height > 0 {
-								a.pillBadge(c, fmt.Sprintf("%d × %d", asset.Width, asset.Height), t.TextMuted, a.pal.subtle)
-							}
-							if asset.Missing {
-								a.pillBadge(c, a.t("library.missing"), t.Danger, t.Danger.Alpha(0.15))
-							}
-						})
-					})
-
-					// Missing file alert & relink actions.
-					if asset.Missing {
-						gui.Column(c).
-							Padding(10, 12).
-							Gap(8).
-							Radius(8).
-							Background(t.Danger.Alpha(0.10)).
-							Border(1, t.Danger.Alpha(0.28)).
-							Children(func() {
-								gui.Row(c).Gap(6).AlignItems(gui.Center).Children(func() {
-									gui.Icon(c, iconAlert).Size(14, 14).TextColor(t.Danger)
-									gui.Text(c, a.t("library.missing")).FontSize(12).Bold().TextColor(t.Danger)
-								})
-								gui.Row(c).Gap(6).Children(func() {
-									gui.Button(c.Key("insp-relink-file"), a.t("inspector.relinkFile")).Grow(1).OnClick(func() {
-										a.relinkMissing(false)
-									})
-									gui.Button(c.Key("insp-relink-dir"), a.t("inspector.relink")).Grow(1).OnClick(func() {
-										a.relinkMissing(true)
-									})
-								})
-							})
-					}
-
-					// Interactive Rating (bound to persistent a.inspectorRating!).
-					gui.Column(c).Gap(6).Children(func() {
-						a.sectionLabel(c, a.t("library.rating"))
-						gui.Rating(c.Key("rating-"+asset.ID), &a.inspectorRating, 5).OnChange(func() {
-							if err := a.lib.SetRating(asset.ID, a.inspectorRating); err == nil {
-								a.reload()
-							}
-						})
-					})
-
-					// Wrapping tag pills + quick-add tag field.
-					gui.Column(c).Gap(8).Children(func() {
-						a.sectionLabel(c, a.t("library.tags"))
-						owned := map[string]bool{}
-						for _, tg := range a.assetTags[asset.ID] {
-							owned[tg.ID] = true
-						}
-						if len(a.tags) > 0 {
-							gui.Row(c).Gap(6).Wrap().Children(func() {
-								for _, tag := range a.tags {
-									tg := tag
-									isOn := owned[tg.ID]
-									a.tagChip(c, "insp-tag-"+asset.ID+"-"+tg.ID, tg.Name, isOn).OnClick(func() {
-										if err := a.lib.SetAssetTag(asset.ID, tg.ID, !isOn); err != nil {
-											a.status = err.Error()
-											return
-										}
-										a.reload()
-									})
-								}
-							})
-						}
-						gui.Row(c).Gap(6).AlignItems(gui.Center).Children(func() {
-							gui.TextInput(c.Key("insp-quick-tag"), &a.quickTagName).
-								Placeholder(a.t("inspector.quickTag")).
-								Grow(1).
-								OnSubmit(func() { a.quickAddAssetTag(asset.ID) })
-							a.iconButton(c, "insp-quick-tag-add", iconPlus, a.t("tag.create"), false).OnClick(func() {
-								a.quickAddAssetTag(asset.ID)
-							})
-						})
-					})
-
-					gui.Divider(c)
-
-					// Used in Projects / References (core Ragle capability).
-					gui.Column(c).Gap(6).Children(func() {
-						gui.Row(c).AlignItems(gui.Center).Children(func() {
-							a.sectionLabel(c, a.t("inspector.usedIn"))
-							gui.Spacer(c)
-							if a.inspectorPlaces > 0 {
-								gui.Text(c, fmt.Sprintf(a.t("inspector.placements"), a.inspectorPlaces)).FontSize(10).TextColor(a.pal.inkMuted)
-							}
-						})
-						if len(a.inspectorProjects) == 0 {
-							gui.Text(c, a.t("inspector.usedNone")).FontSize(11).TextColor(a.pal.inkFaint)
-						} else {
-							gui.Row(c).Gap(6).Wrap().Children(func() {
-								for _, p := range a.inspectorProjects {
-									proj := p
-									a.tagChip(c, "insp-used-"+proj.ID, proj.Name, true).OnClick(func() {
-										a.openProject(proj.ID)
-									})
-								}
-							})
-						}
-						if len(a.projectList) > 0 {
-							gui.PopoverMenuButton(c.Key("insp-add-proj"), "+ "+a.t("library.addToProject"), func(m *gui.Menu) {
-								for _, p := range a.projectList {
-									proj := p
-									if m.Item(proj.Name).Chosen() {
-										a.referenceAssetToProject(asset.ID, proj.ID)
+						hero.AnimatePose(gui.Pose{Scale: heroScale}, arcSpring)
+						hero.Children(func() {
+							if bm := a.bitmaps[asset.ID]; bm != nil {
+								gui.Image(c, bm).Fit(gui.Contain).Grow(1).Padding(6).Radius(radiusControl)
+							} else {
+								gui.Column(c).Center().Gap(6).Children(func() {
+									ic := iconFile
+									switch model.MediaKind(asset.Mime) {
+									case model.MediaVideo:
+										ic = iconVideo
+									case model.MediaImage:
+										ic = iconImage
 									}
-								}
-							}).FillWidth()
-						}
-					})
-
-					gui.Divider(c)
-
-					// Details metadata grid.
-					gui.Column(c).Gap(6).Children(func() {
-						a.sectionLabel(c, a.t("inspector.details"))
-						if asset.Width > 0 && asset.Height > 0 {
-							a.metaRow(c, a.t("inspector.dimensions"), fmt.Sprintf("%d × %d px", asset.Width, asset.Height))
-							a.metaRow(c, a.t("inspector.aspect"), aspectRatioLabel(asset.Width, asset.Height))
-						}
-						if a.inspectorFileSize > 0 {
-							a.metaRow(c, a.t("inspector.size"), formatBytes(a.inspectorFileSize))
-						}
-						if asset.Mime != "" {
-							a.metaRow(c, a.t("library.mime"), asset.Mime)
-						}
-						a.metaRow(c, a.t("library.storage"), a.modeLabel(asset.StorageMode))
-						if len(asset.Hash) >= 12 {
-							a.metaRow(c, a.t("inspector.hash"), asset.Hash[:12]+"…")
-						}
-						if !asset.CreatedAt.IsZero() {
-							a.metaRow(c, a.t("inspector.added"), asset.CreatedAt.Local().Format("2006-01-02 15:04"))
-						}
-						gui.Box(c).Padding(6, 8).Radius(6).Background(a.pal.card).Border(1, a.pal.hairline).Children(func() {
-							gui.Text(c, asset.Path).FontSize(11).TextColor(t.TextMuted).LineHeight(1.4)
+									gui.Icon(c, ic).Size(28, 28).TextColor(a.pal.inkFaint)
+									gui.Text(c, a.assetExt(asset)).Bold().TextColor(a.pal.inkMuted)
+								})
+							}
 						})
+
+						// Quick action bar right below preview.
+						gui.Row(c).Gap(6).AlignItems(gui.Center).Children(func() {
+							a.toolButton(c, "insp-preview-btn", iconEye, a.t("library.preview"), false).
+								Grow(1).
+								OnClick(func() { a.openPreview(asset) })
+							if !asset.Missing && asset.Path != "" {
+								a.iconButton(c, "insp-open-btn", iconExternal, a.t("common.openFile"), false).OnClick(func() {
+									_ = openLocalFile(asset.Path)
+								})
+								a.iconButton(c, "insp-reveal-btn", iconFolder, a.t("common.revealFile"), false).OnClick(func() {
+									_ = revealLocalFile(asset.Path)
+								})
+							}
+							a.iconButton(c, "insp-copy-path", iconCopy, a.t("common.copyPath"), false).OnClick(func() {
+								services.WriteClipboard(asset.Path)
+								a.status = a.t("common.copied")
+							})
+						})
+
+						// Title + frameless pill badges.
+						gui.Column(c).Gap(7).Children(func() {
+							gui.Text(c, a.assetName(asset)).FontSize(14).Bold().LineHeight(1.3)
+							gui.Row(c).Gap(6).Wrap().AlignItems(gui.Center).Children(func() {
+								a.pillBadge(c, a.assetExt(asset), t.Text, a.pal.surfaceMuted)
+								a.pillBadge(c, a.modeLabel(asset.StorageMode), a.pal.inkSecondary, a.pal.surfaceMuted)
+								if asset.Width > 0 && asset.Height > 0 {
+									a.pillBadge(c, fmt.Sprintf("%d × %d", asset.Width, asset.Height), a.pal.inkSecondary, a.pal.surfaceMuted)
+								}
+								if asset.Missing {
+									a.pillBadge(c, a.t("library.missing"), t.Danger, t.Danger.Alpha(0.16))
+								}
+							})
+						})
+
+						// Missing file alert & relink CTAs.
+						if asset.Missing {
+							gui.Column(c).
+								Padding(12).
+								Gap(8).
+								Radius(radiusControl).
+								Background(t.Danger.Alpha(0.12)).
+								Children(func() {
+									gui.Row(c).Gap(6).AlignItems(gui.Center).Children(func() {
+										gui.Icon(c, iconAlert).Size(14, 14).TextColor(t.Danger)
+										gui.Text(c, a.t("library.missing")).FontSize(12).Bold().TextColor(t.Danger)
+									})
+									gui.Row(c).Gap(6).Children(func() {
+										gui.Button(c.Key("insp-relink-file"), a.t("inspector.relinkFile")).Grow(1).Radius(radiusControl).OnClick(func() {
+											a.relinkMissing(false)
+										})
+										gui.Button(c.Key("insp-relink-dir"), a.t("inspector.relink")).Grow(1).Radius(radiusControl).OnClick(func() {
+											a.relinkMissing(true)
+										})
+									})
+								})
+						}
+
+						// Interactive Rating.
+						gui.Column(c).Gap(6).Children(func() {
+							a.sectionLabel(c, a.t("library.rating"))
+							gui.Rating(c.Key("rating-"+asset.ID), &a.inspectorRating, 5).OnChange(func() {
+								if err := a.lib.SetRating(asset.ID, a.inspectorRating); err == nil {
+									a.reload()
+								}
+							})
+						})
+
+						// Wrapping frameless tag pills + inline quick-add.
+						gui.Column(c).Gap(8).Children(func() {
+							a.sectionLabel(c, a.t("library.tags"))
+							owned := map[string]bool{}
+							for _, tg := range a.assetTags[asset.ID] {
+								owned[tg.ID] = true
+							}
+							if len(a.tags) > 0 {
+								gui.Row(c).Gap(6).Wrap().Children(func() {
+									for _, tag := range a.tags {
+										tg := tag
+										isOn := owned[tg.ID]
+										a.tagChip(c, "insp-tag-"+asset.ID+"-"+tg.ID, tg.Name, isOn).OnClick(func() {
+											if err := a.lib.SetAssetTag(asset.ID, tg.ID, !isOn); err != nil {
+												a.status = err.Error()
+												return
+											}
+											a.reload()
+										})
+									}
+								})
+							}
+							gui.Row(c).Gap(6).AlignItems(gui.Center).Children(func() {
+								gui.TextInput(c.Key("insp-quick-tag"), &a.quickTagName).
+									Placeholder(a.t("inspector.quickTag")).
+									Grow(1).
+									OnSubmit(func() { a.quickAddAssetTag(asset.ID) })
+								a.iconButton(c, "insp-quick-tag-add", iconPlus, a.t("tag.create"), false).OnClick(func() {
+									a.quickAddAssetTag(asset.ID)
+								})
+							})
+						})
+
+						// Used in Projects / References.
+						gui.Column(c).Gap(8).Padding(12).Radius(radiusControl).Background(a.pal.surfaceRaised).Children(func() {
+							gui.Row(c).AlignItems(gui.Center).Children(func() {
+								a.sectionLabel(c, a.t("inspector.usedIn"))
+								gui.Spacer(c)
+								if a.inspectorPlaces > 0 {
+									gui.Text(c, fmt.Sprintf(a.t("inspector.placements"), a.inspectorPlaces)).FontSize(10).TextColor(a.pal.inkMuted)
+								}
+							})
+							if len(a.inspectorProjects) == 0 {
+								gui.Text(c, a.t("inspector.usedNone")).FontSize(11).TextColor(a.pal.inkMuted)
+							} else {
+								gui.Row(c).Gap(6).Wrap().Children(func() {
+									for _, p := range a.inspectorProjects {
+										proj := p
+										a.tagChip(c, "insp-used-"+proj.ID, proj.Name, true).OnClick(func() {
+											a.openProject(proj.ID)
+										})
+									}
+								})
+							}
+							if len(a.projectList) > 0 {
+								gui.PopoverMenuButton(c.Key("insp-add-proj"), "+ "+a.t("library.addToProject"), func(m *gui.Menu) {
+									for _, p := range a.projectList {
+										proj := p
+										if m.Item(proj.Name).Chosen() {
+											a.referenceAssetToProject(asset.ID, proj.ID)
+										}
+									}
+								}).FillWidth()
+							}
+						})
+
+						// Frameless metadata card.
+						gui.Column(c).Gap(6).Padding(12).Radius(radiusControl).Background(a.pal.surfaceRaised).Children(func() {
+							a.sectionLabel(c, a.t("inspector.details"))
+							if asset.Width > 0 && asset.Height > 0 {
+								a.metaRow(c, a.t("inspector.dimensions"), fmt.Sprintf("%d × %d px", asset.Width, asset.Height))
+								a.metaRow(c, a.t("inspector.aspect"), aspectRatioLabel(asset.Width, asset.Height))
+							}
+							if a.inspectorFileSize > 0 {
+								a.metaRow(c, a.t("inspector.size"), formatBytes(a.inspectorFileSize))
+							}
+							if asset.Mime != "" {
+								a.metaRow(c, a.t("library.mime"), asset.Mime)
+							}
+							a.metaRow(c, a.t("library.storage"), a.modeLabel(asset.StorageMode))
+							if len(asset.Hash) >= 12 {
+								a.metaRow(c, a.t("inspector.hash"), asset.Hash[:12]+"…")
+							}
+							if !asset.CreatedAt.IsZero() {
+								a.metaRow(c, a.t("inspector.added"), asset.CreatedAt.Local().Format("2006-01-02 15:04"))
+							}
+							gui.Box(c).Padding(8, 10).Radius(8).Background(a.pal.surface).Children(func() {
+								gui.Text(c, asset.Path).FontSize(11).TextColor(a.pal.inkSecondary).LineHeight(1.4)
+							})
+						})
+
+						gui.Button(c.Key("insp-delete"), a.t("library.delete")).
+							FillWidth().
+							Radius(radiusControl).
+							TextColor(t.Danger).
+							OnClick(func() { a.deleteAssetPrompt(asset) })
 					})
-
-					gui.Divider(c)
-
-					gui.Button(c.Key("insp-delete"), a.t("library.delete")).
-						FillWidth().
-						TextColor(t.Danger).
-						OnClick(func() { a.deleteAssetPrompt(asset) })
 				})
 			})
-		})
+	})
 }
