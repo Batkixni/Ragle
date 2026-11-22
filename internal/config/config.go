@@ -23,6 +23,9 @@ type Config struct {
 	CustomAccent  string `json:"custom_accent,omitempty"`  // #RRGGBB
 	CustomText    string `json:"custom_text,omitempty"`    // #RRGGBB
 
+	// Onboarding state (shown automatically on first launch).
+	OnboardingDone bool `json:"onboarding_done,omitempty"`
+
 	// Workspace & appearance preferences.
 	ShowSidebarCounts *bool  `json:"show_sidebar_counts,omitempty"`
 	ShowCardCaption   *bool  `json:"show_card_caption,omitempty"`

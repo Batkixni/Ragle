@@ -532,6 +532,14 @@ func (a *App) settingsGeneralTab(c *gui.Context) {
 				a.syncConfigFromState()
 			})
 		})
+
+		gui.Row(c).FillWidth().Padding(4, 0, 0, 0).AlignItems(gui.Center).Children(func() {
+			gui.Text(c, a.t("onboarding.open")).FontSize(13).Grow(1)
+			a.toolButton(c, "pref-reopen-ob", iconHelp, a.t("onboarding.reopen"), false).OnClick(func() {
+				a.settingsOpen = false
+				a.openOnboarding()
+			})
+		})
 	})
 }
 

@@ -296,8 +296,11 @@ func (a *App) sidebar(c *gui.Context) {
 							FillWidth().
 							OnClick(func() { a.deleteTagPrompt(a.tagID) })
 					}
-					gui.Row(c).AlignItems(gui.Center).Padding(2, 4).Children(func() {
+					gui.Row(c).AlignItems(gui.Center).Gap(2).Padding(2, 4).Children(func() {
 						gui.Text(c, a.t("shell.localFirst")).FontSize(10).TextColor(a.pal.inkFaint).Grow(1).SingleLine()
+						a.iconButton(c, "sb-help-guide", iconHelp, a.t("onboarding.open"), a.onboardingOpen).OnClick(func() {
+							a.openOnboarding()
+						})
 						a.iconButton(c, "sb-recv-pair", iconLink, a.t("share.receiveByCode"), false).OnClick(func() {
 							a.pairRecvOpen = true
 						})

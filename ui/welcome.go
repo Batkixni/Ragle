@@ -16,6 +16,7 @@ func (a *App) View(c *gui.Context) {
 	}
 	a.previewModal(c)
 	a.settingsModal(c)
+	a.onboardingModal(c)
 	a.newProjectModal(c)
 	a.editProjectModal(c)
 	a.editTagModal(c)

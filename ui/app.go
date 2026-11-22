@@ -189,6 +189,12 @@ type App struct {
 	customAccent  string
 	customText    string
 
+	// First-run onboarding guide modal state.
+	onboardingDone     bool
+	onboardingOpen     bool
+	onboardingStep     int
+	onboardingPrevStep int
+
 	// Preferences / Settings modal state & live database diagnostics.
 	settingsOpen         bool
 	settingsTab          int
@@ -299,6 +305,7 @@ func NewApp() *App {
 		notifyDuplicates:     true,
 		backupBeforeDelete:   true,
 		previewLoop:          true,
+		onboardingDone:       true,
 		assetIndex:           -1,
 		anchorIndex:          -1,
 		selectedIDs:          map[string]bool{},
@@ -333,6 +340,11 @@ func Run() error {
 	a := NewApp()
 	if cfg, err := config.Load(); err == nil {
 		a.applyConfig(cfg)
+	} else {
+		a.onboardingDone = false
+	}
+	if !a.onboardingDone {
+		a.onboardingOpen = true
 	}
 	mygo.App.WhenReady(func() {
 		a.win = mygo.NewWindow(mygo.WindowOptions{
@@ -372,6 +384,7 @@ func (a *App) applyConfig(cfg config.Config) {
 	a.customSurface = cfg.CustomSurface
 	a.customAccent = cfg.CustomAccent
 	a.customText = cfg.CustomText
+	a.onboardingDone = cfg.OnboardingDone
 	if cfg.CardSize >= 120 && cfg.CardSize <= 320 {
 		a.cardSize = cfg.CardSize
 	}
@@ -407,6 +420,7 @@ func (a *App) syncConfigFromState() {
 	a.cfg.CustomSurface = strings.TrimSpace(a.customSurface)
 	a.cfg.CustomAccent = strings.TrimSpace(a.customAccent)
 	a.cfg.CustomText = strings.TrimSpace(a.customText)
+	a.cfg.OnboardingDone = a.onboardingDone
 	a.cfg.CardSize = a.cardSize
 	a.cfg.DefaultSort = a.sortBy
 	a.cfg.LayoutMode = a.layoutMode
@@ -1958,6 +1972,7 @@ func (a *App) clearSelection() {
 func (a *App) canRunLibraryShortcut() bool {
 	return a.lib != nil &&
 		a.screen == screenLibrary &&
+		!a.onboardingOpen &&
 		!a.previewOpen &&
 		!a.settingsOpen &&
 		!a.newProjOpen &&

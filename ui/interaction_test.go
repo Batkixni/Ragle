@@ -585,4 +585,32 @@ func TestGlobalShortcutsAndMarqueeBoxSelection(t *testing.T) {
 			t.Fatalf("[%s] clicking empty canvas did not clear selection: got %d", mode, len(a.selectedAssetIDs()))
 		}
 	}
+
+	// 8. Onboarding guide flow: click sidebar help button -> step through all 5 steps -> finish.
+	a.onboardingDone = false
+	if err := tt.Click("新手教學"); err != nil {
+		t.Fatalf("clicking onboarding help button failed: %v", err)
+	}
+	tt.Advance(300 * time.Millisecond)
+	if !a.onboardingOpen || !tt.HasText("歡迎使用 Ragle") {
+		t.Fatalf("onboarding step 1 did not render, texts=%v", tt.Texts())
+	}
+	for step := 1; step < onboardingTotalSteps; step++ {
+		if err := tt.Click("下一步"); err != nil {
+			t.Fatalf("clicking Next on step %d failed: %v", step, err)
+		}
+		tt.Advance(300 * time.Millisecond)
+		if a.onboardingStep != step {
+			t.Fatalf("expected onboardingStep=%d, got %d", step, a.onboardingStep)
+		}
+	}
+	if !tt.HasText("常用快捷鍵一覽") {
+		t.Fatalf("onboarding shortcuts step missing, texts=%v", tt.Texts())
+	}
+	if err := tt.Click("開始使用 Ragle"); err != nil {
+		t.Fatalf("clicking Finish onboarding failed: %v", err)
+	}
+	if a.onboardingOpen || !a.onboardingDone {
+		t.Fatalf("onboarding did not complete cleanly: open=%v done=%v", a.onboardingOpen, a.onboardingDone)
+	}
 }

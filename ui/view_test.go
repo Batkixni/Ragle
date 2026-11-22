@@ -364,6 +364,16 @@ func TestRenderScreenshots(t *testing.T) {
 	save("settings_import_dark.png", 1360, 860)
 	a.settingsOpen = false
 
+	// 2c. First-run onboarding modal screenshots (Step 1, Step 3, Step 5 — dark).
+	a.themeMode = "dark"
+	a.openOnboarding()
+	save("onboarding_step1_dark.png", 1360, 860)
+	a.setOnboardingStep(2)
+	save("onboarding_step3_dark.png", 1360, 860)
+	a.setOnboardingStep(4)
+	save("onboarding_step5_dark.png", 1360, 860)
+	a.onboardingOpen = false
+
 	// 3. Project view dark (redesigned unified header).
 	a.themeMode = "dark"
 	a.screen = screenProject
