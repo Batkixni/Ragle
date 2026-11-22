@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -35,6 +36,13 @@ const (
 	screenBoard
 )
 
+const (
+	sortNewest = iota
+	sortOldest
+	sortName
+	sortRating
+)
+
 // assetDrag is the value dragged from a library card or the board tray.
 type assetDrag struct {
 	ID string
@@ -49,9 +57,10 @@ var storageModes = []string{
 
 // App is the state of the single window. The view reads it on the main thread.
 type App struct {
-	cfg  config.Config
-	lang string
-	win  *mygo.Window
+	cfg       config.Config
+	lang      string
+	themeMode string // "auto", "light", "dark"
+	win       *mygo.Window
 
 	mu     sync.Mutex
 	closed bool
@@ -83,17 +92,47 @@ type App struct {
 	pendingRoot string
 	canRestore  bool
 
-	tags        []model.Tag
-	assets      []model.Asset
-	assetByID   map[string]model.Asset
-	tagID       string
-	kindFilter  int
-	minRating   int
-	grid        gui.GridState
-	assetIndex  int
-	storageMode int
-	importing   bool
+	// Cached catalog data updated in reload() so View never hits bbolt per frame.
+	tags           []model.Tag
+	allAssets      []model.Asset
+	assets         []model.Asset
+	assetByID      map[string]model.Asset
+	assetTags      map[string][]model.Tag
+	tagCounts      map[string]int
+	allAssetsCount int
+	untaggedCount  int
+	missingCount   int
+	projectTags    map[string]bool
+	boardCounts    map[string]int
 
+	// Navigation, search, sort & library display state.
+	tagID         string
+	navFilter     string // "", "untagged", "missing"
+	searchQuery   string
+	searchHandle  gui.Handle
+	kindFilter    int
+	minRating     int
+	sortBy        int
+	grid          gui.GridState
+	assetIndex    int
+	cardSize      float64
+	inspectorOpen bool
+	storageMode   int
+	importing     bool
+
+	// Inspector persistent bound state (avoids local-variable loss on rebuild).
+	inspectorAssetID  string
+	inspectorRating   int
+	inspectorFileSize int64
+	quickTagName      string
+
+	// Quick Preview Lightbox state.
+	previewOpen    bool
+	previewAssetID string
+	previewBitmap  *gui.Bitmap
+	previewLoading bool
+
+	// Project & board state.
 	projectList   []model.Project
 	projectID     string
 	project       model.Project
@@ -101,25 +140,33 @@ type App struct {
 	boards        []model.Board
 	referenceMode bool
 
+	// Inline & modal creation forms.
+	newTagOpen     bool
 	newTagName     string
+	newProjOpen    bool
 	newProjectName string
 	newProjectDesc string
+	newProjTags    map[string]bool
 	newBoardName   string
 
-	boardID      string
-	boardName    string
-	boardProject string
-	session      *canvas.Session
-	tool         int
-	tray         int
-	gesture      gesture
-	spaceDown    bool
-	focusBoard   bool
-	focusBody    bool
-	boundID      string
-	notesBuf     string
-	editText     string
-	flushArmed   bool
+	// Board state.
+	boardID            string
+	boardName          string
+	boardProject       string
+	session            *canvas.Session
+	tool               int
+	tray               int
+	boardDrawerOpen    bool
+	boardInspectorOpen bool
+	gesture            gesture
+	spaceDown          bool
+	focusBoard         bool
+	focusBody          bool
+	boundID            string
+	notesBuf           string
+	editText           string
+	fontSizeBuf        float64
+	flushArmed         bool
 
 	bitmaps map[string]*gui.Bitmap
 	loading map[string]bool
@@ -138,6 +185,7 @@ type App struct {
 	lastNav        string
 
 	dark   bool
+	pal    palette
 	paper  gui.Color
 	ink    gui.Color
 	accent gui.Color
@@ -149,18 +197,28 @@ type App struct {
 // preference is loaded.
 func NewApp() *App {
 	return &App{
-		lang:           i18n.Default(),
-		screen:         screenWelcome,
-		shareFiles:     true,
-		assetIndex:     -1,
-		bitmaps:        map[string]*gui.Bitmap{},
-		loading:        map[string]bool{},
-		queued:         map[string]bool{},
-		assetByID:      map[string]model.Asset{},
-		sidebarWidth:   220,
-		libraryPercent: 72,
-		selectedNav:    "tag-all",
-		lastNav:        "tag-all",
+		lang:               i18n.Default(),
+		themeMode:          "auto",
+		screen:             screenWelcome,
+		shareFiles:         true,
+		assetIndex:         -1,
+		cardSize:           184,
+		inspectorOpen:      true,
+		boardDrawerOpen:    true,
+		boardInspectorOpen: true,
+		bitmaps:            map[string]*gui.Bitmap{},
+		loading:            map[string]bool{},
+		queued:             map[string]bool{},
+		assetByID:          map[string]model.Asset{},
+		assetTags:          map[string][]model.Tag{},
+		tagCounts:          map[string]int{},
+		projectTags:        map[string]bool{},
+		boardCounts:        map[string]int{},
+		newProjTags:        map[string]bool{},
+		sidebarWidth:       232,
+		libraryPercent:     74,
+		selectedNav:        "tag-all",
+		lastNav:            "tag-all",
 	}
 }
 
@@ -175,13 +233,19 @@ func Run() error {
 		if cfg.SignalingURL != "" {
 			a.signalURL = cfg.SignalingURL
 		}
+		if cfg.ThemeMode == "auto" || cfg.ThemeMode == "light" || cfg.ThemeMode == "dark" {
+			a.themeMode = cfg.ThemeMode
+		}
+		if cfg.CardSize >= 120 && cfg.CardSize <= 320 {
+			a.cardSize = cfg.CardSize
+		}
 	}
 	mygo.App.WhenReady(func() {
 		a.win = mygo.NewWindow(mygo.WindowOptions{
 			Title:     "Ragle",
-			Width:     1280,
-			Height:    800,
-			MinWidth:  960,
+			Width:     1360,
+			Height:    860,
+			MinWidth:  980,
 			MinHeight: 640,
 			StateKey:  "main",
 			Content:   gui.View(a.View),
@@ -204,6 +268,19 @@ func (a *App) setLang(lang string) {
 	}
 	a.lang = lang
 	a.cfg.Language = lang
+	a.saveConfig()
+}
+
+func (a *App) setThemeMode(mode string) {
+	if mode != "auto" && mode != "light" && mode != "dark" {
+		return
+	}
+	a.themeMode = mode
+	a.cfg.ThemeMode = mode
+	a.saveConfig()
+}
+
+func (a *App) saveConfig() {
 	if a.win != nil {
 		_ = config.Save(a.cfg)
 	}
@@ -220,8 +297,6 @@ func (a *App) shutdown() {
 	if pairCancel != nil {
 		pairCancel()
 	}
-	// Drop the library pointer before waiting, so a transfer blocked on the
-	// accept dialog wakes up from the node context and does not touch the DB.
 	a.shareDB.Store(nil)
 	if node != nil {
 		_ = node.Close()
@@ -281,9 +356,7 @@ func (a *App) attach(lib *library.Library, root string) {
 	a.shareDB.Store(lib.DB)
 	a.projects = project.New(lib.DB)
 	a.cfg.LibraryPath = root
-	if a.win != nil {
-		_ = config.Save(a.cfg)
-	}
+	a.saveConfig()
 	win := a.win
 	a.thumbs = thumbnail.Start(lib.DB, func(id string) {
 		if win == nil {
@@ -309,7 +382,13 @@ func (a *App) attach(lib *library.Library, root string) {
 	a.screen = screenLibrary
 	a.openErr = nil
 	a.canRestore = false
+	a.tagID = ""
+	a.navFilter = ""
+	a.searchQuery = ""
 	a.assetIndex = -1
+	a.projectID = ""
+	a.project = model.Project{}
+	a.previewOpen = false
 	a.bitmaps = map[string]*gui.Bitmap{}
 	a.loading = map[string]bool{}
 	a.queued = map[string]bool{}
@@ -357,33 +436,42 @@ func (a *App) reload() {
 		return
 	}
 	a.tags = tags
+
 	all, err := a.lib.List(library.Filter{})
 	if err != nil {
 		a.status = err.Error()
 		return
 	}
+	a.allAssets = all
+	a.allAssetsCount = len(all)
 	a.assetByID = make(map[string]model.Asset, len(all))
+	a.assetTags = make(map[string][]model.Tag, len(all))
+	a.tagCounts = make(map[string]int, len(tags))
+	a.untaggedCount = 0
+	a.missingCount = 0
+
 	for _, asset := range all {
 		a.assetByID[asset.ID] = asset
+		if asset.Missing {
+			a.missingCount++
+		}
+		atags, _ := a.lib.AssetTags(asset.ID)
+		a.assetTags[asset.ID] = atags
+		if len(atags) == 0 {
+			a.untaggedCount++
+		}
+		for _, tg := range atags {
+			a.tagCounts[tg.ID]++
+		}
 		if asset.ThumbnailPath != "" {
 			a.ensureBitmap(asset.ID, asset.ThumbnailPath)
 		} else {
 			a.queueThumb(asset)
 		}
 	}
-	filtered, err := a.lib.List(library.Filter{
-		TagID:     a.tagID,
-		Kind:      a.kindValue(),
-		MinRating: a.minRating,
-	})
-	if err != nil {
-		a.status = err.Error()
-		return
-	}
-	a.assets = filtered
-	if a.assetIndex >= len(a.assets) {
-		a.assetIndex = -1
-	}
+
+	a.applyFilters()
+
 	if a.projects != nil {
 		if a.tagID == "" {
 			a.projectList, err = a.projects.List()
@@ -395,7 +483,10 @@ func (a *App) reload() {
 			return
 		}
 	}
-	if a.projectID != "" {
+
+	a.projectTags = map[string]bool{}
+	a.boardCounts = map[string]int{}
+	if a.projectID != "" && a.projects != nil {
 		projects, err := a.projects.List()
 		if err != nil {
 			a.status = err.Error()
@@ -419,6 +510,11 @@ func (a *App) reload() {
 				a.session = nil
 			}
 		} else {
+			if ids, err := a.projects.TagIDs(a.projectID); err == nil {
+				for _, id := range ids {
+					a.projectTags[id] = true
+				}
+			}
 			a.projectAssets, err = a.projects.Assets(a.projectID)
 			if err != nil {
 				a.status = err.Error()
@@ -429,12 +525,148 @@ func (a *App) reload() {
 				a.status = err.Error()
 				return
 			}
+			for _, b := range a.boards {
+				if items, err := a.projects.LoadPlacements(b.ID); err == nil {
+					a.boardCounts[b.ID] = len(items)
+				}
+			}
 		}
 	}
 	if a.watch != nil {
 		_ = a.watch.Sync()
 	}
+	a.syncInspectorSelection()
 	a.syncNavSelection()
+}
+
+// applyFilters filters & sorts a.allAssets into a.assets in memory (instant search/sort).
+func (a *App) applyFilters() {
+	var selectedID string
+	if cur, ok := a.selectedAsset(); ok {
+		selectedID = cur.ID
+	}
+
+	kind := a.kindValue()
+	q := strings.ToLower(strings.TrimSpace(a.searchQuery))
+	out := make([]model.Asset, 0, len(a.allAssets))
+
+	for _, asset := range a.allAssets {
+		if a.navFilter == "missing" && !asset.Missing {
+			continue
+		}
+		if a.navFilter == "untagged" && len(a.assetTags[asset.ID]) > 0 {
+			continue
+		}
+		if a.tagID != "" && !a.hasTag(asset.ID, a.tagID) {
+			continue
+		}
+		if a.minRating > 0 && asset.Rating < a.minRating {
+			continue
+		}
+		if kind != "" && model.MediaKind(asset.Mime) != kind {
+			continue
+		}
+		if q != "" && !a.matchesQuery(asset, q) {
+			continue
+		}
+		out = append(out, asset)
+	}
+
+	switch a.sortBy {
+	case sortOldest:
+		sort.Slice(out, func(i, j int) bool {
+			return out[i].CreatedAt.Before(out[j].CreatedAt)
+		})
+	case sortName:
+		sort.Slice(out, func(i, j int) bool {
+			return strings.ToLower(a.assetName(out[i])) < strings.ToLower(a.assetName(out[j]))
+		})
+	case sortRating:
+		sort.Slice(out, func(i, j int) bool {
+			if out[i].Rating != out[j].Rating {
+				return out[i].Rating > out[j].Rating
+			}
+			return out[i].CreatedAt.After(out[j].CreatedAt)
+		})
+	default: // sortNewest
+		sort.Slice(out, func(i, j int) bool {
+			return out[i].CreatedAt.After(out[j].CreatedAt)
+		})
+	}
+
+	a.assets = out
+	if selectedID != "" {
+		a.assetIndex = -1
+		for i, item := range a.assets {
+			if item.ID == selectedID {
+				a.assetIndex = i
+				break
+			}
+		}
+	} else if a.assetIndex >= len(a.assets) {
+		a.assetIndex = -1
+	}
+	a.syncInspectorSelection()
+}
+
+func (a *App) hasTag(assetID, tagID string) bool {
+	for _, tg := range a.assetTags[assetID] {
+		if tg.ID == tagID {
+			return true
+		}
+	}
+	return false
+}
+
+func (a *App) matchesQuery(asset model.Asset, q string) bool {
+	name := strings.ToLower(a.assetName(asset))
+	if strings.Contains(name, q) {
+		return true
+	}
+	if strings.Contains(strings.ToLower(asset.Mime), q) {
+		return true
+	}
+	if strings.Contains(strings.ToLower(asset.Path), q) {
+		return true
+	}
+	for _, tg := range a.assetTags[asset.ID] {
+		if strings.Contains(strings.ToLower(tg.Name), q) {
+			return true
+		}
+	}
+	return false
+}
+
+func (a *App) syncInspectorSelection() {
+	asset, ok := a.selectedAsset()
+	if !ok {
+		a.inspectorAssetID = ""
+		a.inspectorRating = 0
+		a.inspectorFileSize = 0
+		return
+	}
+	a.inspectorRating = asset.Rating
+	if a.inspectorAssetID == asset.ID {
+		return
+	}
+	a.inspectorAssetID = asset.ID
+	a.inspectorFileSize = 0
+	if !asset.Missing && asset.Path != "" {
+		if fi, err := os.Stat(asset.Path); err == nil {
+			a.inspectorFileSize = fi.Size()
+		}
+	}
+}
+
+func (a *App) hasActiveFilters() bool {
+	return a.searchQuery != "" || a.kindFilter != 0 || a.minRating != 0
+}
+
+func (a *App) clearFilters() {
+	a.searchQuery = ""
+	a.kindFilter = 0
+	a.minRating = 0
+	a.applyFilters()
 }
 
 func (a *App) kindValue() string {
@@ -470,6 +702,11 @@ func (a *App) onThumb(id string) {
 		return
 	}
 	a.assetByID[id] = asset
+	for i := range a.allAssets {
+		if a.allAssets[i].ID == id {
+			a.allAssets[i] = asset
+		}
+	}
 	for i := range a.assets {
 		if a.assets[i].ID == id {
 			a.assets[i] = asset
@@ -507,6 +744,69 @@ func (a *App) ensureBitmap(id, path string) {
 	}()
 }
 
+// openPreview opens the full-resolution Quick Preview lightbox for asset.
+func (a *App) openPreview(asset model.Asset) {
+	if asset.ID == "" {
+		return
+	}
+	a.previewOpen = true
+	if a.previewAssetID == asset.ID && (a.previewBitmap != nil || a.previewLoading) {
+		return
+	}
+	a.previewAssetID = asset.ID
+	a.previewBitmap = nil
+	a.previewLoading = false
+
+	if asset.Missing || model.MediaKind(asset.Mime) != model.MediaImage || asset.Path == "" {
+		return
+	}
+	if a.win == nil {
+		a.previewBitmap = a.bitmaps[asset.ID]
+		return
+	}
+	a.previewLoading = true
+	win := a.win
+	targetID := asset.ID
+	path := asset.Path
+	go func() {
+		data, err := os.ReadFile(path)
+		var bm *gui.Bitmap
+		if err == nil {
+			bm, _ = gui.DecodeBitmap(data)
+		}
+		win.Update(func() {
+			if a.previewAssetID != targetID {
+				return
+			}
+			a.previewLoading = false
+			if bm != nil {
+				a.previewBitmap = bm
+			}
+		})
+	}()
+}
+
+func (a *App) stepPreview(delta int) {
+	if !a.previewOpen || len(a.assets) == 0 {
+		return
+	}
+	idx := -1
+	for i, item := range a.assets {
+		if item.ID == a.previewAssetID {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		idx = 0
+	} else {
+		idx = (idx + delta + len(a.assets)) % len(a.assets)
+	}
+	a.assetIndex = idx
+	a.syncInspectorSelection()
+	a.openPreview(a.assets[idx])
+}
+
 func (a *App) chooseLibrary() {
 	if a.win == nil {
 		return
@@ -522,10 +822,7 @@ func (a *App) chooseLibrary() {
 		if err != nil || len(paths) == 0 {
 			if err != nil && win != nil {
 				win.Update(func() {
-					a.mu.Lock()
-					closed := a.closed
-					a.mu.Unlock()
-					if !closed {
+					if !a.isClosed() {
 						a.status = err.Error()
 					}
 				})
@@ -555,13 +852,6 @@ func (a *App) startImport(directory bool) {
 	if a.importing || a.win == nil || a.lib == nil {
 		return
 	}
-	a.importing = true
-	lib := a.lib
-	mode := storageModes[a.storageMode]
-	var tags []string
-	if a.tagID != "" {
-		tags = []string{a.tagID}
-	}
 	title := a.t("library.files")
 	if directory {
 		title = a.t("library.folder")
@@ -575,19 +865,41 @@ func (a *App) startImport(directory bool) {
 			Multiple:  !directory,
 		})
 		if err != nil || len(paths) == 0 {
-			win.Update(func() {
-				a.importing = false
-				if err != nil && !a.isClosed() {
-					a.status = err.Error()
-				}
-			})
+			if err != nil {
+				win.Update(func() {
+					if !a.isClosed() {
+						a.status = err.Error()
+					}
+				})
+			}
 			return
 		}
-		if a.isClosed() {
-			win.Update(func() { a.importing = false })
-			return
-		}
+		win.Update(func() {
+			if !a.isClosed() {
+				a.importPaths(paths)
+			}
+		})
+	}()
+}
+
+// importPaths imports files or directories from either the file picker or OS drag-and-drop.
+func (a *App) importPaths(paths []string) {
+	if a.importing || a.lib == nil || len(paths) == 0 {
+		return
+	}
+	a.importing = true
+	lib := a.lib
+	mode := storageModes[a.storageMode]
+	var tags []string
+	if a.tagID != "" {
+		tags = []string{a.tagID}
+	}
+	win := a.win
+	go func() {
 		res, importErr := lib.Import(nilContext(), paths, mode, tags, func(done, total int) {
+			if win == nil {
+				return
+			}
 			d, n := done, total
 			win.Update(func() {
 				if a.isClosed() {
@@ -596,6 +908,9 @@ func (a *App) startImport(directory bool) {
 				a.status = fmt.Sprintf(a.t("library.importing"), d, n)
 			})
 		})
+		if win == nil {
+			return
+		}
 		win.Update(func() {
 			a.importing = false
 			if a.isClosed() || a.lib == nil {
@@ -606,7 +921,7 @@ func (a *App) startImport(directory bool) {
 			} else {
 				a.status = fmt.Sprintf(a.t("library.imported"), res.Added, res.Existing, res.Failed)
 				for _, item := range res.Items {
-					if item.Status == "added" {
+					if item.Status == "added" && a.thumbs != nil {
 						a.thumbs.Enqueue(item.AssetID)
 						a.queued[item.AssetID] = true
 					}
@@ -614,6 +929,41 @@ func (a *App) startImport(directory bool) {
 						a.status = a.t("library.symlinkFailed")
 					}
 				}
+			}
+			a.reload()
+		})
+	}()
+}
+
+func (a *App) relinkMissing() {
+	if a.win == nil || a.lib == nil {
+		return
+	}
+	win := a.win
+	lib := a.lib
+	title := a.t("inspector.relink")
+	go func() {
+		paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{
+			Parent:    win,
+			Title:     title,
+			Directory: true,
+		})
+		if err != nil || len(paths) == 0 {
+			return
+		}
+		count, relinkErr := lib.RelinkPaths(context.Background(), paths)
+		win.Update(func() {
+			if a.isClosed() || a.lib == nil {
+				return
+			}
+			if relinkErr != nil {
+				a.status = relinkErr.Error()
+				return
+			}
+			if count > 0 {
+				a.status = fmt.Sprintf(a.t("inspector.relinkResult"), count)
+			} else {
+				a.status = a.t("inspector.relinkNone")
 			}
 			a.reload()
 		})
@@ -646,7 +996,6 @@ func (a *App) confirm(c *gui.Context) {
 			fn()
 		}
 	case 0:
-		// A missing build context also returns 0, and it leaves the dialog open.
 		if a.askOpen {
 			return
 		}
@@ -688,25 +1037,74 @@ func (a *App) createTag() {
 		return
 	}
 	a.newTagName = ""
+	a.newTagOpen = false
 	a.tagID = tag.ID
+	a.navFilter = ""
 	a.reload()
 }
 
-func (a *App) createProject() {
-	if a.tagID == "" {
-		a.status = a.t("project.needTag")
+func (a *App) quickAddAssetTag(assetID string) {
+	name := trim(a.quickTagName)
+	if name == "" || a.lib == nil {
 		return
 	}
+	var targetID string
+	for _, tg := range a.tags {
+		if strings.EqualFold(tg.Name, name) {
+			targetID = tg.ID
+			break
+		}
+	}
+	if targetID == "" {
+		created, err := a.lib.CreateTag(name)
+		if err != nil {
+			a.status = err.Error()
+			return
+		}
+		targetID = created.ID
+	}
+	if err := a.lib.SetAssetTag(assetID, targetID, true); err != nil {
+		a.status = err.Error()
+		return
+	}
+	a.quickTagName = ""
+	a.reload()
+}
+
+func (a *App) openNewProjectModal() {
+	a.newProjectName = ""
+	a.newProjectDesc = ""
+	a.newProjTags = map[string]bool{}
+	if a.tagID != "" {
+		a.newProjTags[a.tagID] = true
+	} else if len(a.tags) > 0 {
+		a.newProjTags[a.tags[0].ID] = true
+	}
+	a.newProjOpen = true
+}
+
+func (a *App) createProjectFromModal() {
 	name := trim(a.newProjectName)
 	if name == "" {
 		a.status = a.t("project.needName")
 		return
 	}
-	p, err := a.projects.Create(name, trim(a.newProjectDesc), []string{a.tagID})
+	var tagIDs []string
+	for _, tg := range a.tags {
+		if a.newProjTags[tg.ID] {
+			tagIDs = append(tagIDs, tg.ID)
+		}
+	}
+	if len(tagIDs) == 0 {
+		a.status = a.t("project.needTag")
+		return
+	}
+	p, err := a.projects.Create(name, trim(a.newProjectDesc), tagIDs)
 	if err != nil {
 		a.status = err.Error()
 		return
 	}
+	a.newProjOpen = false
 	a.newProjectName = ""
 	a.newProjectDesc = ""
 	a.openProject(p.ID)
@@ -742,16 +1140,58 @@ func (a *App) openBoard(b model.Board) {
 	a.reload()
 }
 
-func (a *App) referenceSelected() {
-	asset, ok := a.selectedAsset()
-	if !ok || a.projectID == "" || a.projects == nil {
+func (a *App) referenceAssetToProject(assetID, projectID string) {
+	if assetID == "" || projectID == "" || a.projects == nil {
 		return
 	}
-	if err := a.projects.Reference(a.projectID, asset.ID); err != nil {
+	if err := a.projects.Reference(projectID, assetID); err != nil {
 		a.status = err.Error()
 		return
 	}
+	for _, p := range a.projectList {
+		if p.ID == projectID {
+			a.status = fmt.Sprintf(a.t("library.referencedIn"), p.Name)
+			break
+		}
+	}
 	a.reload()
+}
+
+func (a *App) referenceSelected() {
+	asset, ok := a.selectedAsset()
+	if !ok || a.projectID == "" {
+		return
+	}
+	a.referenceAssetToProject(asset.ID, a.projectID)
+}
+
+func (a *App) deleteAssetPrompt(asset model.Asset) {
+	id := asset.ID
+	a.ask(a.t("library.delete"), a.deleteAssetCopy(asset), a.t("common.delete"), func() {
+		if a.session != nil {
+			var drop []string
+			for _, item := range a.session.Items {
+				if item.Kind == model.KindImage && item.AssetID == id {
+					drop = append(drop, item.ID)
+				}
+			}
+			if len(drop) > 0 {
+				a.session.Delete(drop)
+				a.flushBoard(true)
+			}
+		}
+		if err := a.lib.Delete(id); err != nil {
+			a.status = err.Error()
+			return
+		}
+		delete(a.bitmaps, id)
+		if a.previewAssetID == id {
+			a.previewOpen = false
+			a.previewBitmap = nil
+		}
+		a.assetIndex = -1
+		a.reload()
+	})
 }
 
 func (a *App) assetName(asset model.Asset) string {
@@ -760,6 +1200,14 @@ func (a *App) assetName(asset model.Asset) string {
 		name = asset.ID
 	}
 	return name
+}
+
+func (a *App) assetExt(asset model.Asset) string {
+	ext := strings.ToUpper(strings.TrimPrefix(filepath.Ext(asset.Path), "."))
+	if ext == "" {
+		return "FILE"
+	}
+	return ext
 }
 
 func (a *App) modeLabel(mode string) string {
@@ -798,6 +1246,25 @@ func (a *App) handleNav(nav string) {
 		a.session = nil
 		a.referenceMode = false
 		a.tagID = ""
+		a.navFilter = ""
+		a.assetIndex = -1
+		a.screen = screenLibrary
+		a.reload()
+	case nav == "filter-untagged":
+		a.flushBoard(true)
+		a.session = nil
+		a.referenceMode = false
+		a.tagID = ""
+		a.navFilter = "untagged"
+		a.assetIndex = -1
+		a.screen = screenLibrary
+		a.reload()
+	case nav == "filter-missing":
+		a.flushBoard(true)
+		a.session = nil
+		a.referenceMode = false
+		a.tagID = ""
+		a.navFilter = "missing"
 		a.assetIndex = -1
 		a.screen = screenLibrary
 		a.reload()
@@ -806,6 +1273,7 @@ func (a *App) handleNav(nav string) {
 		a.session = nil
 		a.referenceMode = false
 		a.tagID = strings.TrimPrefix(nav, "tag:")
+		a.navFilter = ""
 		a.assetIndex = -1
 		a.screen = screenLibrary
 		a.reload()
@@ -822,9 +1290,14 @@ func (a *App) syncNavSelection() {
 			a.lastNav = a.selectedNav
 		}
 	} else if a.screen == screenLibrary {
-		if a.tagID != "" {
+		switch {
+		case a.navFilter == "untagged":
+			a.selectedNav = "filter-untagged"
+		case a.navFilter == "missing":
+			a.selectedNav = "filter-missing"
+		case a.tagID != "":
 			a.selectedNav = "tag:" + a.tagID
-		} else {
+		default:
 			a.selectedNav = "tag-all"
 		}
 		a.lastNav = a.selectedNav

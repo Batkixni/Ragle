@@ -10,9 +10,11 @@ import (
 
 // Config is the app preference file. It is not part of a library.
 type Config struct {
-	LibraryPath  string `json:"library_path"`
-	Language     string `json:"language"`
-	SignalingURL string `json:"signaling_url,omitempty"`
+	LibraryPath  string  `json:"library_path"`
+	Language     string  `json:"language"`
+	SignalingURL string  `json:"signaling_url,omitempty"`
+	ThemeMode    string  `json:"theme_mode,omitempty"` // "auto", "light", "dark"
+	CardSize     float64 `json:"card_size,omitempty"`
 }
 
 // Path is os.UserConfigDir()/Ragle/config.json.

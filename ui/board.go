@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"math"
 	"time"
 
@@ -30,29 +31,100 @@ type gesture struct {
 
 func (a *App) boardView(c *gui.Context) {
 	a.syncSelectionBuffers()
-	gui.Column(c).Grow(1).FillHeight().Children(func() {
+	gui.Column(c).Fill().Background(a.pal.canvas).Children(func() {
 		a.boardToolbar(c)
 		gui.Row(c).Grow(1).AlignItems(gui.Stretch).Children(func() {
 			a.boardSurface(c)
-			a.boardInspector(c)
+			if a.boardInspectorOpen {
+				a.boardInspector(c)
+			}
 		})
-		a.boardTray(c)
+		if a.boardDrawerOpen {
+			a.boardTray(c)
+		}
 	})
 }
 
 func (a *App) boardToolbar(c *gui.Context) {
 	t := c.Theme()
-	tools := []string{a.t("board.select"), a.t("board.pan"), a.t("board.text")}
-	trays := []string{a.t("board.trayProject"), a.t("board.trayLibrary")}
-	gui.Row(c).Padding(8, 12).Gap(8).AlignItems(gui.Center).Background(t.Surface).Children(func() {
-		gui.Segmented(c.Key("board-tool"), &a.tool, tools...)
-		gui.Button(c, a.t("board.group")).OnClick(func() { a.groupSelection() })
-		gui.Button(c, a.t("board.ungroup")).OnClick(func() { a.ungroupSelection() })
-		gui.Button(c, a.t("board.front")).OnClick(func() { a.nudgeZ(true) })
-		gui.Button(c, a.t("board.back")).OnClick(func() { a.nudgeZ(false) })
-		gui.Button(c, a.t("board.delete")).OnClick(func() { a.confirmDeleteSelection() })
-		gui.Segmented(c.Key("board-tray"), &a.tray, trays...)
-	})
+	zoomPct := 100
+	itemCount := 0
+	if a.session != nil {
+		if a.session.Zoom > 0 {
+			zoomPct = int(math.Round(a.session.Zoom * 100))
+		}
+		itemCount = len(a.session.Items)
+	}
+	gui.Row(c).
+		Height(48).
+		Padding(0, 14).
+		Gap(8).
+		AlignItems(gui.Center).
+		Background(a.pal.card).
+		BorderWidth(0, 0, 1, 0).
+		BorderColor(a.pal.hairline).
+		Children(func() {
+			// Back & breadcrumb.
+			a.toolButton(c, "board-leave", iconArrowLeft, a.t("board.leave"), false).OnClick(func() {
+				a.flushBoard(true)
+				a.session = nil
+				a.boardID = ""
+				a.screen = screenProject
+				a.syncNavSelection()
+			})
+			gui.Text(c, "/").TextColor(a.pal.inkFaint)
+			gui.Text(c, a.boardName).Bold().FontSize(13).SingleLine().MaxWidth(160)
+			a.pillBadge(c, fmt.Sprintf(a.t("board.placementCount"), itemCount), t.TextMuted, a.pal.subtle)
+
+			gui.Spacer(c)
+
+			// Studio tool cluster.
+			gui.Row(c).Padding(3).Gap(2).Radius(9).Background(a.pal.subtle).AlignItems(gui.Center).Children(func() {
+				a.toolButton(c, "tool-sel", iconCursor, a.t("board.select"), a.tool == 0).OnClick(func() { a.tool = 0 })
+				a.toolButton(c, "tool-pan", iconHand, a.t("board.pan"), a.tool == 1).OnClick(func() { a.tool = 1 })
+				a.toolButton(c, "tool-txt", iconType, a.t("board.text"), a.tool == 2).OnClick(func() { a.tool = 2 })
+			})
+
+			gui.Row(c).Gap(2).AlignItems(gui.Center).Children(func() {
+				a.iconButton(c, "board-grp", iconGroup, a.t("board.group"), false).OnClick(func() { a.groupSelection() })
+				a.iconButton(c, "board-ungrp", iconUngroup, a.t("board.ungroup"), false).OnClick(func() { a.ungroupSelection() })
+				a.toolButton(c, "board-front", nil, a.t("board.front"), false).OnClick(func() { a.nudgeZ(true) })
+				a.toolButton(c, "board-back", nil, a.t("board.back"), false).OnClick(func() { a.nudgeZ(false) })
+				a.iconButton(c, "board-del", iconTrash, a.t("board.delete"), false).OnClick(func() { a.confirmDeleteSelection() })
+			})
+
+			gui.Spacer(c)
+
+			// Zoom controls.
+			gui.Row(c).Gap(2).AlignItems(gui.Center).Children(func() {
+				a.iconButton(c, "board-zout", iconZoomOut, "-", false).OnClick(func() {
+					if a.session != nil {
+						a.session.ZoomAt(400, 300, 1/1.15)
+					}
+				})
+				a.toolButton(c, "board-zreset", nil, fmt.Sprintf("%d%%", zoomPct), false).
+					Tooltip(a.t("board.zoomReset")).
+					OnClick(func() {
+						if a.session != nil {
+							a.session.Zoom = 1
+							a.session.PanX = 0
+							a.session.PanY = 0
+						}
+					})
+				a.iconButton(c, "board-zin", iconZoomIn, "+", false).OnClick(func() {
+					if a.session != nil {
+						a.session.ZoomAt(400, 300, 1.15)
+					}
+				})
+			})
+
+			a.iconButton(c, "board-toggle-tray", iconPanelBottom, a.t("board.drawer"), a.boardDrawerOpen).OnClick(func() {
+				a.boardDrawerOpen = !a.boardDrawerOpen
+			})
+			a.iconButton(c, "board-toggle-insp", iconPanelRight, a.t("board.inspector"), a.boardInspectorOpen).OnClick(func() {
+				a.boardInspectorOpen = !a.boardInspectorOpen
+			})
+		})
 }
 
 func (a *App) boardSurface(c *gui.Context) {
@@ -74,65 +146,149 @@ func (a *App) boardTray(c *gui.Context) {
 	t := c.Theme()
 	list := a.projectAssets
 	if a.tray == 1 {
-		list = a.assets
+		list = a.allAssets
 	}
-	gui.Scroll(c).Height(92).Background(t.Surface).Children(func() {
-		gui.Row(c).Padding(8).Gap(8).Children(func() {
-			if len(list) == 0 {
-				gui.Text(c, a.t("board.empty")).TextColor(t.TextMuted)
-				return
-			}
-			for _, asset := range list {
-				item := asset
-				name := a.assetName(item)
-				card := gui.Column(c.Key("tray-" + item.ID)).Width(120).Padding(6).Gap(4).Radius(6).Background(t.Background)
-				card.Drag(assetDrag{ID: item.ID}).Label(name)
-				card.Children(func() {
-					if bm := a.bitmaps[item.ID]; bm != nil {
-						gui.Image(c, bm).Height(48).Fit(gui.Contain)
+	trays := []string{a.t("board.trayProject"), a.t("board.trayLibrary")}
+	gui.Column(c).
+		Height(124).
+		Background(a.pal.card).
+		BorderWidth(1, 0, 0, 0).
+		BorderColor(a.pal.hairline).
+		Children(func() {
+			gui.Row(c).Padding(6, 14, 2, 14).Gap(10).AlignItems(gui.Center).Children(func() {
+				gui.Segmented(c.Key("board-tray"), &a.tray, trays...)
+				gui.Text(c, a.t("board.clickToPlace")).FontSize(11).TextColor(a.pal.inkFaint)
+				gui.Spacer(c)
+				gui.Text(c, fmt.Sprintf(a.t("common.itemsCount"), len(list))).FontSize(11).TextColor(t.TextMuted)
+			})
+			gui.ScrollHorizontal(c.Key("board-tray-scroll")).Grow(1).FillWidth().Children(func() {
+				gui.Row(c).Padding(4, 14, 10, 14).Gap(10).AlignItems(gui.Center).Children(func() {
+					if len(list) == 0 {
+						gui.Text(c, a.t("board.empty")).FontSize(12).TextColor(t.TextMuted)
+						return
 					}
-					gui.Text(c, name)
+					for _, asset := range list {
+						item := asset
+						name := a.assetName(item)
+						card := gui.ButtonBase(c.Key("tray-" + item.ID)).
+							Column().
+							Width(96).
+							Height(76).
+							Padding(5).
+							Gap(4).
+							Radius(8).
+							Background(a.pal.canvas).
+							Border(1, a.pal.hairline).
+							Drag(assetDrag{ID: item.ID}).
+							Label(name).
+							Tooltip(name).
+							OnClick(func() {
+								a.dropAsset(item.ID, 420, 260)
+							})
+						card.Children(func() {
+							gui.Box(c).Grow(1).FillWidth().Center().Clip().Children(func() {
+								if bm := a.bitmaps[item.ID]; bm != nil {
+									gui.Image(c, bm).Fit(gui.Contain).Grow(1).Radius(4)
+								} else {
+									gui.Text(c, a.assetExt(item)).FontSize(10).Bold().TextColor(a.pal.inkMuted)
+								}
+							})
+							gui.Text(c, name).FontSize(10).TextColor(t.TextMuted).SingleLine().FillWidth()
+						})
+					}
 				})
-			}
+			})
 		})
-	})
 }
 
 func (a *App) boardInspector(c *gui.Context) {
 	t := c.Theme()
-	gui.Column(c).Width(260).Padding(12).Gap(8).Background(t.Surface).Children(func() {
-		if a.session == nil {
-			return
-		}
-		ids := a.session.SelectedIDs()
-		if len(ids) == 0 {
-			gui.Text(c, a.t("board.empty")).TextColor(t.TextMuted)
-			return
-		}
-		if len(ids) != 1 {
-			gui.Text(c, a.t("inspector.multi")).TextColor(t.TextMuted)
-			return
-		}
-		item := a.session.Items[ids[0]]
-		gui.Text(c, a.t("board.notes")).TextColor(t.TextMuted)
-		gui.TextInput(c.Key("notes"), &a.notesBuf).OnChange(func() {
-			if a.session == nil || a.boundID == "" {
-				return
-			}
-			a.session.SetNotes(a.boundID, a.notesBuf)
-			a.markBoard()
-		})
-		if item.Kind == model.KindText {
-			gui.Text(c, a.t("board.body")).TextColor(t.TextMuted)
-			field := gui.TextInput(c.Key("body"), &a.editText).OnChange(func() {
-				a.commitEditText()
+	gui.Column(c).
+		Width(268).
+		Background(a.pal.sidebar).
+		BorderWidth(0, 0, 0, 1).
+		BorderColor(a.pal.hairline).
+		Children(func() {
+			gui.Scroll(c).Fill().Children(func() {
+				gui.Column(c).Padding(16).Gap(14).Children(func() {
+					if a.session == nil {
+						return
+					}
+					ids := a.session.SelectedIDs()
+					if len(ids) == 0 {
+						gui.Column(c).Padding(24, 8).Center().Gap(8).Children(func() {
+							gui.Icon(c, iconBoard).Size(24, 24).TextColor(a.pal.inkFaint)
+							gui.Text(c, a.t("board.empty")).FontSize(12).TextColor(t.TextMuted).TextAlign(gui.Center).LineHeight(1.5)
+						})
+						return
+					}
+					if len(ids) != 1 {
+						gui.Text(c, a.t("inspector.multi")).FontSize(13).Bold()
+						gui.Row(c).Gap(6).Children(func() {
+							gui.Button(c.Key("binsp-grp"), a.t("board.group")).Grow(1).OnClick(func() { a.groupSelection() })
+							gui.Button(c.Key("binsp-del"), a.t("board.delete")).Grow(1).TextColor(t.Danger).OnClick(func() { a.confirmDeleteSelection() })
+						})
+						return
+					}
+					item := a.session.Items[ids[0]]
+
+					gui.Column(c).Gap(6).Children(func() {
+						a.sectionLabel(c, a.t("board.notes"))
+						gui.TextInput(c.Key("notes"), &a.notesBuf).FillWidth().OnChange(func() {
+							if a.session == nil || a.boundID == "" {
+								return
+							}
+							a.session.SetNotes(a.boundID, a.notesBuf)
+							a.markBoard()
+						})
+					})
+
+					if item.Kind == model.KindText {
+						gui.Column(c).Gap(6).Children(func() {
+							a.sectionLabel(c, a.t("board.body"))
+							field := gui.TextInput(c.Key("body"), &a.editText).FillWidth().OnChange(func() {
+								a.commitEditText()
+							})
+							if a.focusBody {
+								field.Focus()
+								a.focusBody = false
+							}
+						})
+						gui.Column(c).Gap(6).Children(func() {
+							a.sectionLabel(c, fmt.Sprintf("%s (%.0fpx)", a.t("board.fontSize"), a.fontSizeBuf))
+							gui.Slider(c.Key("board-fsize"), &a.fontSizeBuf, 10, 72).FillWidth().OnChange(func() {
+								if a.session == nil || a.boundID == "" {
+									return
+								}
+								cur := a.session.Items[a.boundID]
+								cur.FontSize = a.fontSizeBuf
+								a.session.Items[a.boundID] = cur
+								a.markBoard()
+							})
+						})
+					}
+
+					gui.Divider(c)
+					gui.Column(c).Gap(6).Children(func() {
+						a.sectionLabel(c, a.t("board.transform"))
+						a.metaRow(c, "X / Y", fmt.Sprintf("%.0f, %.0f", item.X, item.Y))
+						scale := item.Scale
+						if scale == 0 {
+							scale = 1
+						}
+						a.metaRow(c, "Scale", fmt.Sprintf("%.0f%%", scale*100))
+						a.metaRow(c, "Rotation", fmt.Sprintf("%.1f°", item.Rotation))
+						a.metaRow(c, "Layer", fmt.Sprintf("Z %d", item.ZIndex))
+					})
+
+					gui.Divider(c)
+					gui.Button(c.Key("binsp-remove"), a.t("board.delete")).
+						FillWidth().
+						TextColor(t.Danger).
+						OnClick(func() { a.confirmDeleteSelection() })
+				})
 			})
-			if a.focusBody {
-				field.Focus()
-				a.focusBody = false
-			}
-		}
-	})
+		})
 }
 
 func (a *App) syncSelectionBuffers() {
@@ -152,6 +308,11 @@ func (a *App) syncSelectionBuffers() {
 	item := a.session.Items[ids[0]]
 	a.notesBuf = item.Notes
 	a.editText = item.Text
+	if item.FontSize > 0 {
+		a.fontSizeBuf = item.FontSize
+	} else {
+		a.fontSizeBuf = 18
+	}
 }
 
 func (a *App) commitEditText() {
@@ -540,6 +701,35 @@ func (a *App) paintBoard(p *gui.Painter, r gui.Rect) {
 	if s == nil {
 		return
 	}
+	// Subtle infinite studio dot grid.
+	zoom := s.Zoom
+	if zoom <= 0 {
+		zoom = 1
+	}
+	step := 28.0 * zoom
+	for step < 18 {
+		step *= 2
+	}
+	for step > 64 {
+		step /= 2
+	}
+	offX := math.Mod(s.PanX*zoom, step)
+	if offX < 0 {
+		offX += step
+	}
+	offY := math.Mod(s.PanY*zoom, step)
+	if offY < 0 {
+		offY += step
+	}
+	dotColor := a.pal.paperGrid
+	if dotColor.A > 0 {
+		for y := offY; y < float64(r.H); y += step {
+			for x := offX; x < float64(r.W); x += step {
+				p.Fill(gui.Rect{X: r.X + float32(x) - 1, Y: r.Y + float32(y) - 1, W: 2, H: 2}, dotColor, 1)
+			}
+		}
+	}
+
 	for _, id := range s.Visible(float64(r.W), float64(r.H)) {
 		a.paintItem(p, r, id)
 	}

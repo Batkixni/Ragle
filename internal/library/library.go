@@ -345,6 +345,29 @@ func (l *Library) TryRelink(path string) (bool, error) {
 	return false, nil
 }
 
+// RelinkPaths scans files or folders and relinks any missing assets whose
+// SHA-256 matches. Returns the count of relinked assets.
+func (l *Library) RelinkPaths(ctx context.Context, paths []string) (int, error) {
+	files, err := collectFiles(l.DB.Root(), paths)
+	if err != nil {
+		return 0, err
+	}
+	relinked := 0
+	for _, p := range files {
+		if ctx.Err() != nil {
+			return relinked, ctx.Err()
+		}
+		ok, err := l.TryRelink(p)
+		if err != nil {
+			continue
+		}
+		if ok {
+			relinked++
+		}
+	}
+	return relinked, nil
+}
+
 // WatchDirs are the directories the file watcher should observe:
 // the library's files folder, and the parent of each indexed asset.
 func (l *Library) WatchDirs() ([]string, error) {
