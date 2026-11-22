@@ -544,6 +544,28 @@ func (a *App) settingsGeneralTab(c *gui.Context) {
 			})
 		})
 	})
+
+	// Local Open-Source AI Classification (Laya / Ollaya).
+	a.settingsGroup(c, a.t("laya.section"), func() {
+		gui.Row(c).FillWidth().Gap(8).AlignItems(gui.Center).Children(func() {
+			gui.Text(c, a.t("laya.url")).FontSize(12).TextColor(a.pal.inkSecondary).Width(130)
+			gui.TextInput(c.Key("pref-laya-url"), &a.layaURL).
+				Placeholder("http://127.0.0.1:11435").
+				Grow(1).
+				OnSubmit(func() { a.syncConfigFromState() })
+		})
+		gui.Row(c).FillWidth().Gap(8).AlignItems(gui.Center).Children(func() {
+			gui.Text(c, a.t("laya.model")).FontSize(12).TextColor(a.pal.inkSecondary).Width(130)
+			gui.TextInput(c.Key("pref-laya-model"), &a.layaModel).
+				Placeholder("laya").
+				Grow(1).
+				OnSubmit(func() { a.syncConfigFromState() })
+			a.toolButton(c, "pref-laya-test", iconSparkle, a.t("laya.test"), false).OnClick(func() {
+				a.syncConfigFromState()
+				a.testLayaConnection()
+			})
+		})
+	})
 }
 
 func (a *App) settingsDatabaseTab(c *gui.Context) {

@@ -66,6 +66,33 @@ func (a *App) libraryMain(c *gui.Context) {
 			a.filterBar(c)
 		}
 
+		// Active Visual Search (Reverse Image or Color Palette) banner.
+		if a.similarQueryLabel != "" || a.colorFilter != "" {
+			gui.Row(c.Key("visual-search-banner")).
+				Padding(8, 14).
+				Radius(radiusPanel).
+				Gap(10).
+				AlignItems(gui.Center).
+				Background(a.pal.surface).
+				Children(func() {
+					if a.colorFilter != "" {
+						if col, ok := parseHexColor(a.colorFilter); ok {
+							gui.Box(c).Size(14, 14).Radius(radiusPill).Background(col)
+						}
+						gui.Text(c, fmt.Sprintf(a.t("visual.colorBanner"), a.colorFilter, len(a.assets))).
+							FontSize(12).Bold().TextColor(a.pal.ink)
+					} else {
+						gui.Icon(c, iconImage).Size(15, 15).TextColor(a.pal.controlOn)
+						gui.Text(c, fmt.Sprintf(a.t("visual.similarBanner"), a.similarQueryLabel, len(a.assets))).
+							FontSize(12).Bold().TextColor(a.pal.ink)
+					}
+					gui.Spacer(c)
+					a.toolButton(c, "visual-search-clear", iconX, a.t("common.clear"), false).OnClick(func() {
+						a.clearVisualSearch()
+					})
+				})
+		}
+
 		// Multi-select Batch Action Bar (appears when >1 selected or multi-select mode is ON).
 		if a.multiSelectMode || len(a.selectedIDs) > 1 {
 			a.batchActionBar(c)
@@ -180,6 +207,34 @@ func (a *App) filterBar(c *gui.Context) {
 						a.applyFilters()
 					})
 				}
+			})
+
+			gui.Row(c).Gap(5).AlignItems(gui.Center).Children(func() {
+				gui.Text(c, a.t("visual.colorFilter")).FontSize(11).TextColor(a.pal.inkMuted)
+				for _, hex := range colorFilterSwatches {
+					hx := hex
+					col, ok := parseHexColor(hx)
+					if !ok {
+						continue
+					}
+					on := strings.EqualFold(a.colorFilter, hx)
+					sz := float32(15)
+					if on {
+						sz = 18
+					}
+					btn := gui.ButtonBase(c.Key("fcol-" + hx)).
+						Size(sz, sz).
+						Radius(radiusPill).
+						Background(col).
+						Tooltip(hx).
+						OnClick(func() { a.setColorFilter(hx) })
+					if on {
+						btn.Border(2, a.pal.ink)
+					}
+				}
+				a.toolButton(c, "fbar-sim-img", iconImage, a.t("visual.searchByImage"), a.similarQueryLabel != "").
+					Padding(4, 9).
+					OnClick(func() { a.searchSimilarByFileDialog() })
 			})
 
 			if a.hasActiveFilters() {
@@ -875,6 +930,21 @@ func (a *App) assetCard(c *gui.Context, index int, asset model.Asset, selected b
 			}
 		}
 		m.Separator()
+		if !multi && model.MediaKind(asset.Mime) == model.MediaImage && !asset.Missing {
+			if m.Item(a.t("visual.findSimilar")).Chosen() {
+				a.searchSimilarByAsset(asset)
+			}
+		}
+		layaLabel := a.t("laya.classify")
+		layaIDs := []string{asset.ID}
+		if multi {
+			layaLabel = fmt.Sprintf("%s (%d)", a.t("laya.classify"), len(batchIDs))
+			layaIDs = batchIDs
+		}
+		if m.Item(layaLabel).Chosen() {
+			a.classifyAssetsWithLaya(layaIDs)
+		}
+		m.Separator()
 		if multi {
 			if m.Item(fmt.Sprintf("%s (%d)", a.t("rename.batchAction"), len(batchIDs))).Chosen() {
 				a.openRenameModal(batchIDs)
@@ -1106,6 +1176,42 @@ func (a *App) inspector(c *gui.Context) {
 							})
 						})
 
+						// Extracted 5-color OKLab dominant palette strip (Eagle-style).
+						if len(asset.Palette) > 0 {
+							gui.Row(c).FillWidth().Gap(8).AlignItems(gui.Center).Children(func() {
+								gui.Row(c).Gap(6).AlignItems(gui.Center).Children(func() {
+									for i, pc := range asset.Palette {
+										hex := pc.Hex
+										col, ok := parseHexColor(hex)
+										if !ok {
+											continue
+										}
+										gui.ButtonBase(c.Key(fmt.Sprintf("insp-pal-%s-%d", asset.ID, i))).
+											Size(16, 16).
+											Radius(radiusPill).
+											Background(col).
+											Tooltip(fmt.Sprintf(a.t("visual.copyHex"), hex)).
+											OnClick(func() {
+												services.WriteClipboard(hex)
+												a.notify(fmt.Sprintf("%s %s", a.t("common.copied"), hex))
+											}).
+											ContextMenu(func(m *gui.Menu) {
+												if m.Item(a.t("visual.searchColor")).Chosen() {
+													a.setColorFilter(hex)
+												}
+											})
+									}
+								})
+								gui.Spacer(c)
+								a.iconButton(c, "insp-pal-search", iconPalette, a.t("visual.searchColor"), strings.EqualFold(a.colorFilter, asset.Palette[0].Hex)).
+									OnClick(func() { a.setColorFilter(asset.Palette[0].Hex) })
+								if model.MediaKind(asset.Mime) == model.MediaImage && !asset.Missing {
+									a.iconButton(c, "insp-sim-btn", iconImage, a.t("visual.findSimilar"), false).
+										OnClick(func() { a.searchSimilarByAsset(asset) })
+								}
+							})
+						}
+
 						// Title + quiet monochrome metadata chain (design.md §13 inspired).
 						gui.Column(c).Gap(6).Children(func() {
 							gui.Row(c).FillWidth().Gap(6).AlignItems(gui.Center).Children(func() {
@@ -1230,7 +1336,25 @@ func (a *App) inspector(c *gui.Context) {
 								a.iconButton(c, "insp-quick-tag-add", iconPlus, a.t("tag.create"), false).OnClick(func() {
 									a.quickAddAssetTag(asset.ID)
 								})
+								a.iconButton(c, "insp-laya-btn", iconSparkle, a.t("laya.classify"), false).OnClick(func() {
+									a.classifyAssetsWithLaya([]string{asset.ID})
+								})
 							})
+							if sugs := a.layaSuggestions[asset.ID]; len(sugs) > 0 {
+								gui.Column(c).FillWidth().Gap(5).Padding(4, 0, 0, 0).Children(func() {
+									gui.Text(c, a.t("laya.suggestions")).FontSize(10).TextColor(a.pal.inkMuted)
+									gui.Row(c).Gap(5).Wrap().Children(func() {
+										for _, sg := range sugs {
+											sug := sg
+											lbl := fmt.Sprintf("+ %s %.0f%%", sug.Tag.Name, sug.Probability*100)
+											a.toolButton(c, "laya-sug-"+asset.ID+"-"+sug.Tag.ID, nil, lbl, false).
+												Padding(3, 8).
+												Border(1, a.pal.controlOn).
+												OnClick(func() { a.applyLayaSuggestion(asset.ID, sug.Tag.ID) })
+										}
+									})
+								})
+							}
 						})
 
 						// Used in Projects.

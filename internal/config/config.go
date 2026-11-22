@@ -47,6 +47,17 @@ type Config struct {
 	// Sharing preferences.
 	DeviceName        string `json:"device_name,omitempty"`
 	ShareIncludeFiles *bool  `json:"share_include_files,omitempty"`
+
+	// Stage 14: Local Laya / Ollaya AI decision classifier preferences.
+	LayaURL           string  `json:"laya_url,omitempty"`
+	LayaModel         string  `json:"laya_model,omitempty"`
+	LayaAutoThreshold float64 `json:"laya_auto_threshold,omitempty"`
+
+	// Stage 15: Built-in local/LAN server preferences.
+	ServerPort      int    `json:"server_port,omitempty"`
+	ServerBindAll   bool   `json:"server_bind_all,omitempty"`
+	ServerAutoStart bool   `json:"server_auto_start,omitempty"`
+	ServerToken     string `json:"server_token,omitempty"`
 }
 
 // BoolOr returns *p when non-nil, or def otherwise.

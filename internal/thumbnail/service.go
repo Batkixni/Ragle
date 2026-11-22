@@ -105,18 +105,49 @@ func (s *Service) build(id string) error {
 	if err != nil {
 		return err
 	}
-	if asset.ThumbnailPath != "" || asset.Missing {
+	if asset.Missing {
 		return nil
 	}
-	dest := filepath.Join(s.db.ThumbsDir(), asset.ID+".jpg")
+	hasThumb := asset.ThumbnailPath != ""
+	hasVisual := len(asset.Palette) > 0 && (asset.PHash != 0 || asset.DHash != 0)
+	if hasThumb && hasVisual {
+		return nil
+	}
+
+	dest := asset.ThumbnailPath
+	if dest == "" {
+		dest = filepath.Join(s.db.ThumbsDir(), asset.ID+".jpg")
+	}
+	var ph, dh uint64
+	var pal []model.PaletteColor
+
 	switch model.MediaKind(asset.Mime) {
 	case model.MediaImage:
-		if err := imageThumb(asset.Path, dest); err != nil {
-			return err
+		var fitted image.Image
+		if !hasThumb {
+			var err error
+			fitted, err = imageThumbAndExtract(asset.Path, dest)
+			if err != nil {
+				return err
+			}
+		} else {
+			if img, err := imaging.Open(dest); err == nil {
+				fitted = img
+			} else if img, err := imaging.Open(asset.Path, imaging.AutoOrientation(true)); err == nil {
+				fitted = img
+			}
+		}
+		if fitted != nil {
+			ph, dh, pal = ExtractVisualFromImage(fitted)
 		}
 	case model.MediaVideo:
-		if err := ExtractFrame(asset.Path, dest); err != nil {
-			return err
+		if !hasThumb {
+			if err := ExtractFrame(asset.Path, dest); err != nil {
+				return err
+			}
+		}
+		if img, err := imaging.Open(dest); err == nil {
+			ph, dh, pal = ExtractVisualFromImage(img)
 		}
 	default:
 		return nil
@@ -127,17 +158,27 @@ func (s *Service) build(id string) error {
 			return err
 		}
 		cur.ThumbnailPath = dest
+		if len(pal) > 0 {
+			cur.Palette = pal
+		}
+		if ph != 0 || dh != 0 {
+			cur.PHash = ph
+			cur.DHash = dh
+		}
 		return db.PutAsset(tx, cur)
 	})
 }
 
-func imageThumb(src, dest string) error {
+func imageThumbAndExtract(src, dest string) (image.Image, error) {
 	img, err := imaging.Open(src, imaging.AutoOrientation(true))
 	if err != nil {
-		return err
+		return nil, err
 	}
 	fitted := imaging.Fit(img, longEdge, longEdge, imaging.Lanczos)
-	return saveJPEG(fitted, dest)
+	if err := saveJPEG(fitted, dest); err != nil {
+		return nil, err
+	}
+	return fitted, nil
 }
 
 func saveJPEG(img image.Image, dest string) error {

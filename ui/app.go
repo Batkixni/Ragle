@@ -17,6 +17,7 @@ import (
 	"github.com/egoist/mygo"
 	gui "github.com/egoist/mygo/ui"
 
+	"ragle/internal/ai/laya"
 	"ragle/internal/canvas"
 	"ragle/internal/config"
 	"ragle/internal/db"
@@ -199,6 +200,14 @@ type App struct {
 	exportFormat     string
 	exportQuality    int
 	exportMaxEdge    int
+
+	// Stage 14: Visual search (OKLab color filter, reverse image search) & Laya/Ollaya AI.
+	colorFilter       string
+	similarQueryLabel string
+	similarScores     map[string]float64
+	layaURL           string
+	layaModel         string
+	layaSuggestions   map[string][]laya.TagSuggestion
 
 	// Quick Preview Lightbox & Video Player state.
 	previewOpen     bool
@@ -451,6 +460,14 @@ func (a *App) applyConfig(cfg config.Config) {
 	a.backupBeforeDelete = config.BoolOr(cfg.BackupBeforeDelete, true)
 	a.shareFiles = config.BoolOr(cfg.ShareIncludeFiles, true)
 	a.deviceName = cfg.DeviceName
+	a.layaURL = cfg.LayaURL
+	if a.layaURL == "" {
+		a.layaURL = laya.DefaultBaseURL
+	}
+	a.layaModel = cfg.LayaModel
+	if a.layaModel == "" {
+		a.layaModel = laya.DefaultModel
+	}
 }
 
 func (a *App) syncConfigFromState() {
@@ -480,6 +497,8 @@ func (a *App) syncConfigFromState() {
 	a.cfg.ShareIncludeFiles = config.BoolPtr(a.shareFiles)
 	a.cfg.DeviceName = strings.TrimSpace(a.deviceName)
 	a.cfg.SignalingURL = strings.TrimSpace(a.signalURL)
+	a.cfg.LayaURL = strings.TrimSpace(a.layaURL)
+	a.cfg.LayaModel = strings.TrimSpace(a.layaModel)
 	a.saveConfig()
 }
 
@@ -851,6 +870,7 @@ func (a *App) applyFilters() {
 		tagSet = a.tagDescendantSet(a.tagID)
 	}
 
+	colorDists := map[string]float64{}
 	for _, asset := range a.allAssets {
 		if a.navFilter == "missing" && !asset.Missing {
 			continue
@@ -870,29 +890,51 @@ func (a *App) applyFilters() {
 		if q != "" && !a.matchesQuery(asset, q) {
 			continue
 		}
+		if a.colorFilter != "" {
+			d, ok := thumbnail.ColorDistanceToPalette(a.colorFilter, asset.Palette)
+			if !ok || d > 0.24 {
+				continue
+			}
+			colorDists[asset.ID] = d
+		}
+		if len(a.similarScores) > 0 {
+			if _, ok := a.similarScores[asset.ID]; !ok {
+				continue
+			}
+		}
 		out = append(out, asset)
 	}
 
-	switch a.sortBy {
-	case sortOldest:
+	if len(a.similarScores) > 0 {
 		sort.Slice(out, func(i, j int) bool {
-			return out[i].CreatedAt.Before(out[j].CreatedAt)
+			return a.similarScores[out[i].ID] > a.similarScores[out[j].ID]
 		})
-	case sortName:
+	} else if a.colorFilter != "" {
 		sort.Slice(out, func(i, j int) bool {
-			return strings.ToLower(a.assetName(out[i])) < strings.ToLower(a.assetName(out[j]))
+			return colorDists[out[i].ID] < colorDists[out[j].ID]
 		})
-	case sortRating:
-		sort.Slice(out, func(i, j int) bool {
-			if out[i].Rating != out[j].Rating {
-				return out[i].Rating > out[j].Rating
-			}
-			return out[i].CreatedAt.After(out[j].CreatedAt)
-		})
-	default: // sortNewest
-		sort.Slice(out, func(i, j int) bool {
-			return out[i].CreatedAt.After(out[j].CreatedAt)
-		})
+	} else {
+		switch a.sortBy {
+		case sortOldest:
+			sort.Slice(out, func(i, j int) bool {
+				return out[i].CreatedAt.Before(out[j].CreatedAt)
+			})
+		case sortName:
+			sort.Slice(out, func(i, j int) bool {
+				return strings.ToLower(a.assetName(out[i])) < strings.ToLower(a.assetName(out[j]))
+			})
+		case sortRating:
+			sort.Slice(out, func(i, j int) bool {
+				if out[i].Rating != out[j].Rating {
+					return out[i].Rating > out[j].Rating
+				}
+				return out[i].CreatedAt.After(out[j].CreatedAt)
+			})
+		default: // sortNewest
+			sort.Slice(out, func(i, j int) bool {
+				return out[i].CreatedAt.After(out[j].CreatedAt)
+			})
+		}
 	}
 
 	a.assets = out
@@ -1035,13 +1077,16 @@ func (a *App) syncInspectorSelection(force bool) {
 }
 
 func (a *App) hasActiveFilters() bool {
-	return a.searchQuery != "" || a.kindFilter != 0 || a.minRating != 0
+	return a.searchQuery != "" || a.kindFilter != 0 || a.minRating != 0 || a.colorFilter != "" || len(a.similarScores) > 0
 }
 
 func (a *App) clearFilters() {
 	a.searchQuery = ""
 	a.kindFilter = 0
 	a.minRating = 0
+	a.colorFilter = ""
+	a.similarQueryLabel = ""
+	a.similarScores = nil
 	a.applyFilters()
 }
 
@@ -1059,7 +1104,12 @@ func (a *App) kindValue() string {
 }
 
 func (a *App) queueThumb(asset model.Asset) {
-	if a.thumbs == nil || asset.ThumbnailPath != "" || asset.Missing || a.queued[asset.ID] {
+	if a.thumbs == nil || asset.Missing || a.queued[asset.ID] {
+		return
+	}
+	hasThumb := asset.ThumbnailPath != ""
+	hasVisual := len(asset.Palette) > 0 && (asset.PHash != 0 || asset.DHash != 0)
+	if hasThumb && hasVisual {
 		return
 	}
 	if model.MediaKind(asset.Mime) == model.MediaOther {

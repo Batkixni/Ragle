@@ -487,6 +487,26 @@ var pairs = []pair{
 	{"board.movedToProject", "已將白板移入專案「%s」", "Moved board to project “%s”"},
 	{"board.deleteBoard", "刪除白板", "Delete board"},
 	{"board.deleteBoardConfirm", "確定要刪除獨立白板「%s」嗎？母庫中的原始素材不會被刪除。", "Delete standalone board “%s”? Original assets in your library will not be deleted."},
+
+	// Stage 14: Visual Search (Reverse Image, Dominant Palette) & Laya/Ollaya AI.
+	{"visual.findSimilar", "尋找相似圖片", "Find similar images"},
+	{"visual.searchByImage", "以圖搜圖", "Search by image"},
+	{"visual.similarBanner", "以圖搜圖：%s（找到 %d 筆相近素材）", "Similar to “%s” (%d matches)"},
+	{"visual.noSimilar", "目前母庫中沒有高度相似的圖片", "No visually similar images found"},
+	{"visual.colorFilter", "主色篩選", "Color"},
+	{"visual.colorBanner", "主色調篩選：%s（%d 筆）", "Color filter: %s (%d items)"},
+	{"visual.palette", "主色盤", "Palette"},
+	{"visual.copyHex", "點擊複製色碼 %s", "Click to copy %s"},
+	{"visual.searchColor", "依此色調搜尋", "Search similar color"},
+	{"laya.classify", "Laya 智慧分類", "Classify with Laya"},
+	{"laya.suggestions", "Laya 建議標籤（點擊套用）", "Laya suggestions (click to apply)"},
+	{"laya.done", "Laya 分類完成：自動套用 %d 個標籤，提供 %d 個建議", "Laya classified: %d auto-tagged, %d suggestions"},
+	{"laya.section", "本地 AI 分類（Laya / Ollaya）", "Local AI Classification (Laya / Ollaya)"},
+	{"laya.url", "Ollaya 端點位址", "Ollaya endpoint URL"},
+	{"laya.model", "模型名稱", "Model name"},
+	{"laya.test", "測試連線", "Test connection"},
+	{"laya.connected", "已連線至本地 Ollaya（%s）", "Connected to local Ollaya (%s)"},
+	{"laya.needTags", "請先建立至少一個標籤，再使用 Laya 自動分類", "Create at least one tag before running Laya classification"},
 }
 
 var (
