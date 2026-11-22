@@ -944,6 +944,22 @@ func (a *App) assetCard(c *gui.Context, index int, asset model.Asset, selected b
 		if m.Item(layaLabel).Chosen() {
 			a.classifyAssetsWithLaya(layaIDs)
 		}
+		if a.plugins != nil {
+			hook := "context_menu"
+			if multi {
+				hook = "batch_action"
+			}
+			if plugs := a.plugins.ForHook(hook); len(plugs) > 0 {
+				m.Submenu(a.t("plugins.menu"), func(sm *gui.Menu) {
+					for _, inst := range plugs {
+						pl := inst
+						if sm.Item(pl.Manifest.Name).Chosen() {
+							a.runPlugin(pl.Manifest.ID, hook, layaIDs)
+						}
+					}
+				})
+			}
+		}
 		m.Separator()
 		if multi {
 			if m.Item(fmt.Sprintf("%s (%d)", a.t("rename.batchAction"), len(batchIDs))).Chosen() {

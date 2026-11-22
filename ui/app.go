@@ -25,6 +25,7 @@ import (
 	"ragle/internal/i18n"
 	"ragle/internal/library"
 	"ragle/internal/model"
+	"ragle/internal/plugin"
 	"ragle/internal/project"
 	"ragle/internal/server"
 	"ragle/internal/share"
@@ -218,6 +219,9 @@ type App struct {
 	serverBindAll   bool
 	serverAutoStart bool
 	serverToken     string
+
+	// Stage 18: Plugin manager.
+	plugins *plugin.Manager
 
 	// Quick Preview Lightbox & Video Player state.
 	previewOpen     bool
@@ -671,6 +675,7 @@ func (a *App) attach(lib *library.Library, root string) {
 	a.lib = lib
 	a.shareDB.Store(lib.DB)
 	a.projects = project.New(lib.DB)
+	a.plugins = plugin.NewManager(root)
 	a.cfg.LibraryPath = root
 	a.saveConfig()
 	win := a.win

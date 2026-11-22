@@ -19,10 +19,11 @@ const (
 	settingsTabDatabase
 	settingsTabImport
 	settingsTabSharing
+	settingsTabPlugins
 )
 
 func (a *App) openSettings(tab int) {
-	if tab >= settingsTabGeneral && tab <= settingsTabSharing {
+	if tab >= settingsTabGeneral && tab <= settingsTabPlugins {
 		a.settingsPrevTab = a.settingsTab
 		a.settingsTab = tab
 	}
@@ -254,6 +255,7 @@ func (a *App) settingsModal(c *gui.Context) {
 			{settingsTabDatabase, iconDatabase, a.t("settings.tab.database")},
 			{settingsTabImport, iconImport, a.t("settings.tab.import")},
 			{settingsTabSharing, iconShare, a.t("settings.tab.sharing")},
+			{settingsTabPlugins, iconSparkle, a.t("settings.tab.plugins")},
 		}
 
 		gui.Row(c).Fill().Children(func() {
@@ -353,6 +355,8 @@ func (a *App) settingsModal(c *gui.Context) {
 							a.settingsImportTab(c)
 						case settingsTabSharing:
 							a.settingsSharingTab(c)
+						case settingsTabPlugins:
+							a.settingsPluginsTab(c)
 						}
 					})
 				})
@@ -806,6 +810,57 @@ func (a *App) settingsSharingTab(c *gui.Context) {
 					})
 				}
 			})
+		}
+	})
+}
+
+func (a *App) settingsPluginsTab(c *gui.Context) {
+	a.settingsGroup(c, a.t("plugins.section"), func() {
+		gui.Row(c).FillWidth().Gap(8).AlignItems(gui.Center).Children(func() {
+			if a.plugins != nil {
+				gui.Text(c, a.plugins.Dir()).FontSize(11).TextColor(a.pal.inkMuted).Grow(1).SingleLine()
+				a.toolButton(c, "plug-open-dir", iconFolder, a.t("plugins.openDir"), false).OnClick(func() {
+					_ = openLocalFile(a.plugins.Dir())
+				})
+				a.toolButton(c, "plug-reload", iconRefresh, a.t("plugins.reload"), false).OnClick(func() {
+					_ = a.plugins.Reload()
+					a.notify(fmt.Sprintf(a.t("plugins.reloaded"), len(a.plugins.List())))
+				})
+			}
+		})
+		if a.plugins == nil || len(a.plugins.List()) == 0 {
+			gui.Text(c, a.t("plugins.empty")).FontSize(12).TextColor(a.pal.inkSecondary).LineHeight(1.55)
+			return
+		}
+		for _, inst := range a.plugins.List() {
+			p := inst
+			enabled := p.Enabled
+			gui.Row(c.Key("plug-row-"+p.Manifest.ID)).
+				FillWidth().
+				Padding(10, 12).
+				Gap(10).
+				Radius(radiusControl).
+				Background(a.pal.surfaceRaised).
+				AlignItems(gui.Center).
+				Children(func() {
+					gui.Column(c).Grow(1).Gap(3).Children(func() {
+						gui.Row(c).Gap(6).AlignItems(gui.Center).Children(func() {
+							gui.Text(c, p.Manifest.Name).FontSize(13).Bold().TextColor(a.pal.ink)
+							if p.Manifest.Version != "" {
+								gui.Text(c, "v"+p.Manifest.Version).FontSize(10).TextColor(a.pal.inkMuted)
+							}
+						})
+						if p.Manifest.Description != "" {
+							gui.Text(c, p.Manifest.Description).FontSize(11).TextColor(a.pal.inkSecondary).LineHeight(1.4)
+						}
+						if len(p.Manifest.Hooks) > 0 {
+							gui.Text(c, strings.Join(p.Manifest.Hooks, " · ")).FontSize(10).TextColor(a.pal.inkMuted)
+						}
+					})
+					a.arcSwitch(c, "plug-en-"+p.Manifest.ID, &enabled, func() {
+						a.plugins.SetEnabled(p.Manifest.ID, enabled)
+					})
+				})
 		}
 	})
 }

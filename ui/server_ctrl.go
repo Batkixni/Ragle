@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"ragle/internal/mcp"
+	"ragle/internal/plugin"
 	"ragle/internal/server"
 )
 
@@ -119,4 +120,97 @@ func (a *App) buildMCPConfigJSON() string {
 	}
 	raw, _ := json.MarshalIndent(cfg, "", "  ")
 	return string(raw)
+}
+
+// runPlugin executes an installed external plugin against assetIDs off-thread.
+func (a *App) runPlugin(pluginID, hook string, assetIDs []string) {
+	if a.lib == nil || a.plugins == nil || pluginID == "" {
+		return
+	}
+	payloadAssets := make([]plugin.AssetPayload, 0, len(assetIDs))
+	for _, id := range assetIDs {
+		if asset, err := a.lib.Get(id); err == nil {
+			payloadAssets = append(payloadAssets, plugin.AssetPayload{
+				ID:        asset.ID,
+				Name:      asset.Label(),
+				Path:      asset.Path,
+				Mime:      asset.Mime,
+				Width:     asset.Width,
+				Height:    asset.Height,
+				Rating:    asset.Rating,
+				Notes:     asset.Notes,
+				SourceURL: asset.SourceURL,
+				Palette:   asset.Palette,
+			})
+		}
+	}
+	req := plugin.Request{
+		Hook:        hook,
+		LibraryPath: a.cfg.LibraryPath,
+		Token:       a.serverToken,
+		Assets:      payloadAssets,
+	}
+	if a.localSrv != nil && a.localSrv.Running() {
+		req.ServerURL = a.localSrv.LocalURL()
+	}
+	mgr := a.plugins
+	lib := a.lib
+	win := a.win
+
+	run := func() {
+		resp, err := mgr.Execute(context.Background(), pluginID, req)
+		if err == nil && len(resp.AddTags) > 0 {
+			tags, _ := lib.Tags()
+			byName := map[string]string{}
+			for _, tg := range tags {
+				byName[strings.ToLower(tg.Name)] = tg.ID
+			}
+			for aid, names := range resp.AddTags {
+				for _, name := range names {
+					name = strings.TrimSpace(name)
+					if name == "" {
+						continue
+					}
+					tid, ok := byName[strings.ToLower(name)]
+					if !ok {
+						if created, cerr := lib.CreateTag(name); cerr == nil {
+							tid = created.ID
+							byName[strings.ToLower(name)] = tid
+						}
+					}
+					if tid != "" {
+						_ = lib.SetAssetTag(aid, tid, true)
+					}
+				}
+			}
+		}
+		finish := func() {
+			if err != nil {
+				a.notify(err.Error())
+				return
+			}
+			if resp.Reload || len(resp.AddTags) > 0 {
+				a.reload()
+			}
+			if resp.Toast != "" {
+				a.notify(resp.Toast)
+			} else {
+				a.notify(fmt.Sprintf(a.t("plugins.ran"), pluginID))
+			}
+		}
+		if win == nil {
+			finish()
+			return
+		}
+		win.Update(func() {
+			if !a.isClosed() {
+				finish()
+			}
+		})
+	}
+	if win == nil {
+		run()
+		return
+	}
+	go run()
 }

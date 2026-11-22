@@ -522,6 +522,16 @@ var pairs = []pair{
 	{"server.started", "內建伺服器已啟動：%s", "Built-in server running at %s"},
 	{"server.stopped", "內建伺服器已停止", "Built-in server stopped"},
 	{"server.mcpCopied", "已複製 MCP JSON 設定至剪貼簿", "Copied MCP JSON config to clipboard"},
+
+	// Stage 18: Plugin Ecosystem.
+	{"settings.tab.plugins", "插件", "Plugins"},
+	{"plugins.section", "已安裝插件", "Installed Plugins"},
+	{"plugins.empty", "尚未安裝任何插件。將包含 manifest.json 的插件資料夾放入母庫的 plugins/ 目錄，點擊「重新掃描」即可啟用。", "No plugins installed yet. Place plugin folders with manifest.json inside your library's plugins/ directory and click Reload."},
+	{"plugins.openDir", "開啟插件資料夾", "Open plugins folder"},
+	{"plugins.reload", "重新掃描", "Reload"},
+	{"plugins.reloaded", "已重新掃描插件：共 %d 個", "Reloaded plugins: %d found"},
+	{"plugins.menu", "執行插件", "Run plugin"},
+	{"plugins.ran", "插件「%s」執行完成", "Plugin “%s” finished"},
 }
 
 var (
