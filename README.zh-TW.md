@@ -14,11 +14,26 @@
 </p>
 
 <p align="center">
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MPL_2.0-ff5c33.svg?style=flat-square" alt="License: MPL 2.0" /></a>
-  <img src="https://img.shields.io/badge/Go-1.24+-00ADD8?style=flat-square&logo=go&logoColor=white" alt="Go 1.24+" />
-  <img src="https://img.shields.io/badge/UI-MyGo_Native-18181B?style=flat-square" alt="MyGo Native UI" />
-  <img src="https://img.shields.io/badge/Platform-macOS_|_Windows_|_Linux-52525B?style=flat-square" alt="Platforms" />
+  <a href="LICENSE"><img src="https://shieldcn.dev/github/license/Batkixni/Ragle.svg?variant=secondary" alt="License: MPL 2.0" /></a>
+  <a href="https://github.com/Batkixni/Ragle/stargazers"><img src="https://shieldcn.dev/github/stars/Batkixni/Ragle.svg?variant=secondary" alt="GitHub Stars" /></a>
+  <img src="https://shieldcn.dev/badge/Go-1.24+-00ADD8.svg?variant=secondary" alt="Go 1.24+" />
+  <img src="https://shieldcn.dev/badge/UI-MyGo_Native-18181B.svg?variant=outline" alt="MyGo Native UI" />
+  <img src="https://shieldcn.dev/badge/Platform-macOS_%7C_Windows_%7C_Linux-52525B.svg?variant=outline" alt="Platforms" />
 </p>
+
+<p align="center">
+  <img src="docs/screenshots/library.png" alt="Ragle 資料庫介面 — Bento 拼接排版與右側資訊欄" width="100%" />
+</p>
+
+## 介面預覽
+
+| 專案空間與白板即時預覽 | 無限靈感白板與置頂參考浮窗 |
+| :---: | :---: |
+| <img src="docs/screenshots/project.png" alt="專案空間" width="100%" /> | <img src="docs/screenshots/board.png" alt="無限靈感白板" width="100%" /> |
+
+| 淺色極簡主題 |
+| :---: |
+| <img src="docs/screenshots/library-light.png" alt="Ragle 淺色模式" width="88%" /> |
 
 ---
 
@@ -121,6 +136,13 @@ CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o ragle-mcp ./cmd/ragle-mcp
 go tool mygo vet .
 CGO_ENABLED=0 go test -count=1 ./...
 ```
+
+---
+
+## 瀏覽器配套擴充套件
+
+- **Chrome / Edge / Brave**：開啟 `chrome://extensions` → 開啟「開發人員模式」→ 點選「載入未封裝項目」→ 選擇 [`extensions/browser/`](extensions/browser/)。
+- **Firefox / Zen Browser / Floorp / LibreWolf**：開啟 `about:debugging#/runtime/this-firefox` → 點選「載入暫時附加元件…」→ 選擇 [`extensions/firefox/manifest.json`](extensions/firefox/manifest.json)（永久 `.xpi` 安裝與網站權限設定請見完整教學：[extensions/firefox/README.md](extensions/firefox/README.md)）。
 
 ---
 

@@ -564,9 +564,7 @@ func (a *App) assetGrid(c *gui.Context) {
 		Grow(1)
 
 	gv.OnShortcut(0, gui.KeySpace, func() {
-		if asset, ok := a.selectedAsset(); ok {
-			a.openPreview(asset)
-		}
+		a.handleSpacePreview()
 	})
 	gv.OnShortcut(0, gui.KeyDelete, func() {
 		ids := a.selectedAssetIDs()
@@ -578,9 +576,7 @@ func (a *App) assetGrid(c *gui.Context) {
 
 func (a *App) bindAssetShortcuts(el gui.Element) {
 	el.OnShortcut(0, gui.KeySpace, func() {
-		if asset, ok := a.selectedAsset(); ok {
-			a.openPreview(asset)
-		}
+		a.handleSpacePreview()
 	})
 	el.OnShortcut(0, gui.KeyDelete, func() {
 		ids := a.selectedAssetIDs()
@@ -1481,28 +1477,63 @@ func (a *App) inspector(c *gui.Context) {
 							})
 						})
 
-						// Wrapping monochrome tag pills + quick-add.
+						// Applied translucent tinted tag badges (Eagle-style) + "+" tag picker + quick-add.
 						gui.Column(c).Gap(8).Children(func() {
 							a.sectionLabel(c, a.t("library.tags"))
 							owned := map[string]bool{}
-							for _, tg := range a.assetTags[asset.ID] {
+							applied := a.assetTags[asset.ID]
+							for _, tg := range applied {
 								owned[tg.ID] = true
 							}
-							if len(a.tags) > 0 {
-								gui.Row(c).Gap(6).Wrap().Children(func() {
-									for _, tag := range a.tags {
-										tg := tag
-										isOn := owned[tg.ID]
-										a.coloredTagChip(c, "insp-tag-"+asset.ID+"-"+tg.ID, tg, isOn).OnClick(func() {
-											if err := a.lib.SetAssetTag(asset.ID, tg.ID, !isOn); err != nil {
-												a.status = err.Error()
-												return
-											}
-											a.reload()
-										})
-									}
-								})
+							var available []model.Tag
+							for _, tg := range a.tags {
+								if !owned[tg.ID] {
+									available = append(available, tg)
+								}
 							}
+							gui.Row(c).Gap(6).Wrap().AlignItems(gui.Center).Children(func() {
+								for _, tag := range applied {
+									tg := tag
+									a.tintedTagChip(c, "insp-tag-"+asset.ID+"-"+tg.ID, tg, func() {
+										if err := a.lib.SetAssetTag(asset.ID, tg.ID, false); err != nil {
+											a.status = err.Error()
+											return
+										}
+										a.reload()
+									})
+								}
+								if len(available) > 0 {
+									addBtn := gui.ButtonBase(c.Key("insp-add-tag-pop-" + asset.ID)).
+										Size(26, 26).
+										Radius(8).
+										Center().
+										Label(a.t("inspector.addTag")).
+										Tooltip(a.t("inspector.addTag")).
+										PopoverMenuButton(func(m *gui.Menu) {
+											for _, cand := range available {
+												tg := cand
+												if m.Item(tg.Name).Chosen() {
+													if err := a.lib.SetAssetTag(asset.ID, tg.ID, true); err != nil {
+														a.status = err.Error()
+														return
+													}
+													a.reload()
+												}
+											}
+										})
+									abg := gui.Transparent
+									afg := a.pal.inkMuted
+									if addBtn.Hovered() || addBtn.Pressed() {
+										abg = a.pal.surfaceMuted
+										afg = a.pal.ink
+									}
+									addBtn.Background(addBtn.AnimateColor("abg", abg, animFast)).
+										TextColor(addBtn.AnimateColor("afg", afg, animFast)).
+										Children(func() {
+											gui.Icon(c, iconPlus).Size(14, 14)
+										})
+								}
+							})
 							gui.Row(c).Gap(6).AlignItems(gui.Center).Children(func() {
 								gui.TextInput(c.Key("insp-quick-tag"), &a.quickTagName).
 									Placeholder(a.t("inspector.quickTag")).

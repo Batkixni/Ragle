@@ -534,13 +534,17 @@ func TestGlobalShortcutsAndMarqueeBoxSelection(t *testing.T) {
 		}
 	}
 
-	// 4. Global Space opens Quick Preview; Escape closes it.
+	// 4. Global Space opens Quick Look pop-up (1st press), 2nd Space promotes to Full Inline Preview; Escape closes it.
 	tt.Key(0, gui.KeySpace)
-	if !a.previewOpen {
-		t.Fatal("global Space did not open Quick Preview")
+	if !a.quickLookOpen || a.previewOpen {
+		t.Fatalf("1st Space should open Quick Look pop-up: quickLook=%v preview=%v", a.quickLookOpen, a.previewOpen)
+	}
+	tt.Key(0, gui.KeySpace)
+	if a.quickLookOpen || !a.previewOpen {
+		t.Fatalf("2nd Space should promote to Full Inline Preview: quickLook=%v preview=%v", a.quickLookOpen, a.previewOpen)
 	}
 	tt.Key(0, gui.KeyEscape)
-	if a.previewOpen {
+	if a.previewOpen || a.quickLookOpen {
 		t.Fatal("Escape did not close Quick Preview")
 	}
 
@@ -691,14 +695,19 @@ func TestGlobalShortcutsAndMarqueeBoxSelection(t *testing.T) {
 		t.Fatal("Escape did not close Go to palette")
 	}
 
-	// 12. Inline Preview Viewer (Space opens inline viewer, NOT modal; Esc returns to grid).
+	// 12. Dual-stage Space preview (1st Space -> Quick Look Pop-up, 2nd Space -> Full Inline Preview, Esc -> Grid).
 	if len(a.assets) > 0 {
 		a.selectCard(0, 0)
 		tt.Frame()
 		tt.Key(0, gui.KeySpace)
 		tt.Advance(250 * time.Millisecond)
-		if !a.previewOpen {
-			t.Fatal("Space did not open inline preview")
+		if !a.quickLookOpen {
+			t.Fatal("1st Space did not open Quick Look pop-up")
+		}
+		tt.Key(0, gui.KeySpace)
+		tt.Advance(250 * time.Millisecond)
+		if !a.previewOpen || a.quickLookOpen {
+			t.Fatalf("2nd Space did not promote to inline preview: quickLook=%v preview=%v", a.quickLookOpen, a.previewOpen)
 		}
 		// Inspector Similar tab switches cleanly inside inline viewer.
 		if err := tt.Click("相似"); err != nil {

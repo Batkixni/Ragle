@@ -15,6 +15,7 @@ func (a *App) View(c *gui.Context) {
 		a.shell(c)
 	}
 	a.gotoModal(c)
+	a.quickLookModal(c)
 	a.settingsModal(c)
 	a.onboardingModal(c)
 	a.tagManagerModal(c)

@@ -90,7 +90,7 @@ func (a *App) loadSVGPreview(asset model.Asset) {
 			parsed, err = gui.ParseSVG(raw)
 		}
 		win.Update(func() {
-			if a.previewAssetID != targetID || !a.previewOpen || a.isClosed() {
+			if a.previewAssetID != targetID || (!a.previewOpen && !a.quickLookOpen) || a.isClosed() {
 				return
 			}
 			a.previewLoading = false
@@ -148,7 +148,7 @@ func (a *App) renderFontPreviewAsync(asset model.Asset) {
 			bm, err = rgbaToBitmap(img)
 		}
 		win.Update(func() {
-			if a.previewAssetID != targetID || a.previewFontGen != gen || !a.previewOpen || a.isClosed() {
+			if a.previewAssetID != targetID || a.previewFontGen != gen || (!a.previewOpen && !a.quickLookOpen) || a.isClosed() {
 				return
 			}
 			a.previewLoading = false
@@ -189,7 +189,7 @@ func (a *App) loadAudioPreview(asset model.Asset) {
 			player.SetVolume(vol)
 		}
 		win.Update(func() {
-			if a.previewAssetID != targetID || !a.previewOpen || a.isClosed() {
+			if a.previewAssetID != targetID || (!a.previewOpen && !a.quickLookOpen) || a.isClosed() {
 				if player != nil {
 					_ = player.Close()
 				}
@@ -310,7 +310,7 @@ func (a *App) loadPDFPreview(asset model.Asset, page int) {
 			bm, err = rgbaToBitmap(img)
 		}
 		win.Update(func() {
-			if a.previewAssetID != targetID || a.previewPDFGen != gen || !a.previewOpen || a.isClosed() {
+			if a.previewAssetID != targetID || a.previewPDFGen != gen || (!a.previewOpen && !a.quickLookOpen) || a.isClosed() {
 				return
 			}
 			a.previewLoading = false

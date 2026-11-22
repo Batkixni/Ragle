@@ -645,6 +645,9 @@ var pairs = []pair{
 	{"pureref.opacity", "透明度", "Opacity"},
 	{"pureref.fit", "符合畫面 (F)", "Fit All (F)"},
 	{"pureref.hint", "左鍵拖曳平移 · 滾輪縮放 · F 置中", "Drag to pan · Scroll to zoom · F to fit"},
+	{"preview.quickLookHint", "再按一次 Space 進入完整檢視 · Esc 關閉", "Press Space again for full view · Esc to close"},
+	{"preview.fullView", "完整檢視 (Space)", "Full View (Space)"},
+	{"inspector.addTag", "加入標籤", "Add tag"},
 }
 
 var (

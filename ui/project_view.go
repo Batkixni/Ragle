@@ -102,19 +102,18 @@ func (a *App) projectView(c *gui.Context) {
 								LineHeight(1.6)
 						}
 
-						// Independent tag strip with optional tag colors.
-						if len(a.tags) > 0 {
+						// Read-only applied project tags (edited via Edit Project modal).
+						var appliedTags []model.Tag
+						for _, tg := range a.tags {
+							if a.projectTags[tg.ID] {
+								appliedTags = append(appliedTags, tg)
+							}
+						}
+						if len(appliedTags) > 0 {
 							gui.Row(c).FillWidth().Padding(4, 0, 0, 0).Gap(6).Wrap().AlignItems(gui.Center).Children(func() {
-								for _, tag := range a.tags {
+								for _, tag := range appliedTags {
 									tg := tag
-									isOn := a.projectTags[tg.ID]
-									a.coloredTagChip(c, "ptag-"+tg.ID, tg, isOn).OnClick(func() {
-										if err := a.projects.SetTag(a.projectID, tg.ID, !isOn); err != nil {
-											a.status = err.Error()
-											return
-										}
-										a.reload()
-									})
+									a.tintedTagChip(c, "ptag-"+tg.ID, tg, nil)
 								}
 							})
 						}
@@ -216,6 +215,49 @@ func (a *App) coloredTagChip(c *gui.Context, key string, tg model.Tag, active bo
 		gui.Text(c, tg.Name).FontSize(12).SingleLine()
 	})
 	return btn
+}
+
+// tintedTagChip renders a sleek translucent tinted tag badge with a delicate
+// matching border and an optional inline remove ("×") button (Eagle style).
+func (a *App) tintedTagChip(c *gui.Context, key string, tg model.Tag, onRemove func()) {
+	bg := a.pal.surfaceMuted
+	border := gui.RGBA(255, 255, 255, 0.14)
+	if !a.dark {
+		border = gui.RGBA(24, 24, 27, 0.16)
+	}
+	if col, ok := a.effectiveTagColor(tg.ID); ok {
+		alphaBg := float32(0.17)
+		if !a.dark {
+			alphaBg = 0.12
+		}
+		bg = gui.RGBA(col.R, col.G, col.B, alphaBg)
+		border = gui.RGBA(col.R, col.G, col.B, 0.45)
+	}
+	gui.Row(c.Key(key)).
+		Padding(4, 9).
+		Gap(6).
+		Radius(8).
+		Background(bg).
+		Border(1, border).
+		AlignItems(gui.Center).
+		Children(func() {
+			gui.Text(c, tg.Name).FontSize(12).Bold().TextColor(a.pal.ink).SingleLine()
+			if onRemove != nil {
+				rmBtn := gui.ButtonBase(c.Key(key+"-rm")).
+					Size(16, 16).
+					Radius(4).
+					Center().
+					Tooltip(a.t("common.delete")).
+					OnClick(onRemove)
+				fg := a.pal.inkSecondary
+				if rmBtn.Hovered() || rmBtn.Pressed() {
+					fg = a.pal.ink
+				}
+				rmBtn.TextColor(fg).Children(func() {
+					gui.Icon(c, iconX).Size(10, 10)
+				})
+			}
+		})
 }
 
 // boardCard renders a live miniature preview of the board's actual canvas

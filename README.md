@@ -14,11 +14,26 @@
 </p>
 
 <p align="center">
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MPL_2.0-ff5c33.svg?style=flat-square" alt="License: MPL 2.0" /></a>
-  <img src="https://img.shields.io/badge/Go-1.24+-00ADD8?style=flat-square&logo=go&logoColor=white" alt="Go 1.24+" />
-  <img src="https://img.shields.io/badge/UI-MyGo_Native-18181B?style=flat-square" alt="MyGo Native UI" />
-  <img src="https://img.shields.io/badge/Platform-macOS_|_Windows_|_Linux-52525B?style=flat-square" alt="Platforms" />
+  <a href="LICENSE"><img src="https://shieldcn.dev/github/license/Batkixni/Ragle.svg?variant=secondary" alt="License: MPL 2.0" /></a>
+  <a href="https://github.com/Batkixni/Ragle/stargazers"><img src="https://shieldcn.dev/github/stars/Batkixni/Ragle.svg?variant=secondary" alt="GitHub Stars" /></a>
+  <img src="https://shieldcn.dev/badge/Go-1.24+-00ADD8.svg?variant=secondary" alt="Go 1.24+" />
+  <img src="https://shieldcn.dev/badge/UI-MyGo_Native-18181B.svg?variant=outline" alt="MyGo Native UI" />
+  <img src="https://shieldcn.dev/badge/Platform-macOS_%7C_Windows_%7C_Linux-52525B.svg?variant=outline" alt="Platforms" />
 </p>
+
+<p align="center">
+  <img src="docs/screenshots/library.png" alt="Ragle Library — Bento Layout & Inspector" width="100%" />
+</p>
+
+## Screenshots
+
+| Project Workspace & Board Previews | Infinite Moodboard & Floating Reference |
+| :---: | :---: |
+| <img src="docs/screenshots/project.png" alt="Project Workspace" width="100%" /> | <img src="docs/screenshots/board.png" alt="Infinite Moodboard" width="100%" /> |
+
+| Light Mode Workspace |
+| :---: |
+| <img src="docs/screenshots/library-light.png" alt="Ragle Light Mode" width="88%" /> |
 
 ---
 
@@ -126,7 +141,8 @@ CGO_ENABLED=0 go test -count=1 ./...
 
 ## Browser Companion Extension & Plugins
 
-- **Browser Extension**: Open `chrome://extensions` (or `edge://extensions`), enable **Developer mode**, click **Load unpacked**, and select [`extensions/browser/`](extensions/browser/). Enable the Built-in Server under `Preferences → Sharing`.
+- **Chrome / Edge / Brave (Chromium)**: Open `chrome://extensions`, enable **Developer mode**, click **Load unpacked**, and select [`extensions/browser/`](extensions/browser/). Enable the Built-in Server under `Preferences → Sharing`.
+- **Firefox / Zen Browser / Floorp / LibreWolf**: Open `about:debugging#/runtime/this-firefox` → **Load Temporary Add-on…** → select [`extensions/firefox/manifest.json`](extensions/firefox/manifest.json) (for permanent installation & MV3 host permissions, see [`extensions/firefox/README.md`](extensions/firefox/README.md)).
 - **Plugins**: Drop plugin folders containing `manifest.json` into `<UserConfigDir>/Ragle/plugins/` (or open the folder from `Preferences → Plugins`). See [`examples/plugins/asset-stats/`](examples/plugins/asset-stats/) for a working template.
 
 ---

@@ -234,8 +234,9 @@ type App struct {
 	// Stage 18: Plugin manager.
 	plugins *plugin.Manager
 
-	// Quick Preview Inline Viewer & Native Designer Formats state.
+	// Quick Preview Inline Viewer, Quick Look Pop-up & Native Designer Formats state.
 	previewOpen         bool
+	quickLookOpen       bool
 	previewAssetID      string
 	previewBitmap       *gui.Bitmap
 	previewVideo        *gui.VideoPlayer
@@ -938,11 +939,8 @@ func (a *App) reload() {
 	a.applyFilters()
 
 	if a.projects != nil {
-		if a.tagID == "" {
-			a.projectList, err = a.projects.List()
-		} else {
-			a.projectList, err = a.projects.ListByTag(a.tagID)
-		}
+		// Always show all projects in the sidebar regardless of selected tag.
+		a.projectList, err = a.projects.List()
 		if err != nil {
 			a.status = err.Error()
 			return
@@ -1408,7 +1406,7 @@ func (a *App) ensureBitmap(id, path string) {
 	}()
 }
 
-// closePreview shuts down any active media players and closes the inline viewer.
+// closePreview shuts down any active media players and closes both Quick Look and Inline Viewer.
 func (a *App) closePreview() {
 	if a.previewVideo != nil {
 		a.previewVideo.Close()
@@ -1418,15 +1416,75 @@ func (a *App) closePreview() {
 	a.previewVideoErr = ""
 	a.previewLoading = false
 	a.previewOpen = false
+	a.quickLookOpen = false
 }
 
-// openPreview opens the full-resolution inline viewer for asset, supporting
-// images, animated GIFs, video, SVG vectors, TTF/OTF fonts, audio waveforms, and PDFs.
+// openQuickLook opens the centered Quick Look Pop-up (1st Space press).
+func (a *App) openQuickLook(asset model.Asset) {
+	if asset.ID == "" {
+		return
+	}
+	a.quickLookOpen = true
+	a.previewOpen = false
+	a.loadPreviewAsset(asset)
+}
+
+// promoteQuickLookToFullPreview promotes Quick Look Pop-up into the full-stage
+// inline preview viewer without reloading already-decoded media (2nd Space press).
+func (a *App) promoteQuickLookToFullPreview() {
+	if !a.quickLookOpen {
+		return
+	}
+	a.quickLookOpen = false
+	a.previewOpen = true
+	if asset, ok := a.assetByID[a.previewAssetID]; ok {
+		a.loadPreviewAsset(asset)
+	}
+}
+
+// handleSpacePreview implements the 2-stage Space workflow:
+// 1st Space in grid -> Quick Look Pop-up
+// 2nd Space in Quick Look -> Full Inline Preview
+// Space in Full Inline Preview -> Play/Pause media (or close for static assets)
+func (a *App) handleSpacePreview() {
+	if a.quickLookOpen {
+		a.promoteQuickLookToFullPreview()
+		return
+	}
+	if a.previewOpen {
+		if a.previewVideo != nil {
+			if a.previewVideo.Playing() {
+				a.previewVideo.Pause()
+			} else {
+				a.previewVideo.Play()
+			}
+			return
+		}
+		if a.previewAudio != nil {
+			a.toggleAudioPlayback()
+			return
+		}
+		a.closePreview()
+		return
+	}
+	if a.canRunLibraryShortcut() {
+		if asset, ok := a.selectedAsset(); ok {
+			a.openQuickLook(asset)
+		}
+	}
+}
+
+// openPreview opens the full-resolution inline viewer directly (double-click / button).
 func (a *App) openPreview(asset model.Asset) {
 	if asset.ID == "" {
 		return
 	}
+	a.quickLookOpen = false
 	a.previewOpen = true
+	a.loadPreviewAsset(asset)
+}
+
+func (a *App) loadPreviewAsset(asset model.Asset) {
 	a.previewZoom = 1.0
 	if a.previewAssetID == asset.ID && (a.previewBitmap != nil || a.previewVideo != nil || a.previewSVG != nil || a.previewFontBitmap != nil || a.previewPDFBitmap != nil || a.previewAudio != nil || a.previewLoading) {
 		return
@@ -1490,7 +1548,7 @@ func (a *App) openPreview(asset model.Asset) {
 				}
 			}
 			win.Update(func() {
-				if a.previewAssetID != targetID || !a.previewOpen || a.isClosed() {
+				if a.previewAssetID != targetID || (!a.previewOpen && !a.quickLookOpen) || a.isClosed() {
 					if player != nil {
 						player.Close()
 					}
@@ -1537,7 +1595,7 @@ func (a *App) openPreview(asset model.Asset) {
 			}
 		}
 		win.Update(func() {
-			if a.previewAssetID != targetID || !a.previewOpen || a.isClosed() {
+			if a.previewAssetID != targetID || (!a.previewOpen && !a.quickLookOpen) || a.isClosed() {
 				if player != nil {
 					player.Close()
 				}
@@ -1554,7 +1612,7 @@ func (a *App) openPreview(asset model.Asset) {
 }
 
 func (a *App) stepPreview(delta int) {
-	if !a.previewOpen || len(a.assets) == 0 {
+	if (!a.previewOpen && !a.quickLookOpen) || len(a.assets) == 0 {
 		return
 	}
 	idx := -1
@@ -1571,7 +1629,11 @@ func (a *App) stepPreview(delta int) {
 	}
 	a.assetIndex = idx
 	a.syncInspectorSelection(true)
-	a.openPreview(a.assets[idx])
+	if a.quickLookOpen {
+		a.openQuickLook(a.assets[idx])
+	} else {
+		a.openPreview(a.assets[idx])
+	}
 }
 
 func (a *App) chooseLibrary() {
@@ -1951,6 +2013,12 @@ func (a *App) openEditProjectModal() {
 	}
 	a.newProjectName = a.project.Name
 	a.newProjectDesc = a.project.Description
+	a.newProjTags = make(map[string]bool, len(a.projectTags))
+	for id, on := range a.projectTags {
+		if on {
+			a.newProjTags[id] = true
+		}
+	}
 	a.editProjOpen = true
 }
 
@@ -1966,6 +2034,12 @@ func (a *App) saveProjectFromModal() {
 	if _, err := a.projects.Update(a.projectID, name, trim(a.newProjectDesc)); err != nil {
 		a.status = err.Error()
 		return
+	}
+	for _, tg := range a.tags {
+		want := a.newProjTags[tg.ID]
+		if want != a.projectTags[tg.ID] {
+			_ = a.projects.SetTag(a.projectID, tg.ID, want)
+		}
 	}
 	a.editProjOpen = false
 	a.reload()
@@ -2367,6 +2441,7 @@ func (a *App) canRunLibraryShortcut() bool {
 		!a.onboardingOpen &&
 		!a.tagManagerOpen &&
 		!a.previewOpen &&
+		!a.quickLookOpen &&
 		!a.settingsOpen &&
 		!a.renameOpen &&
 		!a.exportOpen &&
@@ -2508,7 +2583,7 @@ func (a *App) registerWindowShortcuts(c *gui.Context) {
 		}
 	})
 	c.OnShortcut(0, gui.KeyEscape, func() {
-		if a.previewOpen {
+		if a.previewOpen || a.quickLookOpen {
 			a.closePreview()
 			return
 		}
@@ -2531,21 +2606,7 @@ func (a *App) registerWindowShortcuts(c *gui.Context) {
 		}
 	})
 	c.OnShortcut(0, gui.KeySpace, func() {
-		if a.previewOpen {
-			if a.previewVideo != nil {
-				if a.previewVideo.Playing() {
-					a.previewVideo.Pause()
-				} else {
-					a.previewVideo.Play()
-				}
-			}
-			return
-		}
-		if a.canRunLibraryShortcut() {
-			if asset, ok := a.selectedAsset(); ok {
-				a.openPreview(asset)
-			}
-		}
+		a.handleSpacePreview()
 	})
 	c.OnShortcut(0, gui.KeyDelete, func() {
 		if a.canRunLibraryShortcut() {
@@ -2555,7 +2616,7 @@ func (a *App) registerWindowShortcuts(c *gui.Context) {
 		}
 	})
 	c.OnShortcut(0, gui.KeyLeft, func() {
-		if a.previewOpen {
+		if a.previewOpen || a.quickLookOpen {
 			a.stepPreview(-1)
 			return
 		}
@@ -2564,7 +2625,7 @@ func (a *App) registerWindowShortcuts(c *gui.Context) {
 		}
 	})
 	c.OnShortcut(0, gui.KeyRight, func() {
-		if a.previewOpen {
+		if a.previewOpen || a.quickLookOpen {
 			a.stepPreview(1)
 			return
 		}
