@@ -15,6 +15,10 @@
   <img src="https://shieldcn.dev/badge/Platform-macOS_%7C_Windows_%7C_Linux-3F3F46.svg" alt="Platforms" />
 </p>
 
+<p align="center">
+[![Listed on Awesome MyGo](https://awesomemygo.dev/badge.svg)](https://awesomemygo.dev/apps/raglex)
+</p>
+
 ## Workspace Previews
 
 | Project Workspace & Board Previews | Infinite Moodboard & Floating Reference |
