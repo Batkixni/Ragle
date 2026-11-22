@@ -492,7 +492,7 @@ func NewApp() *App {
 		inspectorWidth:       316,
 		libraryPercent:       74,
 		autoCheckUpdates:     true,
-		updateBetaChannel:    true,
+		updateBetaChannel:    false,
 		selectedNav:          "tag-all",
 		lastNav:              "tag-all",
 	}
@@ -595,7 +595,7 @@ func (a *App) applyConfig(cfg config.Config) {
 	a.serverAutoStart = cfg.ServerAutoStart
 	a.serverToken = cfg.ServerToken
 	a.autoCheckUpdates = config.BoolOr(cfg.AutoCheckUpdates, true)
-	a.updateBetaChannel = config.BoolOr(cfg.UpdateBetaChannel, true)
+	a.updateBetaChannel = config.BoolOr(cfg.UpdateBetaChannel, false)
 }
 
 func (a *App) syncConfigFromState() {
