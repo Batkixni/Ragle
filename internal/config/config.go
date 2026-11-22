@@ -15,7 +15,39 @@ type Config struct {
 	SignalingURL string  `json:"signaling_url,omitempty"`
 	ThemeMode    string  `json:"theme_mode,omitempty"` // "auto", "light", "dark"
 	CardSize     float64 `json:"card_size,omitempty"`
+
+	// Workspace & appearance preferences.
+	ShowSidebarCounts *bool  `json:"show_sidebar_counts,omitempty"`
+	ShowCardCaption   *bool  `json:"show_card_caption,omitempty"`
+	DefaultSort       int    `json:"default_sort,omitempty"`
+	LayoutMode        string `json:"layout_mode,omitempty"` // "bento", "masonry", "grid"
+
+	// Import preferences.
+	DefaultStorageMode   string `json:"default_storage_mode,omitempty"` // "index", "symlink", "move", "copy"
+	AutoSelectImported   *bool  `json:"auto_select_imported,omitempty"`
+	AutoTagOnImport      *bool  `json:"auto_tag_on_import,omitempty"`
+	IgnoreHiddenOnImport *bool  `json:"ignore_hidden_on_import,omitempty"`
+	ImportRecursive      *bool  `json:"import_recursive,omitempty"`
+	NotifyDuplicates     *bool  `json:"notify_duplicates,omitempty"`
+
+	// Database & safety preferences.
+	BackupBeforeDelete *bool `json:"backup_before_delete,omitempty"`
+
+	// Sharing preferences.
+	DeviceName        string `json:"device_name,omitempty"`
+	ShareIncludeFiles *bool  `json:"share_include_files,omitempty"`
 }
+
+// BoolOr returns *p when non-nil, or def otherwise.
+func BoolOr(p *bool, def bool) bool {
+	if p == nil {
+		return def
+	}
+	return *p
+}
+
+// BoolPtr returns a pointer to v for optional JSON fields.
+func BoolPtr(v bool) *bool { return &v }
 
 // Path is os.UserConfigDir()/Ragle/config.json.
 func Path() (string, error) {

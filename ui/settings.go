@@ -1,0 +1,674 @@
+package ui
+
+import (
+	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/egoist/mygo"
+	gui "github.com/egoist/mygo/ui"
+
+	"ragle/internal/model"
+)
+
+const (
+	settingsTabGeneral = iota
+	settingsTabDatabase
+	settingsTabImport
+	settingsTabSharing
+)
+
+func (a *App) openSettings(tab int) {
+	if tab >= settingsTabGeneral && tab <= settingsTabSharing {
+		a.settingsPrevTab = a.settingsTab
+		a.settingsTab = tab
+	}
+	a.settingsOpen = true
+	a.refreshDBStats()
+}
+
+func (a *App) setSettingsTab(tab int) {
+	if tab == a.settingsTab {
+		return
+	}
+	a.settingsPrevTab = a.settingsTab
+	a.settingsTab = tab
+	if tab == settingsTabDatabase && !a.dbStatsLoaded {
+		a.refreshDBStats()
+	}
+}
+
+func (a *App) refreshDBStats() {
+	if a.lib == nil || a.dbStatsBusy {
+		return
+	}
+	dbPath := a.lib.DB.Path()
+	bakPath := a.lib.DB.BackupPath()
+	filesDir := a.lib.DB.FilesDir()
+	thumbsDir := a.lib.DB.ThumbsDir()
+	totalBoards := 0
+	if a.projects != nil {
+		for _, p := range a.projectList {
+			if boards, err := a.projects.Boards(p.ID); err == nil {
+				totalBoards += len(boards)
+			}
+		}
+	}
+	compute := func() dbStatsInfo {
+		var st dbStatsInfo
+		st.TotalBoards = totalBoards
+		if fi, err := os.Stat(dbPath); err == nil {
+			st.DBBytes = fi.Size()
+		}
+		if fi, err := os.Stat(bakPath); err == nil {
+			st.HasBackup = true
+			st.BackupBytes = fi.Size()
+			st.BackupTime = fi.ModTime()
+		}
+		st.FilesBytes, st.FilesCount = dirStats(filesDir)
+		st.ThumbsBytes, st.ThumbsCount = dirStats(thumbsDir)
+		return st
+	}
+	if a.win == nil {
+		a.dbStats = compute()
+		a.dbStatsLoaded = true
+		return
+	}
+	a.dbStatsBusy = true
+	win := a.win
+	go func() {
+		st := compute()
+		win.Update(func() {
+			a.dbStatsBusy = false
+			if a.isClosed() {
+				return
+			}
+			a.dbStats = st
+			a.dbStatsLoaded = true
+		})
+	}()
+}
+
+func dirStats(root string) (int64, int) {
+	var total int64
+	var count int
+	_ = filepath.WalkDir(root, func(_ string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return nil
+		}
+		if info, err := d.Info(); err == nil {
+			total += info.Size()
+			count++
+		}
+		return nil
+	})
+	return total, count
+}
+
+func (a *App) backupDatabaseNow() {
+	if a.lib == nil {
+		return
+	}
+	if a.win == nil {
+		if err := a.lib.DB.Backup(); err != nil {
+			a.status = err.Error()
+			return
+		}
+		a.status = a.t("settings.backupDone")
+		a.refreshDBStats()
+		return
+	}
+	lib := a.lib
+	win := a.win
+	go func() {
+		err := lib.DB.Backup()
+		win.Update(func() {
+			if a.isClosed() {
+				return
+			}
+			if err != nil {
+				a.status = err.Error()
+				return
+			}
+			a.status = a.t("settings.backupDone")
+			a.refreshDBStats()
+		})
+	}()
+}
+
+func (a *App) exportDatabaseBackup() {
+	if a.lib == nil || a.win == nil {
+		return
+	}
+	win := a.win
+	lib := a.lib
+	title := a.t("settings.exportBackup")
+	defName := fmt.Sprintf("ragle-backup-%s.db", time.Now().Format("20060102-1504"))
+	go func() {
+		dst, err := mygo.Dialog.Save(mygo.SaveDialogOptions{
+			Parent:      win,
+			Title:       title,
+			DefaultPath: defName,
+		})
+		if err != nil || dst == "" {
+			return
+		}
+		err = lib.DB.BackupTo(dst)
+		win.Update(func() {
+			if a.isClosed() {
+				return
+			}
+			if err != nil {
+				a.status = err.Error()
+				return
+			}
+			a.status = fmt.Sprintf(a.t("settings.exportBackupDone"), filepath.Base(dst))
+		})
+	}()
+}
+
+func (a *App) rebuildAllThumbnails() {
+	if a.lib == nil {
+		return
+	}
+	a.queued = map[string]bool{}
+	count := 0
+	for _, asset := range a.allAssets {
+		if asset.Missing {
+			continue
+		}
+		kind := model.MediaKind(asset.Mime)
+		if kind != model.MediaImage && kind != model.MediaVideo {
+			continue
+		}
+		if a.thumbs != nil {
+			a.thumbs.Enqueue(asset.ID)
+			a.queued[asset.ID] = true
+		}
+		count++
+	}
+	a.status = fmt.Sprintf(a.t("settings.rebuildThumbsDone"), count)
+}
+
+func (a *App) cleanOrphanThumbs() {
+	if a.lib == nil {
+		return
+	}
+	thumbsDir := a.lib.DB.ThumbsDir()
+	valid := make(map[string]bool, len(a.allAssets))
+	for _, asset := range a.allAssets {
+		if asset.ThumbnailPath != "" {
+			valid[filepath.Clean(asset.ThumbnailPath)] = true
+		}
+	}
+	entries, err := os.ReadDir(thumbsDir)
+	if err != nil {
+		a.status = err.Error()
+		return
+	}
+	var removed int
+	var freed int64
+	for _, ent := range entries {
+		if ent.IsDir() {
+			continue
+		}
+		full := filepath.Clean(filepath.Join(thumbsDir, ent.Name()))
+		if valid[full] {
+			continue
+		}
+		if info, err := ent.Info(); err == nil {
+			freed += info.Size()
+		}
+		if os.Remove(full) == nil {
+			removed++
+		}
+	}
+	a.status = fmt.Sprintf(a.t("settings.cleanThumbsDone"), removed, formatBytes(freed))
+	a.refreshDBStats()
+}
+
+func (a *App) settingsModal(c *gui.Context) {
+	if !a.settingsOpen {
+		return
+	}
+	gui.DialogBase(c.Key("settings-modal"), &a.settingsOpen, func(backdrop, panel gui.Element) {
+		backdrop.Background(gui.RGBA(0, 0, 0, 0.56))
+		panel.
+			Width(800).
+			Height(620).
+			Radius(radiusSurface).
+			Clip().
+			Background(a.pal.canvas).
+			Shadow(0, 22, 54, 0, a.pal.shadowFloating)
+		applyBlurReveal(panel, "settings-modal", 0)
+
+		tabs := []struct {
+			id    int
+			icon  *gui.SVG
+			label string
+		}{
+			{settingsTabGeneral, iconSliders, a.t("settings.tab.general")},
+			{settingsTabDatabase, iconDatabase, a.t("settings.tab.database")},
+			{settingsTabImport, iconImport, a.t("settings.tab.import")},
+			{settingsTabSharing, iconShare, a.t("settings.tab.sharing")},
+		}
+
+		gui.Row(c).Fill().Children(func() {
+			// Left category sidebar with Arc gliding pill highlight.
+			gui.Column(c).
+				Width(198).
+				FillHeight().
+				Background(a.pal.surface).
+				Padding(18, 12, 16, 12).
+				Gap(14).
+				Children(func() {
+					gui.Text(c, a.t("settings.title")).FontSize(15).Bold().Padding(0, 10)
+
+					navTrack := gui.Column(c.Key("settings-nav-track")).FillWidth().Gap(3)
+					var activeBtn gui.Element
+					var hasActive bool
+					navTrack.Children(func() {
+						for _, tab := range tabs {
+							tb := tab
+							active := a.settingsTab == tb.id
+							btn := gui.ButtonBase(c.Key(fmt.Sprintf("stab-%d", tb.id))).
+								FillWidth().
+								Padding(9, 12).
+								Gap(10).
+								Radius(radiusControl).
+								AlignItems(gui.Center).
+								OnClick(func() {
+									a.setSettingsTab(tb.id)
+								})
+							targetFg := a.pal.inkSecondary
+							if active || btn.Hovered() {
+								targetFg = a.pal.ink
+							}
+							fg := btn.AnimateColor("fg", targetFg, animFast)
+							if !active {
+								hbg := gui.Transparent
+								if btn.Hovered() {
+									hbg = a.pal.surfaceMuted
+								}
+								btn.Background(btn.AnimateColor("hbg", hbg, animFast))
+							}
+							btn.Children(func() {
+								gui.Icon(c, tb.icon).Size(15, 15).TextColor(fg)
+								gui.Text(c, tb.label).FontSize(13).Bold().TextColor(fg).Grow(1).SingleLine()
+							})
+							if active {
+								activeBtn = btn
+								hasActive = true
+							}
+						}
+					})
+					attachGlidingPill(navTrack, activeBtn, hasActive, radiusControl, a.pal.pillActive, a.pal.shadowResting)
+
+					gui.Spacer(c)
+
+					gui.Column(c).Padding(0, 10).Gap(2).Children(func() {
+						gui.Text(c, "Ragle").FontSize(11).Bold().TextColor(a.pal.inkMuted)
+						gui.Text(c, a.t("shell.localFirst")).FontSize(10).TextColor(a.pal.inkFaint).SingleLine()
+					})
+				})
+
+			// Right content area: header + directional animated scrollable cards + footer.
+			gui.Column(c).Grow(1).FillHeight().Background(a.pal.canvas).Children(func() {
+				// Top header.
+				activeTitle := tabs[0].label
+				for _, tb := range tabs {
+					if tb.id == a.settingsTab {
+						activeTitle = tb.label
+						break
+					}
+				}
+				gui.Row(c).Height(54).Padding(0, 22).AlignItems(gui.Center).Children(func() {
+					gui.Text(c, activeTitle).FontSize(16).Bold().Grow(1)
+					a.iconButton(c, "settings-close-x", iconX, a.t("common.close"), false).OnClick(func() {
+						a.settingsOpen = false
+					})
+				})
+
+				// Scrollable grouped cards with directional Arc panel transition.
+				gui.Scroll(c.Key("settings-scroll")).Grow(1).FillWidth().Children(func() {
+					dirY := float32(10)
+					if a.settingsTab < a.settingsPrevTab {
+						dirY = -10
+					}
+					body := gui.Column(c.Key(fmt.Sprintf("settings-body-%d", a.settingsTab))).
+						FillWidth().
+						Padding(4, 22, 20, 22).
+						Gap(14)
+					applyPanelSwitch(body, a.settingsTab, 0, dirY)
+					body.Children(func() {
+						switch a.settingsTab {
+						case settingsTabGeneral:
+							a.settingsGeneralTab(c)
+						case settingsTabDatabase:
+							a.settingsDatabaseTab(c)
+						case settingsTabImport:
+							a.settingsImportTab(c)
+						case settingsTabSharing:
+							a.settingsSharingTab(c)
+						}
+					})
+				})
+
+				// Footer bar.
+				gui.Row(c).Padding(12, 22).Gap(10).AlignItems(gui.Center).Children(func() {
+					if a.status != "" {
+						gui.Text(c, a.status).FontSize(11).TextColor(a.pal.inkSecondary).Grow(1).SingleLine()
+					} else {
+						gui.Spacer(c)
+					}
+					a.arcButton(c, "settings-done", a.t("common.done"), true).OnClick(func() {
+						a.syncConfigFromState()
+						a.settingsOpen = false
+					})
+				})
+			})
+		})
+	})
+}
+
+func (a *App) settingsGroup(c *gui.Context, title string, content func()) {
+	gui.Column(c).
+		FillWidth().
+		Padding(14, 16).
+		Gap(10).
+		Radius(radiusPanel).
+		Background(a.pal.surface).
+		Children(func() {
+			a.sectionLabel(c, title)
+			content()
+		})
+}
+
+func (a *App) settingsSwitchRow(c *gui.Context, key, label string, val *bool, onChange func()) {
+	gui.Row(c).FillWidth().Gap(12).AlignItems(gui.Center).Children(func() {
+		gui.Text(c, label).FontSize(13).TextColor(a.pal.ink).Grow(1).LineHeight(1.35)
+		a.arcSwitch(c, key, val, onChange)
+	})
+}
+
+func (a *App) settingsGeneralTab(c *gui.Context) {
+	// Appearance group.
+	a.settingsGroup(c, a.t("settings.appearance"), func() {
+		gui.Row(c).FillWidth().Gap(12).AlignItems(gui.Center).Children(func() {
+			gui.Text(c, a.t("shell.theme")).FontSize(13).Grow(1)
+			sel := 0
+			switch a.themeMode {
+			case "light":
+				sel = 1
+			case "dark":
+				sel = 2
+			}
+			modes := []string{"auto", "light", "dark"}
+			a.arcPillTabs(c, "pref-theme", sel, []string{
+				a.t("shell.themeAuto"),
+				a.t("shell.themeLight"),
+				a.t("shell.themeDark"),
+			}, func(idx int) {
+				a.setThemeMode(modes[idx])
+			})
+		})
+
+		gui.Row(c).FillWidth().Gap(12).AlignItems(gui.Center).Children(func() {
+			gui.Text(c, a.t("shell.language")).FontSize(13).Grow(1)
+			sel := 0
+			if a.lang == i18nEn {
+				sel = 1
+			}
+			a.arcPillTabs(c, "pref-lang", sel, []string{"繁體中文", "English"}, func(idx int) {
+				if idx == 0 {
+					a.setLang(i18nZh)
+				} else {
+					a.setLang(i18nEn)
+				}
+			})
+		})
+	})
+
+	// Workspace display group.
+	a.settingsGroup(c, a.t("settings.workspace"), func() {
+		a.settingsSwitchRow(c, "pref-sb-counts", a.t("settings.sidebarCounts"), &a.showSidebarCounts, func() {
+			a.syncConfigFromState()
+		})
+		a.settingsSwitchRow(c, "pref-card-caption", a.t("settings.cardCaption"), &a.showCardCaption, func() {
+			a.syncConfigFromState()
+		})
+
+		gui.Row(c).FillWidth().Gap(12).AlignItems(gui.Center).Children(func() {
+			gui.Text(c, a.t("settings.cardSize")).FontSize(13).Grow(1)
+			gui.Text(c, fmt.Sprintf("%d px", int(a.cardSize))).FontSize(12).TextColor(a.pal.inkSecondary)
+			gui.Slider(c.Key("pref-card-size"), &a.cardSize, 128, 300).Width(150).OnChange(func() {
+				a.syncConfigFromState()
+			})
+		})
+
+		gui.Row(c).FillWidth().Gap(12).AlignItems(gui.Center).Children(func() {
+			gui.Text(c, a.t("settings.defaultLayout")).FontSize(13).Grow(1)
+			sel := 0
+			switch a.layoutMode {
+			case layoutMasonry:
+				sel = 1
+			case layoutGrid:
+				sel = 2
+			}
+			modes := []string{layoutBento, layoutMasonry, layoutGrid}
+			a.arcPillTabs(c, "pref-layout", sel, []string{
+				a.t("library.layout.bento"),
+				a.t("library.layout.masonry"),
+				a.t("library.layout.grid"),
+			}, func(idx int) {
+				a.setLayoutMode(modes[idx])
+			})
+		})
+
+		gui.Column(c).FillWidth().Gap(8).Children(func() {
+			gui.Text(c, a.t("settings.defaultSort")).FontSize(13)
+			a.arcPillTabs(c, "pref-sort", a.sortBy, []string{
+				a.t("library.sortNewest"),
+				a.t("library.sortOldest"),
+				a.t("library.sortName"),
+				a.t("library.sortRating"),
+			}, func(idx int) {
+				a.sortBy = idx
+				a.applyFilters()
+				a.syncConfigFromState()
+			})
+		})
+	})
+}
+
+func (a *App) settingsDatabaseTab(c *gui.Context) {
+	services := c.Services()
+	rootPath := a.cfg.LibraryPath
+	if a.lib != nil {
+		rootPath = a.lib.DB.Root()
+	}
+
+	// Library Location card.
+	a.settingsGroup(c, a.t("settings.dbLocation"), func() {
+		gui.Box(c).FillWidth().Padding(10, 12).Radius(radiusControl).Background(a.pal.surfaceMuted).Children(func() {
+			gui.Text(c, rootPath).FontSize(12).TextColor(a.pal.ink).LineHeight(1.4)
+		})
+		gui.Row(c).Gap(8).Wrap().Children(func() {
+			if rootPath != "" {
+				a.arcButton(c, "pref-db-open", a.t("settings.openFolder"), false).OnClick(func() {
+					_ = openLocalFile(rootPath)
+				})
+				a.arcButton(c, "pref-db-copy", a.t("common.copyPath"), false).OnClick(func() {
+					services.WriteClipboard(rootPath)
+					a.status = a.t("common.copied")
+				})
+			}
+			a.arcButton(c, "pref-db-switch", a.t("shell.switchLib"), true).OnClick(func() {
+				a.settingsOpen = false
+				a.chooseLibrary()
+			})
+		})
+	})
+
+	// Storage & Statistics card.
+	a.settingsGroup(c, a.t("settings.dbStorage"), func() {
+		st := a.dbStats
+		a.settingsKVRow(c, a.t("settings.dbFile"), fmt.Sprintf("%s  (ragle.db · v%s)", formatBytes(st.DBBytes), model.SchemaVersion))
+		a.settingsKVRow(c, a.t("settings.dbFilesDir"), fmt.Sprintf("%s  (%d)", formatBytes(st.FilesBytes), st.FilesCount))
+		a.settingsKVRow(c, a.t("settings.dbThumbsDir"), fmt.Sprintf("%s  (%d)", formatBytes(st.ThumbsBytes), st.ThumbsCount))
+		a.settingsKVRow(c, a.t("settings.dbCounts"), fmt.Sprintf(
+			a.t("settings.dbCountsVal"),
+			a.allAssetsCount,
+			len(a.tags),
+			len(a.projectList),
+			st.TotalBoards,
+		))
+		gui.Row(c).Justify(gui.End).Children(func() {
+			a.toolButton(c, "pref-db-recalc", iconRefresh, a.t("settings.recalc"), false).OnClick(func() {
+				a.refreshDBStats()
+			})
+		})
+	})
+
+	// Backup & Safety card.
+	a.settingsGroup(c, a.t("settings.dbBackup"), func() {
+		bakLabel := a.t("settings.backupNone")
+		if a.dbStats.HasBackup {
+			bakLabel = fmt.Sprintf("%s · %s", formatBytes(a.dbStats.BackupBytes), a.dbStats.BackupTime.Local().Format("2006-01-02 15:04"))
+		}
+		a.settingsKVRow(c, a.t("settings.backupStatus"), bakLabel)
+		a.settingsSwitchRow(c, "pref-bak-del", a.t("settings.backupBeforeDel"), &a.backupBeforeDelete, func() {
+			a.syncConfigFromState()
+		})
+		gui.Row(c).Gap(8).Wrap().Children(func() {
+			a.arcButton(c, "pref-db-bak-now", a.t("settings.backupNow"), true).OnClick(func() {
+				a.backupDatabaseNow()
+			})
+			a.arcButton(c, "pref-db-export-bak", a.t("settings.exportBackup"), false).OnClick(func() {
+				a.exportDatabaseBackup()
+			})
+		})
+	})
+
+	// Maintenance & Repair card.
+	a.settingsGroup(c, a.t("settings.dbMaint"), func() {
+		ffText := a.t("settings.ffmpegMissing")
+		if a.ffmpeg {
+			ffText = a.t("settings.ffmpegOK")
+		}
+		a.settingsKVRow(c, a.t("settings.ffmpegStatus"), ffText)
+		gui.Row(c).Gap(8).Wrap().Children(func() {
+			relinkLbl := a.t("settings.relinkMissing")
+			if a.missingCount > 0 {
+				relinkLbl = fmt.Sprintf("%s (%d)", relinkLbl, a.missingCount)
+			}
+			a.arcButton(c, "pref-db-relink", relinkLbl, false).OnClick(func() {
+				a.relinkMissing(true)
+			})
+			a.arcButton(c, "pref-db-thumbs", a.t("settings.rebuildThumbs"), false).OnClick(func() {
+				a.rebuildAllThumbnails()
+			})
+			a.arcButton(c, "pref-db-clean-thumbs", a.t("settings.cleanThumbs"), false).OnClick(func() {
+				a.cleanOrphanThumbs()
+			})
+		})
+	})
+}
+
+func (a *App) settingsImportTab(c *gui.Context) {
+	modes := []string{
+		a.t("library.mode.index"),
+		a.t("library.mode.symlink"),
+		a.t("library.mode.move"),
+		a.t("library.mode.copy"),
+	}
+	modeDescs := []string{
+		a.t("settings.modeDesc.index"),
+		a.t("settings.modeDesc.symlink"),
+		a.t("settings.modeDesc.move"),
+		a.t("settings.modeDesc.copy"),
+	}
+
+	// Default storage mode card.
+	a.settingsGroup(c, a.t("settings.importMode"), func() {
+		a.arcPillTabs(c, "pref-storage-mode", a.storageMode, modes, func(idx int) {
+			a.setStorageMode(idx)
+		})
+		desc := modeDescs[0]
+		if a.storageMode >= 0 && a.storageMode < len(modeDescs) {
+			desc = modeDescs[a.storageMode]
+		}
+		gui.Text(c, desc).FontSize(12).TextColor(a.pal.inkSecondary).LineHeight(1.45)
+	})
+
+	// Import behavior switches.
+	a.settingsGroup(c, a.t("settings.importBehavior"), func() {
+		a.settingsSwitchRow(c, "pref-imp-autoselect", a.t("settings.autoSelect"), &a.autoSelectImported, func() {
+			a.syncConfigFromState()
+		})
+		a.settingsSwitchRow(c, "pref-imp-autotag", a.t("settings.autoTag"), &a.autoTagOnImport, func() {
+			a.syncConfigFromState()
+		})
+		a.settingsSwitchRow(c, "pref-imp-hidden", a.t("settings.ignoreHidden"), &a.ignoreHiddenOnImport, func() {
+			a.syncConfigFromState()
+		})
+		a.settingsSwitchRow(c, "pref-imp-recursive", a.t("settings.importRecursive"), &a.importRecursive, func() {
+			a.syncConfigFromState()
+		})
+		a.settingsSwitchRow(c, "pref-imp-dup", a.t("settings.notifyDup"), &a.notifyDuplicates, func() {
+			a.syncConfigFromState()
+		})
+	})
+
+	// Formats & deduplication info card.
+	a.settingsGroup(c, a.t("settings.importFormats"), func() {
+		gui.Text(c, a.t("settings.importFormatsDesc")).FontSize(12).TextColor(a.pal.inkSecondary).LineHeight(1.5)
+	})
+}
+
+func (a *App) settingsSharingTab(c *gui.Context) {
+	// Device & defaults card.
+	a.settingsGroup(c, a.t("settings.shareDevice"), func() {
+		gui.Column(c).FillWidth().Gap(6).Children(func() {
+			gui.Text(c, a.t("settings.deviceName")).FontSize(13)
+			gui.TextInput(c.Key("pref-device-name"), &a.deviceName).
+				Placeholder(a.t("settings.deviceNameHint")).
+				FillWidth().
+				OnChange(func() { a.syncConfigFromState() })
+			gui.Text(c, a.t("settings.deviceNameHint")).FontSize(11).TextColor(a.pal.inkMuted)
+		})
+		a.settingsSwitchRow(c, "pref-share-files", a.t("settings.shareFilesDefault"), &a.shareFiles, func() {
+			a.syncConfigFromState()
+		})
+	})
+
+	// Signaling server & LAN status card.
+	a.settingsGroup(c, a.t("settings.shareSignal"), func() {
+		lanText := a.t("settings.lanOff")
+		if node := a.shareNode(); node != nil && node.DiscoveryOK() {
+			lanText = a.t("settings.lanOK")
+		}
+		a.settingsKVRow(c, a.t("settings.lanStatus"), lanText)
+		gui.Column(c).FillWidth().Gap(6).Children(func() {
+			gui.Text(c, a.t("share.signalURL")).FontSize(13)
+			gui.TextInput(c.Key("pref-signal-url"), &a.signalURL).
+				Placeholder("http://127.0.0.1:8787").
+				FillWidth().
+				OnChange(func() {
+					a.signalURL = strings.TrimSpace(a.signalURL)
+					a.syncConfigFromState()
+				})
+		})
+		gui.Text(c, a.t("settings.shareSignalDesc")).FontSize(12).TextColor(a.pal.inkSecondary).LineHeight(1.45)
+	})
+}
+
+func (a *App) settingsKVRow(c *gui.Context, label, value string) {
+	gui.Row(c).FillWidth().Gap(12).AlignItems(gui.Center).Children(func() {
+		gui.Text(c, label).Width(156).FontSize(12).TextColor(a.pal.inkSecondary).SingleLine()
+		gui.Text(c, value).Grow(1).FontSize(12).Bold().TextColor(a.pal.ink).SingleLine()
+	})
+}

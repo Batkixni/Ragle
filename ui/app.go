@@ -5,12 +5,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/egoist/mygo"
 	gui "github.com/egoist/mygo/ui"
@@ -41,6 +43,12 @@ const (
 	sortOldest
 	sortName
 	sortRating
+)
+
+const (
+	layoutBento   = "bento"
+	layoutMasonry = "masonry"
+	layoutGrid    = "grid"
 )
 
 // assetDrag is the value dragged from a library card or the board tray.
@@ -113,6 +121,7 @@ type App struct {
 	kindFilter    int
 	minRating     int
 	sortBy        int
+	layoutMode    string // "bento", "masonry", "grid"
 	grid          gui.GridState
 	assetIndex    int
 	cardSize      float64
@@ -135,6 +144,23 @@ type App struct {
 	previewAssetID string
 	previewBitmap  *gui.Bitmap
 	previewLoading bool
+
+	// Preferences / Settings modal state & live database diagnostics.
+	settingsOpen         bool
+	settingsTab          int
+	settingsPrevTab      int
+	showSidebarCounts    bool
+	showCardCaption      bool
+	autoSelectImported   bool
+	autoTagOnImport      bool
+	ignoreHiddenOnImport bool
+	importRecursive      bool
+	notifyDuplicates     bool
+	backupBeforeDelete   bool
+	deviceName           string
+	dbStats              dbStatsInfo
+	dbStatsBusy          bool
+	dbStatsLoaded        bool
 
 	// Project & board state.
 	projectList   []model.Project
@@ -198,33 +224,55 @@ type App struct {
 	line   gui.Color
 }
 
+// dbStatsInfo holds live disk & catalog metrics shown in Database Preferences.
+type dbStatsInfo struct {
+	DBBytes     int64
+	FilesBytes  int64
+	FilesCount  int
+	ThumbsBytes int64
+	ThumbsCount int
+	HasBackup   bool
+	BackupBytes int64
+	BackupTime  time.Time
+	TotalBoards int
+}
+
 // NewApp starts on the welcome screen. Language follows the OS until a
 // preference is loaded.
 func NewApp() *App {
 	return &App{
-		lang:               i18n.Default(),
-		themeMode:          "auto",
-		screen:             screenWelcome,
-		shareFiles:         true,
-		assetIndex:         -1,
-		cardSize:           184,
-		inspectorOpen:      true,
-		filterBarOpen:      false,
-		boardDrawerOpen:    true,
-		boardInspectorOpen: true,
-		bitmaps:            map[string]*gui.Bitmap{},
-		loading:            map[string]bool{},
-		queued:             map[string]bool{},
-		assetByID:          map[string]model.Asset{},
-		assetTags:          map[string][]model.Tag{},
-		tagCounts:          map[string]int{},
-		projectTags:        map[string]bool{},
-		boardCounts:        map[string]int{},
-		newProjTags:        map[string]bool{},
-		sidebarWidth:       232,
-		libraryPercent:     74,
-		selectedNav:        "tag-all",
-		lastNav:            "tag-all",
+		lang:                 i18n.Default(),
+		themeMode:            "auto",
+		layoutMode:           layoutBento,
+		screen:               screenWelcome,
+		shareFiles:           true,
+		showSidebarCounts:    true,
+		showCardCaption:      true,
+		autoSelectImported:   true,
+		autoTagOnImport:      true,
+		ignoreHiddenOnImport: true,
+		importRecursive:      true,
+		notifyDuplicates:     true,
+		backupBeforeDelete:   true,
+		assetIndex:           -1,
+		cardSize:             184,
+		inspectorOpen:        true,
+		filterBarOpen:        false,
+		boardDrawerOpen:      true,
+		boardInspectorOpen:   true,
+		bitmaps:              map[string]*gui.Bitmap{},
+		loading:              map[string]bool{},
+		queued:               map[string]bool{},
+		assetByID:            map[string]model.Asset{},
+		assetTags:            map[string][]model.Tag{},
+		tagCounts:            map[string]int{},
+		projectTags:          map[string]bool{},
+		boardCounts:          map[string]int{},
+		newProjTags:          map[string]bool{},
+		sidebarWidth:         232,
+		libraryPercent:       74,
+		selectedNav:          "tag-all",
+		lastNav:              "tag-all",
 	}
 }
 
@@ -232,29 +280,19 @@ func NewApp() *App {
 func Run() error {
 	a := NewApp()
 	if cfg, err := config.Load(); err == nil {
-		a.cfg = cfg
-		if cfg.Language == i18n.ZhHant || cfg.Language == i18n.En {
-			a.lang = cfg.Language
-		}
-		if cfg.SignalingURL != "" {
-			a.signalURL = cfg.SignalingURL
-		}
-		if cfg.ThemeMode == "auto" || cfg.ThemeMode == "light" || cfg.ThemeMode == "dark" {
-			a.themeMode = cfg.ThemeMode
-		}
-		if cfg.CardSize >= 120 && cfg.CardSize <= 320 {
-			a.cardSize = cfg.CardSize
-		}
+		a.applyConfig(cfg)
 	}
 	mygo.App.WhenReady(func() {
 		a.win = mygo.NewWindow(mygo.WindowOptions{
-			Title:     "Ragle",
-			Width:     1360,
-			Height:    860,
-			MinWidth:  980,
-			MinHeight: 640,
-			StateKey:  "main",
-			Content:   gui.View(a.View),
+			Title:             "Ragle",
+			Width:             1360,
+			Height:            860,
+			MinWidth:          980,
+			MinHeight:         640,
+			TitleBarStyle:     mygo.TitleBarHidden,
+			HideWindowButtons: true,
+			StateKey:          "main",
+			Content:           gui.View(a.View),
 		})
 		a.win.OnClosed(func() { a.shutdown() })
 		a.startShare()
@@ -264,6 +302,87 @@ func Run() error {
 		}
 	})
 	return mygo.App.Run()
+}
+
+func (a *App) applyConfig(cfg config.Config) {
+	a.cfg = cfg
+	if cfg.Language == i18n.ZhHant || cfg.Language == i18n.En {
+		a.lang = cfg.Language
+	}
+	if cfg.SignalingURL != "" {
+		a.signalURL = cfg.SignalingURL
+	}
+	if cfg.ThemeMode == "auto" || cfg.ThemeMode == "light" || cfg.ThemeMode == "dark" {
+		a.themeMode = cfg.ThemeMode
+	}
+	if cfg.CardSize >= 120 && cfg.CardSize <= 320 {
+		a.cardSize = cfg.CardSize
+	}
+	if cfg.DefaultSort >= sortNewest && cfg.DefaultSort <= sortRating {
+		a.sortBy = cfg.DefaultSort
+	}
+	if cfg.LayoutMode == layoutBento || cfg.LayoutMode == layoutMasonry || cfg.LayoutMode == layoutGrid {
+		a.layoutMode = cfg.LayoutMode
+	}
+	for i, m := range storageModes {
+		if m == cfg.DefaultStorageMode {
+			a.storageMode = i
+			break
+		}
+	}
+	a.showSidebarCounts = config.BoolOr(cfg.ShowSidebarCounts, true)
+	a.showCardCaption = config.BoolOr(cfg.ShowCardCaption, true)
+	a.autoSelectImported = config.BoolOr(cfg.AutoSelectImported, true)
+	a.autoTagOnImport = config.BoolOr(cfg.AutoTagOnImport, true)
+	a.ignoreHiddenOnImport = config.BoolOr(cfg.IgnoreHiddenOnImport, true)
+	a.importRecursive = config.BoolOr(cfg.ImportRecursive, true)
+	a.notifyDuplicates = config.BoolOr(cfg.NotifyDuplicates, true)
+	a.backupBeforeDelete = config.BoolOr(cfg.BackupBeforeDelete, true)
+	a.shareFiles = config.BoolOr(cfg.ShareIncludeFiles, true)
+	a.deviceName = cfg.DeviceName
+}
+
+func (a *App) syncConfigFromState() {
+	a.cfg.Language = a.lang
+	a.cfg.ThemeMode = a.themeMode
+	a.cfg.CardSize = a.cardSize
+	a.cfg.DefaultSort = a.sortBy
+	a.cfg.LayoutMode = a.layoutMode
+	if a.storageMode >= 0 && a.storageMode < len(storageModes) {
+		a.cfg.DefaultStorageMode = storageModes[a.storageMode]
+	}
+	a.cfg.ShowSidebarCounts = config.BoolPtr(a.showSidebarCounts)
+	a.cfg.ShowCardCaption = config.BoolPtr(a.showCardCaption)
+	a.cfg.AutoSelectImported = config.BoolPtr(a.autoSelectImported)
+	a.cfg.AutoTagOnImport = config.BoolPtr(a.autoTagOnImport)
+	a.cfg.IgnoreHiddenOnImport = config.BoolPtr(a.ignoreHiddenOnImport)
+	a.cfg.ImportRecursive = config.BoolPtr(a.importRecursive)
+	a.cfg.NotifyDuplicates = config.BoolPtr(a.notifyDuplicates)
+	a.cfg.BackupBeforeDelete = config.BoolPtr(a.backupBeforeDelete)
+	a.cfg.ShareIncludeFiles = config.BoolPtr(a.shareFiles)
+	a.cfg.DeviceName = strings.TrimSpace(a.deviceName)
+	a.cfg.SignalingURL = strings.TrimSpace(a.signalURL)
+	a.saveConfig()
+}
+
+func (a *App) setStorageMode(idx int) {
+	if idx < 0 || idx >= len(storageModes) {
+		return
+	}
+	a.storageMode = idx
+	a.syncConfigFromState()
+}
+
+func (a *App) setLayoutMode(mode string) {
+	if mode != layoutBento && mode != layoutMasonry && mode != layoutGrid {
+		return
+	}
+	if a.layoutMode == mode {
+		return
+	}
+	a.layoutMode = mode
+	a.revealGen++
+	a.syncConfigFromState()
 }
 
 func (a *App) t(key string) string { return i18n.T(a.lang, key) }
@@ -910,12 +1029,25 @@ func (a *App) importPaths(paths []string) {
 	lib := a.lib
 	mode := storageModes[a.storageMode]
 	var tags []string
-	if a.tagID != "" {
+	if a.autoTagOnImport && a.tagID != "" {
 		tags = []string{a.tagID}
 	}
+	ignoreHidden := a.ignoreHiddenOnImport
+	recursive := a.importRecursive
+	autoSelect := a.autoSelectImported
+	notifyDup := a.notifyDuplicates
 	win := a.win
 	go func() {
-		res, importErr := lib.Import(nilContext(), paths, mode, tags, func(done, total int) {
+		resolved := expandImportPaths(paths, recursive, ignoreHidden)
+		if len(resolved) == 0 {
+			if win != nil {
+				win.Update(func() {
+					a.importing = false
+				})
+			}
+			return
+		}
+		res, importErr := lib.Import(nilContext(), resolved, mode, tags, func(done, total int) {
 			if win == nil {
 				return
 			}
@@ -935,14 +1067,22 @@ func (a *App) importPaths(paths []string) {
 			if a.isClosed() || a.lib == nil {
 				return
 			}
+			var firstAddedID string
 			if importErr != nil {
 				a.status = importErr.Error()
 			} else {
-				a.status = fmt.Sprintf(a.t("library.imported"), res.Added, res.Existing, res.Failed)
+				if notifyDup || res.Added > 0 || res.Failed > 0 {
+					a.status = fmt.Sprintf(a.t("library.imported"), res.Added, res.Existing, res.Failed)
+				}
 				for _, item := range res.Items {
-					if item.Status == "added" && a.thumbs != nil {
-						a.thumbs.Enqueue(item.AssetID)
-						a.queued[item.AssetID] = true
+					if item.Status == "added" {
+						if firstAddedID == "" {
+							firstAddedID = item.AssetID
+						}
+						if a.thumbs != nil {
+							a.thumbs.Enqueue(item.AssetID)
+							a.queued[item.AssetID] = true
+						}
 					}
 					if item.Err != nil && errors.Is(item.Err, library.ErrSymlink) {
 						a.status = a.t("library.symlinkFailed")
@@ -950,8 +1090,78 @@ func (a *App) importPaths(paths []string) {
 				}
 			}
 			a.reload()
+			if autoSelect && firstAddedID != "" {
+				for i, item := range a.assets {
+					if item.ID == firstAddedID {
+						a.assetIndex = i
+						a.syncInspectorSelection(true)
+						break
+					}
+				}
+			}
 		})
 	}()
+}
+
+func isIgnoredImportFile(name string) bool {
+	if name == "" {
+		return true
+	}
+	if strings.HasPrefix(name, ".") {
+		return true
+	}
+	low := strings.ToLower(name)
+	return low == "thumbs.db" || low == "desktop.ini" || low == ".ds_store"
+}
+
+func expandImportPaths(paths []string, recursive, ignoreHidden bool) []string {
+	var out []string
+	for _, p := range paths {
+		info, err := os.Stat(p)
+		if err != nil {
+			continue
+		}
+		if !info.IsDir() {
+			if ignoreHidden && isIgnoredImportFile(filepath.Base(p)) {
+				continue
+			}
+			out = append(out, p)
+			continue
+		}
+		if !recursive {
+			entries, err := os.ReadDir(p)
+			if err != nil {
+				continue
+			}
+			for _, ent := range entries {
+				if ent.IsDir() {
+					continue
+				}
+				if ignoreHidden && isIgnoredImportFile(ent.Name()) {
+					continue
+				}
+				out = append(out, filepath.Join(p, ent.Name()))
+			}
+			continue
+		}
+		_ = filepath.WalkDir(p, func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return nil
+			}
+			if d.IsDir() {
+				if path != p && ignoreHidden && strings.HasPrefix(d.Name(), ".") {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			if ignoreHidden && isIgnoredImportFile(d.Name()) {
+				return nil
+			}
+			out = append(out, path)
+			return nil
+		})
+	}
+	return out
 }
 
 func (a *App) relinkMissing(directory bool) {
@@ -1228,6 +1438,9 @@ func (a *App) deleteAssetPrompt(asset model.Asset) {
 				a.session.Delete(drop)
 				a.flushBoard(true)
 			}
+		}
+		if a.backupBeforeDelete && a.lib != nil {
+			_ = a.lib.DB.Backup()
 		}
 		if err := a.lib.Delete(id); err != nil {
 			a.status = err.Error()

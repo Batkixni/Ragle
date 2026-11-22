@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	gui "github.com/egoist/mygo/ui"
 
@@ -14,9 +15,13 @@ import (
 )
 
 func (a *App) startShare() {
-	name, err := os.Hostname()
-	if err != nil || name == "" {
-		name = "Ragle"
+	name := strings.TrimSpace(a.deviceName)
+	if name == "" {
+		if host, err := os.Hostname(); err == nil && host != "" {
+			name = host
+		} else {
+			name = "Ragle"
+		}
 	}
 	win := a.win
 	node, err := share.Start(share.Options{

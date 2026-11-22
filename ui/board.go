@@ -57,9 +57,9 @@ func (a *App) boardToolbar(c *gui.Context) {
 	}
 	gui.Box(c).Padding(10, 12, 6, 12).Children(func() {
 		gui.Row(c.Key("board-floating-bar")).
-			Height(52).
-			Padding(0, 14).
-			Gap(10).
+			Height(48).
+			Padding(0, 10, 0, 12).
+			Gap(8).
 			Radius(radiusPanel).
 			AlignItems(gui.Center).
 			Background(a.pal.surfaceRaised).
@@ -73,11 +73,13 @@ func (a *App) boardToolbar(c *gui.Context) {
 					a.screen = screenProject
 					a.syncNavSelection()
 				})
-				gui.Text(c, "/").TextColor(a.pal.inkFaint)
-				gui.Text(c, a.boardName).Bold().FontSize(13).SingleLine().MaxWidth(160)
-				a.pillBadge(c, fmt.Sprintf(a.t("board.placementCount"), itemCount), t.TextMuted, a.pal.surface)
+				gui.Row(c).Gap(8).FillHeight().AlignItems(gui.Center).DragWindow().Children(func() {
+					gui.Text(c, "/").TextColor(a.pal.inkFaint)
+					gui.Text(c, a.boardName).Bold().FontSize(13).SingleLine().MaxWidth(160)
+					a.pillBadge(c, fmt.Sprintf(a.t("board.placementCount"), itemCount), t.TextMuted, a.pal.surface)
+				})
 
-				gui.Spacer(c)
+				gui.Box(c).Grow(1).FillHeight().DragWindow()
 
 				// Arc UI sliding pill tool switcher.
 				a.arcPillTabsWithIcons(c, "board-tools", a.tool, []struct {
@@ -99,7 +101,7 @@ func (a *App) boardToolbar(c *gui.Context) {
 					a.iconButton(c, "board-del", iconTrash, a.t("board.delete"), false).OnClick(func() { a.confirmDeleteSelection() })
 				})
 
-				gui.Spacer(c)
+				gui.Box(c).Grow(1).FillHeight().DragWindow()
 
 				// Zoom controls.
 				gui.Row(c).Gap(2).AlignItems(gui.Center).Children(func() {
@@ -130,6 +132,9 @@ func (a *App) boardToolbar(c *gui.Context) {
 				a.iconButton(c, "board-toggle-insp", iconPanelRight, a.t("board.inspector"), a.boardInspectorOpen).OnClick(func() {
 					a.boardInspectorOpen = !a.boardInspectorOpen
 				})
+
+				gui.Box(c).Width(1).Height(18).Background(a.pal.surfaceMuted)
+				a.windowControls(c)
 			})
 	})
 }

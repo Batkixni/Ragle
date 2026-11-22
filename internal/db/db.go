@@ -97,6 +97,9 @@ func (d *DB) FilesDir() string { return filepath.Join(d.root, filesDir) }
 // ThumbsDir holds generated previews.
 func (d *DB) ThumbsDir() string { return filepath.Join(d.root, thumbDir) }
 
+// BackupPath is the sibling automatic backup file (ragle.db.bak).
+func (d *DB) BackupPath() string { return filepath.Join(d.root, bakName) }
+
 // Open opens or creates a library in root. A successful open writes a
 // snapshot to ragle.db.bak so a later failed open can restore it.
 func Open(root string) (*DB, error) {
@@ -167,7 +170,15 @@ func (d *DB) View(fn func(tx *bbolt.Tx) error) error {
 // open, so the copy comes from the transaction rather than from copying
 // the live file.
 func (d *DB) Backup() error {
-	tmp := d.path + ".bak.tmp"
+	return d.BackupTo(d.BackupPath())
+}
+
+// BackupTo writes a consistent snapshot of the live database to dst.
+func (d *DB) BackupTo(dst string) error {
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return err
+	}
+	tmp := dst + ".tmp"
 	f, err := os.Create(tmp)
 	if err != nil {
 		return err
@@ -183,7 +194,7 @@ func (d *DB) Backup() error {
 		_ = os.Remove(tmp)
 		return err
 	}
-	return replaceFile(tmp, filepath.Join(d.root, bakName))
+	return replaceFile(tmp, dst)
 }
 
 // HasBackup reports whether ragle.db.bak exists beside the library.

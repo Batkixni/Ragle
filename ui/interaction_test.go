@@ -200,6 +200,40 @@ func TestRealUserClicksEveryControl(t *testing.T) {
 		t.Fatalf("expected sortName, got %d", a.sortBy)
 	}
 
+	// 8b. Layout PopoverMenuButton MUST switch between Bento, Waterfall Masonry, and Grid!
+	if err := tt.Click("排版"); err != nil {
+		t.Fatalf("clicking Layout button failed: %v", err)
+	}
+	if !tt.HasText("瀑布流") || !tt.HasText("標準網格") {
+		t.Fatalf("Layout popover menu did not open, texts=%v", tt.Texts())
+	}
+	if err := tt.Click("瀑布流"); err != nil {
+		t.Fatalf("clicking Waterfall layout failed: %v", err)
+	}
+	if a.layoutMode != layoutMasonry {
+		t.Fatalf("expected layoutMasonry, got %q", a.layoutMode)
+	}
+	tt.Advance(300 * time.Millisecond)
+	if err := tt.Click("排版"); err != nil {
+		t.Fatalf("clicking Layout button (2nd) failed: %v", err)
+	}
+	if err := tt.Click("標準網格"); err != nil {
+		t.Fatalf("clicking Grid layout failed: %v", err)
+	}
+	if a.layoutMode != layoutGrid {
+		t.Fatalf("expected layoutGrid, got %q", a.layoutMode)
+	}
+	tt.Advance(300 * time.Millisecond)
+	if err := tt.Click("排版"); err != nil {
+		t.Fatalf("clicking Layout button (3rd) failed: %v", err)
+	}
+	if err := tt.Click("Bento 拼貼"); err != nil {
+		t.Fatalf("clicking Bento layout failed: %v", err)
+	}
+	if a.layoutMode != layoutBento {
+		t.Fatalf("expected layoutBento, got %q", a.layoutMode)
+	}
+
 	// 9. "+ 匯入" PopoverMenuButton MUST open in-window menu with Files & Folder!
 	if err := tt.Click("+ 匯入"); err != nil {
 		t.Fatalf("clicking + Import failed: %v", err)
@@ -289,5 +323,84 @@ func TestRealUserClicksEveryControl(t *testing.T) {
 	if a.projectID != proj.ID {
 		t.Fatalf("expected projectID=%s, got %s", proj.ID, a.projectID)
 	}
+
+	// 14. Open Preferences modal from sidebar gear, navigate Database & Import tabs,
+	// trigger real manual backup, change default storage mode, and close!
+	if err := tt.Click("偏好設定 (Ctrl+,)"); err != nil {
+		t.Fatalf("clicking Settings gear failed: %v", err)
+	}
+	tt.Advance(350 * time.Millisecond)
+	if !a.settingsOpen || !tt.HasText("偏好設定") {
+		t.Fatalf("Preferences modal did not open")
+	}
+	if err := tt.Click("資料庫"); err != nil {
+		t.Fatalf("clicking Database tab failed: %v", err)
+	}
+	tt.Advance(350 * time.Millisecond)
+	if !tt.HasText("立即備份資料庫") {
+		t.Fatalf("Database settings controls missing, texts=%v", tt.Texts())
+	}
+	if err := tt.Click("立即備份資料庫"); err != nil {
+		t.Fatalf("clicking Backup Now failed: %v", err)
+	}
+	if !a.dbStats.HasBackup {
+		t.Fatal("expected dbStats.HasBackup=true after clicking Backup Now")
+	}
+	if err := tt.Click("匯入"); err != nil {
+		t.Fatalf("clicking Import tab failed: %v", err)
+	}
+	tt.Advance(350 * time.Millisecond)
+	if !tt.HasText("預設存放方式") {
+		t.Fatalf("Import settings controls missing, texts=%v", tt.Texts())
+	}
+	if err := tt.Click("複製"); err != nil {
+		t.Fatalf("clicking Copy storage mode in Preferences failed: %v", err)
+	}
+	if storageModes[a.storageMode] != model.StorageCopy {
+		t.Fatalf("expected Copy storage mode, got %s", storageModes[a.storageMode])
+	}
+	if err := tt.Click("完成"); err != nil {
+		t.Fatalf("clicking Done in Preferences failed: %v", err)
+	}
+	if a.settingsOpen {
+		t.Fatal("settingsOpen stayed true after clicking Done")
+	}
+
+	// 15. Verify integrated frameless window controls are mounted & safe to click.
+	if err := tt.Click("最小化"); err != nil {
+		t.Fatalf("frameless minimize button missing: %v", err)
+	}
 	_ = tagB
+}
+
+func TestExpandImportPathsPreferences(t *testing.T) {
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "sub")
+	hiddenDir := filepath.Join(dir, ".git")
+	_ = os.MkdirAll(sub, 0o755)
+	_ = os.MkdirAll(hiddenDir, 0o755)
+
+	write := func(p string) {
+		if err := os.WriteFile(p, []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(filepath.Join(dir, "a.png"))
+	write(filepath.Join(dir, ".DS_Store"))
+	write(filepath.Join(dir, "Thumbs.db"))
+	write(filepath.Join(sub, "b.png"))
+	write(filepath.Join(hiddenDir, "config"))
+
+	gotRec := expandImportPaths([]string{dir}, true, true)
+	if len(gotRec) != 2 {
+		t.Fatalf("recursive+ignoreHidden expected 2 files, got %d: %v", len(gotRec), gotRec)
+	}
+	gotFlat := expandImportPaths([]string{dir}, false, true)
+	if len(gotFlat) != 1 || filepath.Base(gotFlat[0]) != "a.png" {
+		t.Fatalf("non-recursive expected [a.png], got %v", gotFlat)
+	}
+	gotAll := expandImportPaths([]string{dir}, true, false)
+	if len(gotAll) != 5 {
+		t.Fatalf("recursive+includeHidden expected 5 files, got %d: %v", len(gotAll), gotAll)
+	}
 }

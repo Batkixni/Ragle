@@ -76,6 +76,10 @@ var (
 		Duration: 160 * time.Millisecond,
 		Ease:     easeArcStandard,
 	}
+	animCardFade = gui.Animation{
+		Duration: 220 * time.Millisecond,
+		Ease:     easeArcEnter,
+	}
 	animStandard = gui.Animation{
 		Duration: 240 * time.Millisecond,
 		Ease:     easeArcEnter,
@@ -85,12 +89,8 @@ var (
 const (
 	arcStaggerItem = 35 * time.Millisecond
 	arcBlurSoft    = float32(4)
+	arcBlurCard    = float32(5)
 )
-
-// pillMatchKey identifies a shared-layout morph group (Arc UI layoutId).
-type pillMatchKey struct {
-	group string
-}
 
 // palette is a pure achromatic monochrome system (zero blue, zero glare/rims),
 // directly matching Arc UI foundation.css neutral surfaces.
@@ -106,6 +106,8 @@ type palette struct {
 	inkFaint       gui.Color // quietest hint text
 	controlOn      gui.Color // --control-on: #18181B / #EDEDED
 	controlGlyph   gui.Color // --control-glyph: #FFFFFF / #18181B
+	pillTrack      gui.Color // segmented control / tabs track
+	pillActive     gui.Color // active gliding pill surface
 	danger         gui.Color // muted rose for destructive actions / missing only
 	shadowResting  gui.Color // --shadow-resting
 	shadowRaised   gui.Color // --shadow-raised
@@ -155,6 +157,8 @@ func makeTheme(dark bool) (*gui.Theme, palette) {
 			inkFaint:       gui.Hex("#52525B"),
 			controlOn:      gui.Hex("#EDEDED"),
 			controlGlyph:   gui.Hex("#18181B"),
+			pillTrack:      gui.Hex("#141417"),
+			pillActive:     gui.Hex("#2C2C31"),
 			danger:         gui.Hex("#E07A7A"),
 			shadowResting:  gui.RGBA(0, 0, 0, 0.18),
 			shadowRaised:   gui.RGBA(0, 0, 0, 0.24),
@@ -204,6 +208,8 @@ func makeTheme(dark bool) (*gui.Theme, palette) {
 		inkFaint:       gui.Hex("#C4C4CC"),
 		controlOn:      gui.Hex("#18181B"),
 		controlGlyph:   gui.Hex("#FFFFFF"),
+		pillTrack:      gui.Hex("#E4E4E7"),
+		pillActive:     gui.Hex("#FFFFFF"),
 		danger:         gui.Hex("#B91C1C"),
 		shadowResting:  gui.RGBA(0, 0, 0, 0.035),
 		shadowRaised:   gui.RGBA(0, 0, 0, 0.065),
@@ -215,8 +221,8 @@ func makeTheme(dark bool) (*gui.Theme, palette) {
 	return t, p
 }
 
-// applyBlurReveal runs Arc UI's signature soft blur-in reveal for panels,
-// inspector switches, modals, and headings (opacity 0->1, blur 4px->0px, y 6px->0px).
+// applyBlurReveal runs Arc UI's signature soft blur-in reveal for initial
+// page/modal/inspector entrance (opacity 0->1, blur 4px->0px, y 6px->0px).
 // Once settled, Blur and Opacity are omitted so resting GPU cost is zero.
 func applyBlurReveal(e gui.Element, key any, delay time.Duration) {
 	started := gui.Local(e, key, func() bool { return false })
@@ -236,22 +242,193 @@ func applyBlurReveal(e gui.Element, key any, delay time.Duration) {
 	}
 }
 
-// applyStaggerReveal runs Arc UI's GPU-cheap transform+opacity staggered reveal
-// for dense card grids (opacity 0->1, y 8px->0px, scale 0.98->1, 240ms easeArcEnter).
-func applyStaggerReveal(e gui.Element, key any, delay time.Duration) {
+// applyCardBlurFade matches MatchesPage.tsx on esports.sorai.tw/matches:
+// pure in-place staggered blur-fade (opacity 0->1, blur 5px->0px, 220ms
+// easeArcEnter, stagger min(i, 6)*35ms) with zero vertical jump or scale
+// jitter, and zero conflict with card hover AnimatePose.
+func applyCardBlurFade(e gui.Element, key any, delay time.Duration) {
 	started := gui.Local(e, key, func() bool { return false })
 	if !*started {
 		*started = true
-		e.Jump("arc-stagger", 0)
+		e.Jump("arc-card-fade", 0)
 	}
-	anim := animStandard
+	anim := animCardFade
 	anim.Delay = delay
-	p := e.AnimateTo("arc-stagger", 1, anim)
+	p := e.AnimateTo("arc-card-fade", 1, anim)
 	if p < 0.999 {
 		e.Opacity(p)
-		e.Translate(0, (1-p)*8)
-		e.Scale(0.98+0.02*p, 0.98+0.02*p)
+		if sigma := (1 - p) * arcBlurCard; sigma > 0.08 {
+			e.Blur(sigma)
+		}
 	}
+}
+
+// applyPanelSwitch matches Arc UI TabsContent directional panel transition:
+// smooth opacity fade (240ms easeArcEnter) + critically-damped directional
+// glide (dx, dy -> 0 with springSmooth) + brief subtle blur.
+func applyPanelSwitch(e gui.Element, key any, dx, dy float32) {
+	started := gui.Local(e, key, func() bool { return false })
+	if !*started {
+		*started = true
+		e.Jump("arc-panel-op", 0)
+		e.Jump("arc-panel-mv", 0)
+	}
+	op := e.AnimateTo("arc-panel-op", 1, animStandard)
+	mv := e.AnimateTo("arc-panel-mv", 1, springSmooth)
+	if op < 0.999 {
+		e.Opacity(op)
+		if sigma := (1 - op) * 3; sigma > 0.08 {
+			e.Blur(sigma)
+		}
+	}
+	if mv < 0.999 && (dx != 0 || dy != 0) {
+		e.Translate((1-mv)*dx, (1-mv)*dy)
+	}
+}
+
+// attachGlidingPill paints an Arc UI shared-layout selection pill underneath
+// all stationary child labels using track.Draw + LayoutBounds + springMorph
+// (420ms, zero bounce). Labels never move, stretch, or flicker during switches.
+func attachGlidingPill(track, activeBtn gui.Element, hasActive bool, radius float32, fill, shadow gui.Color) {
+	if !hasActive {
+		return
+	}
+	tb := track.LayoutBounds()
+	ab := activeBtn.LayoutBounds()
+	if tb.W <= 0 || ab.W <= 0 || ab.H <= 0 {
+		// Initial layout frame before LayoutBounds are populated.
+		activeBtn.Background(fill).Shadow(0, 1, 3, 0, shadow)
+		return
+	}
+	rx := ab.X - tb.X
+	ry := ab.Y - tb.Y
+	rw := ab.W
+	rh := ab.H
+
+	inited := gui.Local(track, "arc-pill-init", func() bool { return false })
+	if !*inited {
+		*inited = true
+		track.Jump("pill-x", rx)
+		track.Jump("pill-y", ry)
+		track.Jump("pill-w", rw)
+		track.Jump("pill-h", rh)
+	}
+	px := track.AnimateTo("pill-x", rx, springMorph)
+	py := track.AnimateTo("pill-y", ry, springMorph)
+	pw := track.AnimateTo("pill-w", rw, springMorph)
+	ph := track.AnimateTo("pill-h", rh, springMorph)
+
+	track.Draw(func(p *gui.Painter, r gui.Rect) {
+		pill := gui.Rect{X: r.X + px, Y: r.Y + py, W: pw, H: ph}
+		rad := radius
+		if maxR := pill.H / 2; rad > maxR {
+			rad = maxR
+		}
+		p.Shadow(pill, rad, 0, 1, 3, 0, shadow)
+		p.Fill(pill, fill, rad)
+	})
+}
+
+// windowControls renders integrated monochrome frameless window buttons
+// (minimize, maximize/restore with Windows 11 Snap Layouts support, close).
+func (a *App) windowControls(c *gui.Context) {
+	maximized := a.win != nil && a.win.IsMaximized()
+
+	gui.Row(c.Key("win-controls")).Gap(2).AlignItems(gui.Center).Children(func() {
+		// Minimize.
+		minBtn := gui.ButtonBase(c.Key("win-min")).
+			Size(30, 28).
+			Center().
+			Radius(8).
+			Label(a.t("win.minimize")).
+			Tooltip(a.t("win.minimize")).
+			OnClick(func() {
+				if a.win != nil {
+					a.win.Minimize()
+				}
+			})
+		minBg := gui.Transparent
+		minFg := a.pal.inkSecondary
+		if minBtn.Pressed() {
+			minBg = a.pal.surfaceActive
+			minFg = a.pal.ink
+		} else if minBtn.Hovered() {
+			minBg = a.pal.surfaceMuted
+			minFg = a.pal.ink
+		}
+		minBtn.Background(minBtn.AnimateColor("bg", minBg, animFast)).
+			TextColor(minBtn.AnimateColor("fg", minFg, animFast)).
+			Children(func() {
+				gui.Icon(c, iconMinimize).Size(13, 13)
+			})
+
+		// Maximize / Restore (with Windows 11 Snap Layouts via MaximizeButton).
+		maxTip := a.t("win.maximize")
+		maxIcon := iconMaximize
+		if maximized {
+			maxTip = a.t("win.restore")
+			maxIcon = iconRestore
+		}
+		maxBtn := gui.ButtonBase(c.Key("win-max")).
+			Size(30, 28).
+			Center().
+			Radius(8).
+			Label(maxTip).
+			Tooltip(maxTip).
+			MaximizeButton().
+			OnClick(func() {
+				if a.win == nil {
+					return
+				}
+				if a.win.IsMaximized() {
+					a.win.Unmaximize()
+				} else {
+					a.win.Maximize()
+				}
+			})
+		maxBg := gui.Transparent
+		maxFg := a.pal.inkSecondary
+		if maxBtn.Pressed() {
+			maxBg = a.pal.surfaceActive
+			maxFg = a.pal.ink
+		} else if maxBtn.Hovered() {
+			maxBg = a.pal.surfaceMuted
+			maxFg = a.pal.ink
+		}
+		maxBtn.Background(maxBtn.AnimateColor("bg", maxBg, animFast)).
+			TextColor(maxBtn.AnimateColor("fg", maxFg, animFast)).
+			Children(func() {
+				gui.Icon(c, maxIcon).Size(12, 12)
+			})
+
+		// Close.
+		closeBtn := gui.ButtonBase(c.Key("win-close")).
+			Size(30, 28).
+			Center().
+			Radius(8).
+			Label(a.t("win.close")).
+			Tooltip(a.t("win.close")).
+			OnClick(func() {
+				if a.win != nil {
+					a.win.Close()
+				}
+			})
+		closeBg := gui.Transparent
+		closeFg := a.pal.inkSecondary
+		if closeBtn.Pressed() || closeBtn.Hovered() {
+			if a.dark {
+				closeBg = gui.RGBA(224, 122, 122, 0.22)
+			} else {
+				closeBg = gui.RGBA(185, 28, 28, 0.14)
+			}
+			closeFg = a.pal.danger
+		}
+		closeBtn.Background(closeBtn.AnimateColor("bg", closeBg, animFast)).
+			TextColor(closeBtn.AnimateColor("fg", closeFg, animFast)).
+			Children(func() {
+				gui.Icon(c, iconX).Size(13, 13)
+			})
+	})
 }
 
 // arcButton is a frameless monochrome Arc button with critically damped press scale.
@@ -347,56 +524,41 @@ func (a *App) toolButton(c *gui.Context, key string, icon *gui.SVG, label string
 	return btn
 }
 
-// arcPillTabs renders an Arc UI sliding pill navigator with zero-bounce morph
-// spring (springMorph, 420ms, bounce: 0) via ElementTransition.Match.
+// arcPillTabs renders an Arc UI segmented tab track whose highlight pill
+// glides smoothly underneath stationary labels (springMorph, 420ms, bounce: 0).
 func (a *App) arcPillTabs(c *gui.Context, group string, selected int, labels []string, onSelect func(int)) {
-	gui.Row(c.Key("track-" + group)).
+	track := gui.Row(c.Key("track-" + group)).
 		Padding(3).
 		Gap(2).
-		Radius(radiusPill).
-		Background(a.pal.surface).
-		AlignItems(gui.Center).
-		Children(func() {
-			for i, lbl := range labels {
-				idx := i
-				active := selected == idx
-				btn := gui.ButtonBase(c.Key(fmt.Sprintf("%s-%d", group, idx))).
-					Radius(radiusPill).
-					AlignItems(gui.Center).
-					OnClick(func() { onSelect(idx) })
-				scale := float32(1)
-				if btn.Pressed() {
-					scale = 0.97
-				}
-				btn.AnimatePose(gui.Pose{Scale: scale}, springResponsive)
-				targetFg := a.pal.inkSecondary
-				if active || btn.Hovered() {
-					targetFg = a.pal.ink
-				}
-				fg := btn.AnimateColor("fg", targetFg, animFast)
-				btn.Children(func() {
-					if active {
-						gui.Row(c.Key(fmt.Sprintf("%s-pill-%d", group, idx))).
-							Padding(5, 12).
-							Radius(radiusPill).
-							AlignItems(gui.Center).
-							Background(a.pal.surfaceRaised).
-							Shadow(0, 1, 3, 0, a.pal.shadowResting).
-							Transition(gui.ElementTransition{
-								Animation: &springMorph,
-								Match:     pillMatchKey{group: group},
-							}).
-							Children(func() {
-								gui.Text(c, lbl).FontSize(12).Bold().TextColor(fg).SingleLine()
-							})
-					} else {
-						gui.Row(c).Padding(5, 12).Radius(radiusPill).AlignItems(gui.Center).Children(func() {
-							gui.Text(c, lbl).FontSize(12).Bold().TextColor(fg).SingleLine()
-						})
-					}
-				})
+		Radius(radiusControl).
+		Background(a.pal.pillTrack).
+		AlignItems(gui.Center)
+	var activeBtn gui.Element
+	var hasActive bool
+	track.Children(func() {
+		for i, lbl := range labels {
+			idx := i
+			active := selected == idx
+			btn := gui.ButtonBase(c.Key(fmt.Sprintf("%s-%d", group, idx))).
+				Padding(5, 12).
+				Radius(radiusControl - 3).
+				AlignItems(gui.Center).
+				OnClick(func() { onSelect(idx) })
+			targetFg := a.pal.inkSecondary
+			if active || btn.Hovered() {
+				targetFg = a.pal.ink
 			}
-		})
+			fg := btn.AnimateColor("fg", targetFg, animFast)
+			btn.Children(func() {
+				gui.Text(c, lbl).FontSize(12).Bold().TextColor(fg).SingleLine()
+			})
+			if active {
+				activeBtn = btn
+				hasActive = true
+			}
+		}
+	})
+	attachGlidingPill(track, activeBtn, hasActive, radiusControl-3, a.pal.pillActive, a.pal.shadowResting)
 }
 
 // arcPillTabsWithIcons is arcPillTabs with leading SVG icons.
@@ -404,57 +566,86 @@ func (a *App) arcPillTabsWithIcons(c *gui.Context, group string, selected int, i
 	icon  *gui.SVG
 	label string
 }, onSelect func(int)) {
-	gui.Row(c.Key("track-" + group)).
+	track := gui.Row(c.Key("track-" + group)).
 		Padding(3).
 		Gap(2).
+		Radius(radiusControl).
+		Background(a.pal.pillTrack).
+		AlignItems(gui.Center)
+	var activeBtn gui.Element
+	var hasActive bool
+	track.Children(func() {
+		for i, it := range items {
+			idx := i
+			item := it
+			active := selected == idx
+			btn := gui.ButtonBase(c.Key(fmt.Sprintf("%s-%d", group, idx))).
+				Padding(5, 12).
+				Gap(6).
+				Radius(radiusControl - 3).
+				AlignItems(gui.Center).
+				OnClick(func() { onSelect(idx) })
+			targetFg := a.pal.inkSecondary
+			if active || btn.Hovered() {
+				targetFg = a.pal.ink
+			}
+			fg := btn.AnimateColor("fg", targetFg, animFast)
+			btn.Children(func() {
+				if item.icon != nil {
+					gui.Icon(c, item.icon).Size(14, 14).TextColor(fg)
+				}
+				gui.Text(c, item.label).FontSize(12).Bold().TextColor(fg).SingleLine()
+			})
+			if active {
+				activeBtn = btn
+				hasActive = true
+			}
+		}
+	})
+	attachGlidingPill(track, activeBtn, hasActive, radiusControl-3, a.pal.pillActive, a.pal.shadowResting)
+}
+
+// arcSwitch renders an Arc UI monochrome toggle switch following foundation.css:
+// in dark mode a near-white ON track carries a dark thumb so ON and OFF never
+// blend together; thumb glides with springSnappy (260ms, zero bounce).
+func (a *App) arcSwitch(c *gui.Context, key string, val *bool, onChange func()) gui.Element {
+	on := *val
+	btn := gui.ButtonBase(c.Key(key)).
+		Size(40, 22).
+		Padding(3).
 		Radius(radiusPill).
-		Background(a.pal.surface).
+		Justify(gui.Start).
 		AlignItems(gui.Center).
-		Children(func() {
-			for i, it := range items {
-				idx := i
-				item := it
-				active := selected == idx
-				btn := gui.ButtonBase(c.Key(fmt.Sprintf("%s-%d", group, idx))).
-					Radius(radiusPill).
-					AlignItems(gui.Center).
-					OnClick(func() { onSelect(idx) })
-				scale := float32(1)
-				if btn.Pressed() {
-					scale = 0.97
-				}
-				btn.AnimatePose(gui.Pose{Scale: scale}, springResponsive)
-				targetFg := a.pal.inkSecondary
-				if active || btn.Hovered() {
-					targetFg = a.pal.ink
-				}
-				fg := btn.AnimateColor("fg", targetFg, animFast)
-				btn.Children(func() {
-					content := func() {
-						if item.icon != nil {
-							gui.Icon(c, item.icon).Size(14, 14).TextColor(fg)
-						}
-						gui.Text(c, item.label).FontSize(12).Bold().TextColor(fg).SingleLine()
-					}
-					if active {
-						gui.Row(c.Key(fmt.Sprintf("%s-pill-%d", group, idx))).
-							Padding(5, 12).
-							Gap(6).
-							Radius(radiusPill).
-							AlignItems(gui.Center).
-							Background(a.pal.surfaceRaised).
-							Shadow(0, 1, 3, 0, a.pal.shadowResting).
-							Transition(gui.ElementTransition{
-								Animation: &springMorph,
-								Match:     pillMatchKey{group: group},
-							}).
-							Children(content)
-					} else {
-						gui.Row(c).Padding(5, 12).Gap(6).Radius(radiusPill).AlignItems(gui.Center).Children(content)
-					}
-				})
+		OnClick(func() {
+			*val = !*val
+			if onChange != nil {
+				onChange()
 			}
 		})
+	trackTarget := a.pal.surfaceActive
+	thumbTarget := a.pal.inkSecondary
+	thumbX := float32(0)
+	if !a.dark {
+		trackTarget = a.pal.surfaceActive
+		thumbTarget = gui.Hex("#FFFFFF")
+	}
+	if on {
+		trackTarget = a.pal.controlOn
+		thumbTarget = a.pal.controlGlyph
+		thumbX = 18
+	}
+	trackCol := btn.AnimateColor("sw-track", trackTarget, animFast)
+	thumbCol := btn.AnimateColor("sw-thumb", thumbTarget, animFast)
+	tx := btn.AnimateTo("sw-x", thumbX, springSnappy)
+	btn.Background(trackCol).Children(func() {
+		gui.Box(c).
+			Size(16, 16).
+			Radius(radiusPill).
+			Background(thumbCol).
+			Shadow(0, 1, 2, 0, a.pal.shadowResting).
+			Translate(tx, 0)
+	})
+	return btn
 }
 
 // tagChip renders a pure monochrome Arc pill chip.

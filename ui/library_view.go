@@ -141,7 +141,14 @@ func (a *App) libraryMain(c *gui.Context) {
 		if len(a.assets) == 0 {
 			a.libraryEmptyState(c)
 		} else {
-			a.assetGrid(c)
+			switch a.layoutMode {
+			case layoutMasonry:
+				a.assetMasonry(c)
+			case layoutGrid:
+				a.assetGrid(c)
+			default:
+				a.assetBento(c)
+			}
 		}
 	})
 }
@@ -210,7 +217,7 @@ func (a *App) filterBar(c *gui.Context) {
 			gui.Row(c).Gap(6).AlignItems(gui.Center).Children(func() {
 				gui.Text(c, a.t("library.mode")).FontSize(11).TextColor(a.pal.inkMuted)
 				a.arcPillTabs(c, "storage-mode", a.storageMode, modes, func(idx int) {
-					a.storageMode = idx
+					a.setStorageMode(idx)
 				})
 			})
 		})
@@ -269,6 +276,9 @@ func (a *App) assetGrid(c *gui.Context) {
 
 	cellW := float32(a.cardSize)
 	cellH := cellW + 38
+	if !a.showCardCaption {
+		cellH = cellW
+	}
 
 	gv := gui.GridView(c.Key("asset-grid"), &a.grid, len(a.assets), cellW, cellH, func(i int) {
 		asset := a.assets[i]
@@ -286,6 +296,247 @@ func (a *App) assetGrid(c *gui.Context) {
 		if asset, ok := a.selectedAsset(); ok {
 			a.deleteAssetPrompt(asset)
 		}
+	})
+}
+
+func (a *App) bindAssetShortcuts(el gui.Element) {
+	el.OnShortcut(0, gui.KeySpace, func() {
+		if asset, ok := a.selectedAsset(); ok {
+			a.openPreview(asset)
+		}
+	})
+	el.OnShortcut(0, gui.KeyDelete, func() {
+		if asset, ok := a.selectedAsset(); ok {
+			a.deleteAssetPrompt(asset)
+		}
+	})
+}
+
+// assetMasonry renders an Eagle-style multi-column waterfall masonry layout
+// preserving each asset's natural aspect ratio in balanced shortest-column order.
+func (a *App) assetMasonry(c *gui.Context) {
+	if a.assetIndex >= len(a.assets) {
+		a.assetIndex = -1
+	}
+	scroll := gui.Scroll(c.Key("asset-masonry")).Grow(1).FillWidth()
+	a.bindAssetShortcuts(scroll)
+
+	availW := scroll.LayoutBounds().W
+	if availW < 240 {
+		availW = 780
+	}
+	const gap float32 = 14
+	cellW := float32(a.cardSize)
+	cols := int((availW + gap) / (cellW + gap))
+	if cols < 2 {
+		if availW < 360 {
+			cols = 1
+		} else {
+			cols = 2
+		}
+	}
+	if cols > 6 {
+		cols = 6
+	}
+	colW := (availW - float32(cols-1)*gap) / float32(cols)
+	if colW < 120 {
+		colW = 120
+	}
+	var capH float32 = 36
+	if !a.showCardCaption {
+		capH = 0
+	}
+
+	type masonryEntry struct {
+		index int
+		h     float32
+	}
+	buckets := make([][]masonryEntry, cols)
+	colHeights := make([]float32, cols)
+
+	for i, asset := range a.assets {
+		ratio := float32(0.82)
+		if asset.Width > 0 && asset.Height > 0 {
+			ratio = float32(asset.Height) / float32(asset.Width)
+		} else {
+			// Subtle organic rhythm when dimensions are unknown.
+			presets := [...]float32{0.72, 1.15, 0.92, 1.28, 0.78}
+			ratio = presets[i%len(presets)]
+		}
+		if ratio < 0.55 {
+			ratio = 0.55
+		} else if ratio > 1.85 {
+			ratio = 1.85
+		}
+		itemH := colW*ratio + capH
+		best := 0
+		for k := 1; k < cols; k++ {
+			if colHeights[k] < colHeights[best] {
+				best = k
+			}
+		}
+		buckets[best] = append(buckets[best], masonryEntry{index: i, h: itemH})
+		colHeights[best] += itemH + gap
+	}
+
+	scroll.Children(func() {
+		gui.Row(c).FillWidth().Padding(2, 2, 16, 2).Gap(gap).AlignItems(gui.Start).Children(func() {
+			for col := 0; col < cols; col++ {
+				entries := buckets[col]
+				gui.Column(c.Key(fmt.Sprintf("mcol-%d", col))).Grow(1).Gap(gap).Children(func() {
+					for _, ent := range entries {
+						idx := ent.index
+						asset := a.assets[idx]
+						gui.Box(c).FillWidth().Height(ent.h).Children(func() {
+							a.assetCard(c, idx, asset, idx == a.assetIndex)
+						})
+					}
+				})
+			}
+		})
+	})
+}
+
+// assetBento renders an editorial Arc UI Bento grid with alternating 2x2 hero
+// blocks and wide accent rows, packing every row cleanly with zero dead gaps.
+func (a *App) assetBento(c *gui.Context) {
+	if a.assetIndex >= len(a.assets) {
+		a.assetIndex = -1
+	}
+	scroll := gui.Scroll(c.Key("asset-bento")).Grow(1).FillWidth()
+	a.bindAssetShortcuts(scroll)
+
+	availW := scroll.LayoutBounds().W
+	if availW < 240 {
+		availW = 780
+	}
+	const gap float32 = 14
+	cellW := float32(a.cardSize)
+	cols := int((availW + gap) / (cellW + gap))
+	if cols < 2 {
+		cols = 2
+	}
+	if cols > 5 {
+		cols = 5
+	}
+	var capH float32 = 34
+	if !a.showCardCaption {
+		capH = 0
+	}
+	unitH := cellW*0.86 + capH
+	if unitH < 150 {
+		unitH = 150
+	}
+	if unitH > 290 {
+		unitH = 290
+	}
+
+	scroll.Children(func() {
+		gui.Column(c).FillWidth().Padding(2, 2, 16, 2).Gap(gap).Children(func() {
+			n := len(a.assets)
+			i := 0
+			blockIdx := 0
+			sideCols := cols - 2
+			sideCount := sideCols * 2
+			heroBlockSize := 1 + sideCount
+
+			for i < n {
+				rem := n - i
+				// Hero Bento block: 2x2 hero tile + 2 rows of companion tiles.
+				if cols >= 3 && rem >= heroBlockSize && blockIdx%2 == 0 {
+					heroIdx := i
+					heroH := unitH*2 + gap
+					heroLeft := (blockIdx/2)%2 == 0
+
+					renderHero := func() {
+						gui.Box(c).Grow(2).Height(heroH).Children(func() {
+							a.assetCard(c, heroIdx, a.assets[heroIdx], heroIdx == a.assetIndex)
+						})
+					}
+					renderSide := func() {
+						gui.Column(c).Grow(float32(sideCols)).Height(heroH).Gap(gap).Children(func() {
+							gui.Row(c).Grow(1).FillWidth().Gap(gap).Children(func() {
+								for k := 0; k < sideCols; k++ {
+									idx := heroIdx + 1 + k
+									gui.Box(c).Grow(1).FillHeight().Children(func() {
+										a.assetCard(c, idx, a.assets[idx], idx == a.assetIndex)
+									})
+								}
+							})
+							gui.Row(c).Grow(1).FillWidth().Gap(gap).Children(func() {
+								for k := 0; k < sideCols; k++ {
+									idx := heroIdx + 1 + sideCols + k
+									gui.Box(c).Grow(1).FillHeight().Children(func() {
+										a.assetCard(c, idx, a.assets[idx], idx == a.assetIndex)
+									})
+								}
+							})
+						})
+					}
+
+					gui.Row(c.Key(fmt.Sprintf("bento-blk-%d", blockIdx))).FillWidth().Gap(gap).Children(func() {
+						if heroLeft {
+							renderHero()
+							renderSide()
+						} else {
+							renderSide()
+							renderHero()
+						}
+					})
+					i += heroBlockSize
+					blockIdx++
+					continue
+				}
+
+				// Wide accent Bento row: one 2-column wide card + standard companions.
+				wideRowSize := cols - 1
+				if cols >= 3 && rem >= wideRowSize && rem != cols {
+					widePos := 0
+					if blockIdx%2 == 1 {
+						widePos = wideRowSize - 1
+					}
+					start := i
+					gui.Row(c.Key(fmt.Sprintf("bento-wide-%d", blockIdx))).FillWidth().Height(unitH).Gap(gap).Children(func() {
+						for k := 0; k < wideRowSize; k++ {
+							idx := start + k
+							span := float32(1)
+							if k == widePos {
+								span = 2
+							}
+							gui.Box(c).Grow(span).FillHeight().Children(func() {
+								a.assetCard(c, idx, a.assets[idx], idx == a.assetIndex)
+							})
+						}
+					})
+					i += wideRowSize
+					blockIdx++
+					continue
+				}
+
+				// Standard balanced row (fills cols, or wide card if single trailing item).
+				take := min(rem, cols)
+				start := i
+				gui.Row(c.Key(fmt.Sprintf("bento-row-%d", blockIdx))).FillWidth().Height(unitH).Gap(gap).Children(func() {
+					usedSpan := 0
+					for k := 0; k < take; k++ {
+						idx := start + k
+						span := 1
+						if take == 1 && cols >= 3 {
+							span = 2
+						}
+						usedSpan += span
+						gui.Box(c).Grow(float32(span)).FillHeight().Children(func() {
+							a.assetCard(c, idx, a.assets[idx], idx == a.assetIndex)
+						})
+					}
+					if usedSpan < cols {
+						gui.Box(c).Grow(float32(cols - usedSpan))
+					}
+				})
+				i += take
+				blockIdx++
+			}
+		})
 	})
 }
 
@@ -403,8 +654,8 @@ func (a *App) assetCard(c *gui.Context, index int, asset model.Asset, selected b
 	} else {
 		card.AnimatePose(gui.Pose{Y: liftY, Scale: cardScale}, springGentle)
 	}
-	stagger := time.Duration(min(index, 8)) * arcStaggerItem
-	applyStaggerReveal(card, cardRevealKey{gen: a.revealGen, id: asset.ID}, stagger)
+	stagger := time.Duration(min(index, 6)) * arcStaggerItem
+	applyCardBlurFade(card, cardRevealKey{gen: a.revealGen, id: asset.ID}, stagger)
 
 	card.Children(func() {
 		// Full-bleed edge-to-edge media slot with subtle hover zoom.
@@ -429,20 +680,22 @@ func (a *App) assetCard(c *gui.Context, index int, asset model.Asset, selected b
 			}
 		})
 
-		// Clean frameless caption strip (pure monochrome).
-		gui.Row(c).FillWidth().Padding(8, 11).Gap(6).AlignItems(gui.Center).Children(func() {
-			if selected {
-				gui.Box(c).Size(6, 6).Radius(radiusPill).Background(a.pal.controlOn)
-			}
-			gui.Text(c, name).Grow(1).FontSize(12).Bold().TextColor(a.pal.ink).SingleLine()
-			if asset.Missing {
-				gui.Text(c, a.t("library.missing")).FontSize(10).Bold().TextColor(a.pal.danger).SingleLine()
-			} else if asset.Rating > 0 {
-				gui.Text(c, fmt.Sprintf("★%d", asset.Rating)).FontSize(11).TextColor(a.pal.inkSecondary).SingleLine()
-			} else {
-				gui.Text(c, ext).FontSize(10).TextColor(a.pal.inkMuted).SingleLine()
-			}
-		})
+		// Clean frameless caption strip (pure monochrome; toggleable in Preferences).
+		if a.showCardCaption {
+			gui.Row(c).FillWidth().Padding(8, 11).Gap(6).AlignItems(gui.Center).Children(func() {
+				if selected {
+					gui.Box(c).Size(6, 6).Radius(radiusPill).Background(a.pal.controlOn)
+				}
+				gui.Text(c, name).Grow(1).FontSize(12).Bold().TextColor(a.pal.ink).SingleLine()
+				if asset.Missing {
+					gui.Text(c, a.t("library.missing")).FontSize(10).Bold().TextColor(a.pal.danger).SingleLine()
+				} else if asset.Rating > 0 {
+					gui.Text(c, fmt.Sprintf("★%d", asset.Rating)).FontSize(11).TextColor(a.pal.inkSecondary).SingleLine()
+				} else {
+					gui.Text(c, ext).FontSize(10).TextColor(a.pal.inkMuted).SingleLine()
+				}
+			})
+		}
 	})
 }
 

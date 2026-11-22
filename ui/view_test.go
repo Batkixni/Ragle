@@ -281,41 +281,73 @@ func TestRenderScreenshots(t *testing.T) {
 		{{250, 204, 21, 255}, {249, 115, 22, 255}},
 		{{45, 212, 191, 255}, {59, 130, 246, 255}},
 	}
-	names := []string{"Swiss_Poster_01.png", "Glass_Card_UI.png", "Editorial_Spread.jpg", "Kinetic_Type.png", "Warm_Lighting.png", "Minimal_Grid.png"}
+	names := []string{"Swiss_Poster_01.png", "Glass_Card_UI.png", "Editorial_Spread.jpg", "Kinetic_Type.png", "Warm_Lighting.png", "Minimal_Grid.png", "Architecture_Study.jpg", "Monochrome_Film.png"}
+	dims := [][2]int{
+		{1920, 1280}, // 3:2 landscape
+		{1080, 1620}, // 2:3 portrait
+		{2400, 1350}, // 16:9 wide
+		{1200, 1200}, // 1:1 square
+		{1080, 1920}, // 9:16 tall
+		{1800, 1200}, // 3:2 landscape
+		{1400, 1800}, // portrait
+		{2000, 1200}, // wide
+	}
+	colors = append(colors,
+		[2]color.RGBA{{148, 163, 184, 255}, {51, 65, 85, 255}},
+		[2]color.RGBA{{212, 212, 216, 255}, {63, 63, 70, 255}},
+	)
 	a.tags = []model.Tag{t1, t2, t3}
 	a.projectList = []model.Project{proj}
 	now := time.Now()
 	for i, name := range names {
 		id := "art-" + string(rune('a'+i))
+		w, h := dims[i][0], dims[i][1]
 		asset := model.Asset{
 			ID:          id,
 			Path:        filepath.Join("D:\\References", name),
 			StorageMode: model.StorageCopy,
 			Mime:        "image/png",
-			Width:       1920,
-			Height:      1280,
+			Width:       w,
+			Height:      h,
 			Rating:      (i % 5) + 1,
 			CreatedAt:   now.Add(-time.Duration(i) * time.Hour),
 		}
 		a.allAssets = append(a.allAssets, asset)
 		a.assetByID[id] = asset
-		a.bitmaps[id] = makeArtBitmap(320, 220, colors[i][0], colors[i][1])
+		a.bitmaps[id] = makeArtBitmap(w/6, h/6, colors[i][0], colors[i][1])
 		a.assetTags[id] = []model.Tag{t1, t2}
 	}
 	a.allAssetsCount = len(a.allAssets)
-	a.tagCounts = map[string]int{t1.ID: 6, t2.ID: 6, t3.ID: 2}
+	a.tagCounts = map[string]int{t1.ID: len(names), t2.ID: len(names), t3.ID: 2}
 	a.applyFilters()
 	a.screen = screenLibrary
 	a.assetIndex = 0
 	a.inspectorFileSize = 2480128
 	a.syncInspectorSelection(true)
 
-	// 2. Library dark & light.
+	// 2. Library Bento, Waterfall Masonry, Grid (dark) & Bento (light).
+	a.layoutMode = layoutBento
+	save("library_bento_dark.png", 1360, 860)
+	a.layoutMode = layoutMasonry
+	save("library_masonry_dark.png", 1360, 860)
+	a.layoutMode = layoutGrid
 	save("library_dark.png", 1360, 860)
+	a.layoutMode = layoutBento
 	a.themeMode = "light"
 	save("library_light.png", 1360, 860)
 
-	// 3. Project view dark.
+	// 2b. Preferences modal screenshots (General, Database, Import — dark).
+	a.themeMode = "dark"
+	a.openSettings(settingsTabGeneral)
+	save("settings_general_dark.png", 1360, 860)
+	a.setSettingsTab(settingsTabDatabase)
+	a.refreshDBStats()
+	save("settings_database_dark.png", 1360, 860)
+	a.setSettingsTab(settingsTabImport)
+	save("settings_import_dark.png", 1360, 860)
+	a.settingsOpen = false
+
+	// 3. Project view dark (redesigned unified header).
 	a.themeMode = "dark"
 	a.screen = screenProject
 	a.projectID = proj.ID
@@ -324,6 +356,7 @@ func TestRenderScreenshots(t *testing.T) {
 	a.boards = []model.Board{b1, {ID: "b2", ProjectID: proj.ID, Name: "Color Explorations"}}
 	a.boardCounts = map[string]int{b1.ID: 4, "b2": 2}
 	a.projectAssets = a.allAssets[:4]
+	a.syncNavSelection()
 	save("project_dark.png", 1360, 860)
 
 	// 4. Moodboard view dark.
