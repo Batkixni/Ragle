@@ -2486,7 +2486,9 @@ func (a *App) modeLabel(mode string) string {
 
 func (a *App) deleteAssetCopy(asset model.Asset) string {
 	switch asset.StorageMode {
-	case model.StorageCopy, model.StorageMove:
+	case model.StorageMove:
+		return a.t("library.deleteMove")
+	case model.StorageCopy:
 		return a.t("library.deleteCopy")
 	case model.StorageSymlink:
 		return a.t("library.deleteLink")
@@ -3000,6 +3002,31 @@ func (a *App) batchApplyTag(ids []string, tagID string) {
 	a.reload()
 }
 
+func (a *App) batchDeleteMessage(ids []string) string {
+	var copyCount, moveCount int
+	for _, id := range ids {
+		asset, ok := a.assetByID[id]
+		if !ok {
+			continue
+		}
+		switch asset.StorageMode {
+		case model.StorageCopy:
+			copyCount++
+		case model.StorageMove:
+			moveCount++
+		}
+	}
+	total := len(ids)
+	switch {
+	case moveCount > 0:
+		return fmt.Sprintf(a.t("batch.deleteWithMove"), total, moveCount, total-moveCount)
+	case copyCount > 0:
+		return fmt.Sprintf(a.t("batch.deleteSafeCopy"), total, copyCount)
+	default:
+		return fmt.Sprintf(a.t("batch.deleteSafeIndex"), total)
+	}
+}
+
 func (a *App) batchDeletePrompt(ids []string) {
 	if len(ids) == 0 || a.lib == nil {
 		return
@@ -3011,36 +3038,61 @@ func (a *App) batchDeletePrompt(ids []string) {
 		}
 	}
 	list := append([]string(nil), ids...)
-	a.ask(a.t("batch.delete"), fmt.Sprintf(a.t("batch.deleteConfirm"), len(list)), a.t("common.delete"), func() {
-		if a.backupBeforeDelete && a.lib != nil {
-			_ = a.lib.DB.Backup()
+	msg := a.batchDeleteMessage(list)
+	a.ask(a.t("batch.delete"), msg, a.t("common.delete"), func() {
+		if a.lib == nil {
+			return
 		}
-		deleted := 0
+		idSet := make(map[string]bool, len(list))
 		for _, id := range list {
-			if a.session != nil {
-				var drop []string
-				for _, item := range a.session.Items {
-					if item.Kind == model.KindImage && item.AssetID == id {
-						drop = append(drop, item.ID)
-					}
-				}
-				if len(drop) > 0 {
-					a.session.Delete(drop)
-				}
-			}
-			if err := a.lib.Delete(id); err == nil {
-				deleted++
-				delete(a.bitmaps, id)
-				if a.previewAssetID == id {
-					a.closePreview()
-				}
+			idSet[id] = true
+			delete(a.bitmaps, id)
+			if a.previewAssetID == id {
+				a.closePreview()
 			}
 		}
-		a.flushBoard(true)
-		a.clearSelection()
-		a.assetIndex = -1
-		a.notify(fmt.Sprintf(a.t("batch.deleted"), deleted))
-		a.reload()
+		if a.session != nil {
+			var drop []string
+			for _, item := range a.session.Items {
+				if item.Kind == model.KindImage && idSet[item.AssetID] {
+					drop = append(drop, item.ID)
+				}
+			}
+			if len(drop) > 0 {
+				a.session.Delete(drop)
+				a.flushBoard(true)
+			}
+		}
+
+		finish := func(deleted int, err error) {
+			a.clearSelection()
+			a.assetIndex = -1
+			if err != nil {
+				a.notify(err.Error())
+			} else {
+				a.notify(fmt.Sprintf(a.t("batch.deleted"), deleted))
+			}
+			a.reload()
+		}
+
+		if a.win == nil {
+			deleted, err := a.lib.DeleteBatch(list)
+			finish(deleted, err)
+			return
+		}
+
+		lib := a.lib
+		win := a.win
+		a.notify(fmt.Sprintf(a.t("batch.deleting"), len(list)))
+		go func() {
+			deleted, err := lib.DeleteBatch(list)
+			win.Update(func() {
+				if a.isClosed() || a.lib != lib {
+					return
+				}
+				finish(deleted, err)
+			})
+		}()
 	})
 }
 

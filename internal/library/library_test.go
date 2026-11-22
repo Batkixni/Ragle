@@ -277,3 +277,53 @@ func TestImportSkipsLibraryInternals(t *testing.T) {
 		t.Fatalf("added %d items %+v", result.Added, result.Items)
 	}
 }
+
+func TestDeleteBatchPreservesOriginals(t *testing.T) {
+	root := t.TempDir()
+	lib, err := Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lib.Close()
+
+	src := t.TempDir()
+	idxSrc := filepath.Join(src, "indexed.png")
+	copySrc := filepath.Join(src, "copied.png")
+	writePNG(t, idxSrc, 12)
+	writePNG(t, copySrc, 14)
+
+	r1, err := lib.Import(context.Background(), []string{idxSrc}, model.StorageIndex, nil, nil)
+	if err != nil || r1.Added != 1 {
+		t.Fatalf("index import failed: %+v %v", r1, err)
+	}
+	r2, err := lib.Import(context.Background(), []string{copySrc}, model.StorageCopy, nil, nil)
+	if err != nil || r2.Added != 1 {
+		t.Fatalf("copy import failed: %+v %v", r2, err)
+	}
+
+	copiedAsset, err := lib.Get(r2.Items[0].AssetID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	n, err := lib.DeleteBatch([]string{r1.Items[0].AssetID, r2.Items[0].AssetID})
+	if err != nil || n != 2 {
+		t.Fatalf("DeleteBatch got n=%d err=%v", n, err)
+	}
+
+	// Original source files MUST stay untouched!
+	if _, err := os.Stat(idxSrc); err != nil {
+		t.Fatalf("indexed original file was unexpectedly removed: %v", err)
+	}
+	if _, err := os.Stat(copySrc); err != nil {
+		t.Fatalf("copy source file was unexpectedly removed: %v", err)
+	}
+	// Library-owned copy inside files/ MUST be removed.
+	if _, err := os.Stat(copiedAsset.Path); !os.IsNotExist(err) {
+		t.Fatalf("expected library-owned copy to be removed, stat err=%v", err)
+	}
+	remaining, err := lib.List(Filter{})
+	if err != nil || len(remaining) != 0 {
+		t.Fatalf("expected 0 remaining assets, got %d err=%v", len(remaining), err)
+	}
+}

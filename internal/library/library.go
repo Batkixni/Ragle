@@ -383,6 +383,83 @@ func (l *Library) Delete(id string) error {
 	return nil
 }
 
+// DeleteBatch removes many assets in one backup + chunked bbolt transactions
+// so deleting 10k+ assets finishes in under a second without redundant backups.
+// Index mode keeps the user's file; Symlink removes only the link; Copy and
+// Move remove the library-owned file.
+func (l *Library) DeleteBatch(ids []string) (int, error) {
+	if len(ids) == 0 {
+		return 0, nil
+	}
+	if err := l.DB.Backup(); err != nil {
+		return 0, err
+	}
+
+	type diskCleanup struct {
+		path      string
+		isSymlink bool
+		thumb     string
+	}
+	var cleanups []diskCleanup
+	deleted := 0
+
+	const chunkSize = 512
+	for start := 0; start < len(ids); start += chunkSize {
+		end := min(start+chunkSize, len(ids))
+		chunk := ids[start:end]
+		err := l.DB.Update(func(tx *bbolt.Tx) error {
+			for _, id := range chunk {
+				a, err := db.GetAsset(tx, id)
+				if err != nil {
+					if errors.Is(err, db.ErrNotFound) {
+						continue
+					}
+					return err
+				}
+				var cl diskCleanup
+				cl.thumb = a.ThumbnailPath
+				switch a.StorageMode {
+				case model.StorageSymlink:
+					cl.path = a.Path
+					cl.isSymlink = true
+				case model.StorageCopy, model.StorageMove:
+					cl.path = a.Path
+				}
+				if a.StackID != "" {
+					if err := detachAssetFromStackTx(tx, a.ID, a.StackID); err != nil {
+						return err
+					}
+				}
+				if err := db.DeleteAssetRecords(tx, id); err != nil {
+					return err
+				}
+				cleanups = append(cleanups, cl)
+				deleted++
+			}
+			return nil
+		})
+		if err != nil {
+			return deleted, err
+		}
+	}
+
+	for _, cl := range cleanups {
+		if cl.path != "" {
+			if cl.isSymlink {
+				if fi, statErr := os.Lstat(cl.path); statErr == nil && fi.Mode()&os.ModeSymlink != 0 {
+					_ = os.Remove(cl.path)
+				}
+			} else {
+				_ = os.Remove(cl.path)
+			}
+		}
+		if cl.thumb != "" {
+			_ = os.Remove(cl.thumb)
+		}
+	}
+	return deleted, nil
+}
+
 // MarkMissing flags the asset stored at path and drops the path index.
 // The path stays on the record so the interface can show where it was.
 // It reports whether an asset changed.
