@@ -26,6 +26,9 @@ const (
 const (
 	MediaImage = "image"
 	MediaVideo = "video"
+	MediaAudio = "audio"
+	MediaFont  = "font"
+	MediaPDF   = "pdf"
 	MediaOther = "other"
 )
 
@@ -63,7 +66,17 @@ type Asset struct {
 	Palette       []PaletteColor `msgpack:"palette,omitempty"`
 	PHash         uint64         `msgpack:"phash,omitempty"`
 	DHash         uint64         `msgpack:"dhash,omitempty"`
+	StackID       string         `msgpack:"stack_id,omitempty"`
 	CreatedAt     time.Time      `msgpack:"created_at"`
+}
+
+// Stack groups related versions or angles of an asset into one collapsible card.
+type Stack struct {
+	ID        string    `msgpack:"id"`
+	Name      string    `msgpack:"name"`
+	CoverID   string    `msgpack:"cover_id"`
+	AssetIDs  []string  `msgpack:"asset_ids"`
+	CreatedAt time.Time `msgpack:"created_at"`
 }
 
 // Label returns DisplayName if set, falling back to the base filename of Path.
@@ -151,6 +164,8 @@ func (p Placement) ScaleOrOne() float64 {
 }
 
 // MediaKind maps a MIME type to image, video, or other.
+// Note: SVG is kept under MediaImage for filtering, while IsSVG/IsFont/IsAudio/IsPDF
+// identify specialized native designer preview formats.
 func MediaKind(mime string) string {
 	switch {
 	case len(mime) >= 6 && mime[:6] == "image/":
@@ -160,4 +175,45 @@ func MediaKind(mime string) string {
 	default:
 		return MediaOther
 	}
+}
+
+// IsSVG reports whether the asset is an SVG vector graphic.
+func IsSVG(mime, path string) bool {
+	if strings.EqualFold(mime, "image/svg+xml") {
+		return true
+	}
+	return strings.EqualFold(filepath.Ext(path), ".svg")
+}
+
+// IsFont reports whether the asset is a TrueType or OpenType font file.
+func IsFont(mime, path string) bool {
+	low := strings.ToLower(mime)
+	if strings.HasPrefix(low, "font/") || low == "application/x-font-ttf" || low == "application/vnd.ms-opentype" {
+		return true
+	}
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".ttf", ".otf":
+		return true
+	}
+	return false
+}
+
+// IsAudio reports whether the asset is a previewable audio file.
+func IsAudio(mime, path string) bool {
+	if strings.HasPrefix(strings.ToLower(mime), "audio/") {
+		return true
+	}
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".mp3", ".wav", ".flac", ".ogg", ".m4a", ".aac", ".opus", ".wma":
+		return true
+	}
+	return false
+}
+
+// IsPDF reports whether the asset is a PDF document.
+func IsPDF(mime, path string) bool {
+	if strings.EqualFold(mime, "application/pdf") {
+		return true
+	}
+	return strings.EqualFold(filepath.Ext(path), ".pdf")
 }

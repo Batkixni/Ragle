@@ -714,3 +714,131 @@ func TestGlobalShortcutsAndMarqueeBoxSelection(t *testing.T) {
 		}
 	}
 }
+
+func TestStacksNativePreviewsAndPureRefUI(t *testing.T) {
+	root := t.TempDir()
+	lib, err := library.Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lib.Close()
+
+	srcDir := t.TempDir()
+	img1 := filepath.Join(srcDir, "poster_v1.png")
+	img2 := filepath.Join(srcDir, "poster_v2.png")
+	writeSamplePNG(t, img1, 160, 120, color.RGBA{240, 90, 60, 255})
+	writeSamplePNG(t, img2, 160, 120, color.RGBA{60, 140, 240, 255})
+
+	svgPath := filepath.Join(srcDir, "logo_vector.svg")
+	_ = os.WriteFile(svgPath, []byte(`<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 120 120"><circle cx="60" cy="60" r="48" fill="#ff5c33"/></svg>`), 0o644)
+
+	// Minimal valid 16-bit WAV file.
+	wavPath := filepath.Join(srcDir, "sfx_click.wav")
+	wav := make([]byte, 44+320)
+	copy(wav[0:4], "RIFF")
+	wav[4] = 0x64
+	wav[5] = 0x01
+	copy(wav[8:12], "WAVE")
+	copy(wav[12:16], "fmt ")
+	wav[16] = 16
+	wav[20] = 1
+	wav[22] = 1
+	wav[24] = 0x40
+	wav[25] = 0x1F // 8000 Hz
+	wav[28] = 0x80
+	wav[29] = 0x3E
+	wav[32] = 2
+	wav[34] = 16
+	copy(wav[36:40], "data")
+	wav[40] = 0x40
+	wav[41] = 0x01
+	_ = os.WriteFile(wavPath, wav, 0o644)
+
+	res, err := lib.Import(context.Background(), []string{img1, img2, svgPath, wavPath}, model.StorageCopy, nil, nil)
+	if err != nil || res.Added != 4 {
+		t.Fatalf("import failed: added=%d err=%v", res.Added, err)
+	}
+
+	a := NewApp()
+	a.lang = i18n.ZhHant
+	a.lib = lib
+	a.projects = project.New(lib.DB)
+	a.screen = screenLibrary
+	a.reload()
+
+	tt := gui.NewTester(a.View, 1360, 860)
+	tt.Frame()
+
+	// 1. Asset Stack folding & expanding.
+	beforeCount := len(a.assets)
+	if beforeCount != 4 {
+		t.Fatalf("expected 4 assets, got %d", beforeCount)
+	}
+	a.stackSelectedAssets([]string{res.Items[0].AssetID, res.Items[1].AssetID})
+	tt.Frame()
+	if len(a.assets) != beforeCount-1 {
+		t.Fatalf("expected library to collapse 2 stacked assets into 1 card: before=%d after=%d", beforeCount, len(a.assets))
+	}
+	if len(a.stacks) != 1 {
+		t.Fatalf("expected 1 stack, got %d", len(a.stacks))
+	}
+	stID := a.stacks[0].ID
+	a.openStackView(stID)
+	tt.Frame()
+	if len(a.assets) != 2 {
+		t.Fatalf("expected 2 assets when stack expanded, got %d", len(a.assets))
+	}
+	if !tt.HasText("解散堆疊") {
+		t.Fatalf("expected stack banner controls when expanded, texts=%v", tt.Texts())
+	}
+	a.closeStackView()
+	tt.Frame()
+	a.ungroupStack(stID)
+	tt.Frame()
+	if len(a.assets) != beforeCount {
+		t.Fatalf("expected %d assets after ungrouping stack, got %d", beforeCount, len(a.assets))
+	}
+
+	// 2. Native SVG lossless preview & Audio waveform preview inside inline viewer.
+	svgAsset, ok := a.assetByID[res.Items[2].AssetID]
+	if !ok {
+		t.Fatal("missing svg asset")
+	}
+	a.openPreview(svgAsset)
+	tt.Frame()
+	if a.previewSVG == nil {
+		t.Fatal("expected parsed SVG in inline preview")
+	}
+	if !tt.HasText("SVG 無損向量") {
+		t.Fatalf("expected SVG vector badge in inline preview, texts=%v", tt.Texts())
+	}
+
+	wavAsset, ok := a.assetByID[res.Items[3].AssetID]
+	if !ok {
+		t.Fatal("missing wav asset")
+	}
+	a.openPreview(wavAsset)
+	tt.Frame()
+	if len(a.previewAudioWave.Peaks) != 96 {
+		t.Fatalf("expected 96 audio waveform bars, got %d", len(a.previewAudioWave.Peaks))
+	}
+	a.closePreview()
+	tt.Frame()
+
+	// 3. PureRef floating window view renders cleanly with active board session.
+	b, err := a.projects.CreateStandaloneBoard("RefMood")
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.reload()
+	a.openBoard(b)
+	tt.Frame()
+	if !tt.HasText("置頂參考浮窗") {
+		t.Fatalf("expected PureRef button on board toolbar, texts=%v", tt.Texts())
+	}
+	refTester := gui.NewTester(a.pureRefView, 540, 420)
+	refTester.Frame()
+	if !refTester.HasText("RefMood") {
+		t.Fatalf("expected board title in PureRef floating HUD, texts=%v", refTester.Texts())
+	}
+}

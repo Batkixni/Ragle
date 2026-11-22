@@ -609,6 +609,42 @@ var pairs = []pair{
 	{"update.openRelease", "查看發行說明", "Release Notes"},
 	{"update.noAsset", "此版本尚未提供目前平台的執行檔，請前往 GitHub 查看。", "No binary for this platform in release; open GitHub to view."},
 	{"update.failed", "檢查或更新失敗：%s", "Update failed: %s"},
+
+	// Asset Stacks (Version Stacking).
+	{"stack.create", "合併為版本堆疊", "Stack Versions"},
+	{"stack.created", "已合併 %d 個素材為版本堆疊", "Stacked %d assets together"},
+	{"stack.expand", "展開堆疊（%d 個版本）", "Expand Stack (%d versions)"},
+	{"stack.ungroup", "解散堆疊", "Ungroup Stack"},
+	{"stack.ungrouped", "已解散版本堆疊", "Stack ungrouped"},
+	{"stack.setCover", "設為堆疊封面", "Set as Stack Cover"},
+	{"stack.coverUpdated", "已更新堆疊封面", "Stack cover updated"},
+	{"stack.removeAsset", "移出此堆疊", "Remove from Stack"},
+	{"stack.autoGroup", "自動堆疊相似版本（v1/v2/final）", "Auto-stack similar versions (v1/v2/final)"},
+	{"stack.autoGrouped", "已自動建立 %d 組版本堆疊", "Auto-grouped %d version stacks"},
+	{"stack.autoNone", "找不到可自動合併的相似版本檔名", "No matching version filenames found to stack"},
+	{"stack.banner", "版本堆疊：%s（%d 個版本）", "Stack: %s (%d versions)"},
+	{"stack.back", "返回列表", "Back to Library"},
+	{"stack.versions", "版本", "Versions"},
+
+	// Native Designer Format Previews (Font / Audio / SVG / PDF).
+	{"preview.fontSample", "輸入自訂預覽文字…", "Type custom preview text…"},
+	{"preview.fontGlyphs", "%d 個字形", "%d glyphs"},
+	{"preview.audioPlay", "播放", "Play"},
+	{"preview.audioPause", "暫停", "Pause"},
+	{"preview.audioVolume", "音量", "Volume"},
+	{"preview.svgVector", "SVG 無損向量", "SVG Lossless Vector"},
+	{"preview.svgChecker", "透明棋盤格背景", "Transparency checkerboard"},
+	{"preview.pdfPage", "第 %d / %d 頁", "Page %d / %d"},
+	{"preview.pdfPrev", "上一頁", "Previous Page"},
+	{"preview.pdfNext", "下一頁", "Next Page"},
+	{"preview.pdfLoading", "正在渲染 PDF 頁面…", "Rendering PDF page…"},
+
+	// PureRef-style Always-on-Top Floating Reference Window.
+	{"pureref.open", "置頂參考浮窗", "Floating Ref Window"},
+	{"pureref.pinWindow", "視窗置頂 (Always on Top)", "Pin Always on Top"},
+	{"pureref.opacity", "透明度", "Opacity"},
+	{"pureref.fit", "符合畫面 (F)", "Fit All (F)"},
+	{"pureref.hint", "左鍵拖曳平移 · 滾輪縮放 · F 置中", "Drag to pan · Scroll to zoom · F to fit"},
 }
 
 var (

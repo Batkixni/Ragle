@@ -20,6 +20,11 @@ func (a *App) inlinePreviewView(c *gui.Context) {
 	}
 	services := c.Services()
 	isVideo := model.MediaKind(asset.Mime) == model.MediaVideo
+	isSVG := model.IsSVG(asset.Mime, asset.Path)
+	isFont := model.IsFont(asset.Mime, asset.Path)
+	isAudio := model.IsAudio(asset.Mime, asset.Path)
+	isPDF := model.IsPDF(asset.Mime, asset.Path)
+	supportsZoom := !isVideo && !isFont && !isAudio
 	if a.previewZoom <= 0 {
 		a.previewZoom = 1.0
 	}
@@ -45,7 +50,11 @@ func (a *App) inlinePreviewView(c *gui.Context) {
 						}
 					})
 
-					if !isVideo {
+					if supportsZoom {
+						maxZ := 4.0
+						if isSVG {
+							maxZ = 8.0
+						}
 						a.iconButton(c, "viewer-zout", iconZoomOut, "-", false).OnClick(func() {
 							a.previewZoom = math.Max(0.25, a.previewZoom/1.25)
 						})
@@ -54,7 +63,7 @@ func (a *App) inlinePreviewView(c *gui.Context) {
 							Padding(4, 8).
 							OnClick(func() { a.previewZoom = 1.0 })
 						a.iconButton(c, "viewer-zin", iconZoomIn, "+", false).OnClick(func() {
-							a.previewZoom = math.Min(4.0, a.previewZoom*1.25)
+							a.previewZoom = math.Min(maxZ, a.previewZoom*1.25)
 						})
 					}
 
@@ -112,6 +121,14 @@ func (a *App) inlinePreviewView(c *gui.Context) {
 				applyBlurReveal(box, "viewer-"+asset.ID, 0)
 				box.Children(func() {
 					switch {
+					case isSVG:
+						a.renderSVGStage(c, asset)
+					case isFont:
+						a.renderFontStage(c, asset)
+					case isAudio:
+						a.renderAudioStage(c, asset)
+					case isPDF:
+						a.renderPDFStage(c, asset)
 					case a.previewVideo != nil:
 						gui.Box(c).Grow(1).FillWidth().Center().Children(func() {
 							gui.Video(c.Key("prev-video-"+asset.ID), a.previewVideo).
@@ -193,6 +210,7 @@ func (a *App) inlinePreviewView(c *gui.Context) {
 							}
 						})
 					}
+					a.previewStackStrip(c, asset)
 				})
 			})
 		}

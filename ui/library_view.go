@@ -84,6 +84,11 @@ func (a *App) libraryMain(c *gui.Context) {
 				})
 		}
 
+		// Expanded Asset Stack header banner.
+		if a.openStackID != "" {
+			a.stackBanner(c)
+		}
+
 		// Multi-select Batch Action Bar (appears when >1 selected or multi-select mode is ON).
 		if a.multiSelectMode || len(a.selectedIDs) > 1 {
 			a.batchActionBar(c)
@@ -308,6 +313,11 @@ func (a *App) batchActionBar(c *gui.Context) {
 						}
 					}
 				})
+				if len(ids) >= 2 {
+					a.toolButton(c, "batch-stack-btn", iconLayers, a.t("stack.create"), false).OnClick(func() {
+						a.stackSelectedAssets(ids)
+					})
+				}
 				a.toolButton(c, "batch-rename-btn", iconEdit, a.t("rename.batchAction"), false).OnClick(func() {
 					a.openRenameModal(ids)
 				})
@@ -830,6 +840,39 @@ func (a *App) assetCard(c *gui.Context, index int, asset model.Asset, selected b
 	card.PopoverMenu(func(m *gui.Menu) {
 		batchIDs := a.dragIDsFor(asset.ID)
 		multi := len(batchIDs) > 1
+		stackCount := 0
+		if a.openStackID == "" && asset.StackID != "" {
+			stackCount = a.stackVisibleCounts[asset.StackID]
+		}
+		if stackCount >= 2 {
+			stID := asset.StackID
+			if m.Item(fmt.Sprintf(a.t("stack.expand"), stackCount)).Chosen() {
+				a.openStackView(stID)
+			}
+			if m.Item(a.t("stack.ungroup")).Chosen() {
+				a.ungroupStack(stID)
+			}
+			m.Separator()
+		} else if a.openStackID != "" && asset.StackID == a.openStackID {
+			stID := asset.StackID
+			if st, ok := a.stackByID[stID]; ok && st.CoverID != asset.ID {
+				if m.Item(a.t("stack.setCover")).Chosen() {
+					a.setStackCover(stID, asset.ID)
+				}
+			}
+			if m.Item(a.t("stack.removeAsset")).Chosen() {
+				a.removeFromStack([]string{asset.ID})
+			}
+			if m.Item(a.t("stack.ungroup")).Chosen() {
+				a.ungroupStack(stID)
+			}
+			m.Separator()
+		}
+		if multi {
+			if m.Item(fmt.Sprintf("%s (%d) (Ctrl+G)", a.t("stack.create"), len(batchIDs))).Chosen() {
+				a.stackSelectedAssets(batchIDs)
+			}
+		}
 		if !multi {
 			if m.Item(a.t("library.preview")).Chosen() {
 				a.openPreview(asset)
@@ -1047,7 +1090,7 @@ func (a *App) assetCard(c *gui.Context, index int, asset model.Asset, selected b
 	applyCardBlurFade(card, cardRevealKey{gen: a.revealGen, id: asset.ID}, stagger)
 
 	card.Children(func() {
-		// Full-bleed edge-to-edge media slot with subtle hover zoom.
+		// Full-bleed edge-to-edge media slot with subtle hover zoom & optional stack badge.
 		gui.Box(c).Grow(1).FillWidth().Clip().Background(a.pal.surfaceMuted).Center().Children(func() {
 			if bm := a.bitmaps[asset.ID]; bm != nil {
 				gui.Image(c, bm).
@@ -1057,15 +1100,45 @@ func (a *App) assetCard(c *gui.Context, index int, asset model.Asset, selected b
 			} else {
 				gui.Column(c).Center().Gap(6).Children(func() {
 					ic := iconFile
-					switch model.MediaKind(asset.Mime) {
-					case model.MediaVideo:
+					switch {
+					case model.IsFont(asset.Mime, asset.Path):
+						ic = iconType
+					case model.IsAudio(asset.Mime, asset.Path):
+						ic = iconMusic
+					case model.IsPDF(asset.Mime, asset.Path):
+						ic = iconFileText
+					case model.MediaKind(asset.Mime) == model.MediaVideo:
 						ic = iconVideo
-					case model.MediaImage:
+					case model.MediaKind(asset.Mime) == model.MediaImage:
 						ic = iconImage
 					}
 					gui.Icon(c, ic).Size(24, 24).TextColor(a.pal.inkFaint)
 					gui.Text(c, ext).FontSize(11).Bold().TextColor(a.pal.inkMuted)
 				})
+			}
+
+			// Collapsed Asset Stack floating version-count pill (click to expand versions!).
+			if a.openStackID == "" && asset.StackID != "" {
+				if cnt := a.stackVisibleCounts[asset.StackID]; cnt >= 2 {
+					stID := asset.StackID
+					gui.ButtonBase(c.Key("stack-badge-"+asset.ID)).
+						Absolute().
+						Top(8).
+						Right(8).
+						Padding(3, 8).
+						Gap(4).
+						Radius(radiusPill).
+						Background(gui.RGBA(18, 18, 22, 0.82)).
+						AlignItems(gui.Center).
+						Tooltip(fmt.Sprintf(a.t("stack.expand"), cnt)).
+						OnClick(func() {
+							a.openStackView(stID)
+						}).
+						Children(func() {
+							gui.Icon(c, iconLayers).Size(11, 11).TextColor(gui.Hex("#FAFAFA"))
+							gui.Text(c, fmt.Sprintf("%d", cnt)).FontSize(11).Bold().TextColor(gui.Hex("#FAFAFA")).SingleLine()
+						})
+				}
 			}
 		})
 

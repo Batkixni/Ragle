@@ -349,6 +349,11 @@ func (l *Library) Delete(id string) error {
 		if mode == model.StorageCopy || mode == model.StorageMove || mode == model.StorageSymlink {
 			owned = a.Path
 		}
+		if a.StackID != "" {
+			if err := detachAssetFromStackTx(tx, a.ID, a.StackID); err != nil {
+				return err
+			}
+		}
 		return db.DeleteAssetRecords(tx, id)
 	})
 	if err != nil {
@@ -636,6 +641,8 @@ func mimeOf(path string) string {
 		return "image/bmp"
 	case ".tif", ".tiff":
 		return "image/tiff"
+	case ".svg":
+		return "image/svg+xml"
 	case ".mp4", ".m4v":
 		return "video/mp4"
 	case ".mov":
@@ -646,6 +653,32 @@ func mimeOf(path string) string {
 		return "video/x-matroska"
 	case ".avi":
 		return "video/x-msvideo"
+	case ".mp3":
+		return "audio/mpeg"
+	case ".wav":
+		return "audio/wav"
+	case ".flac":
+		return "audio/flac"
+	case ".ogg":
+		return "audio/ogg"
+	case ".m4a":
+		return "audio/mp4"
+	case ".aac":
+		return "audio/aac"
+	case ".opus":
+		return "audio/opus"
+	case ".wma":
+		return "audio/x-ms-wma"
+	case ".ttf":
+		return "font/ttf"
+	case ".otf":
+		return "font/otf"
+	case ".woff":
+		return "font/woff"
+	case ".woff2":
+		return "font/woff2"
+	case ".pdf":
+		return "application/pdf"
 	}
 	f, err := os.Open(path)
 	if err != nil {

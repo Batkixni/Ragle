@@ -4,6 +4,7 @@ package thumbnail
 import (
 	"context"
 	"image"
+	"image/color"
 	"image/jpeg"
 	"os"
 	"path/filepath"
@@ -14,6 +15,7 @@ import (
 	"ragle/internal/ai/embed"
 	"ragle/internal/db"
 	"ragle/internal/model"
+	"ragle/internal/preview"
 )
 
 const longEdge = 512
@@ -123,8 +125,11 @@ func (s *Service) build(id string) error {
 	var pal []model.PaletteColor
 	var vec []float32
 
-	switch model.MediaKind(asset.Mime) {
-	case model.MediaImage:
+	switch {
+	case model.IsSVG(asset.Mime, asset.Path):
+		// SVG is rendered losslessly by the UI vector engine on demand.
+		return nil
+	case model.MediaKind(asset.Mime) == model.MediaImage:
 		var fitted image.Image
 		if !hasThumb {
 			var err error
@@ -143,7 +148,7 @@ func (s *Service) build(id string) error {
 			ph, dh, pal = ExtractVisualFromImage(fitted)
 			vec = embed.ExtractFromImage(fitted)
 		}
-	case model.MediaVideo:
+	case model.MediaKind(asset.Mime) == model.MediaVideo:
 		if !hasThumb {
 			if err := ExtractFrame(asset.Path, dest); err != nil {
 				return err
@@ -152,6 +157,38 @@ func (s *Service) build(id string) error {
 		if img, err := imaging.Open(dest); err == nil {
 			ph, dh, pal = ExtractVisualFromImage(img)
 			vec = embed.ExtractFromImage(img)
+		}
+	case model.IsFont(asset.Mime, asset.Path):
+		if !hasThumb {
+			img, err := preview.RenderFontThumbnail(asset.Path, color.RGBA{244, 244, 245, 255}, color.RGBA{26, 26, 30, 255})
+			if err != nil {
+				return err
+			}
+			if err := saveJPEG(img, dest); err != nil {
+				return err
+			}
+		}
+	case model.IsAudio(asset.Mime, asset.Path):
+		if !hasThumb {
+			wf, err := preview.ExtractWaveform(asset.Path, 64)
+			if err != nil {
+				return err
+			}
+			img := preview.RenderWaveformThumbnail(wf, color.RGBA{237, 237, 237, 255}, color.RGBA{24, 24, 27, 255})
+			if err := saveJPEG(img, dest); err != nil {
+				return err
+			}
+		}
+	case model.IsPDF(asset.Mime, asset.Path):
+		if !hasThumb {
+			img, _, err := preview.RenderPDFPage(asset.Path, 0, longEdge)
+			if err != nil {
+				return err
+			}
+			fitted := imaging.Fit(img, longEdge, longEdge, imaging.Lanczos)
+			if err := saveJPEG(fitted, dest); err != nil {
+				return err
+			}
 		}
 	default:
 		return nil

@@ -26,6 +26,7 @@ import (
 	"ragle/internal/library"
 	"ragle/internal/model"
 	"ragle/internal/plugin"
+	"ragle/internal/preview"
 	"ragle/internal/project"
 	"ragle/internal/server"
 	"ragle/internal/share"
@@ -233,15 +234,56 @@ type App struct {
 	// Stage 18: Plugin manager.
 	plugins *plugin.Manager
 
-	// Quick Preview Inline Viewer & Video Player state.
-	previewOpen     bool
-	previewAssetID  string
-	previewBitmap   *gui.Bitmap
-	previewVideo    *gui.VideoPlayer
-	previewVideoErr string
-	previewLoop     bool
-	previewLoading  bool
-	previewZoom     float64
+	// Quick Preview Inline Viewer & Native Designer Formats state.
+	previewOpen         bool
+	previewAssetID      string
+	previewBitmap       *gui.Bitmap
+	previewVideo        *gui.VideoPlayer
+	previewVideoErr     string
+	previewLoop         bool
+	previewLoading      bool
+	previewZoom         float64
+	previewSVG          *gui.SVG
+	previewSVGChecker   bool
+	previewFontInfo     preview.FontInfo
+	previewFontBitmap   *gui.Bitmap
+	previewFontText     string
+	previewFontSize     float64
+	previewFontGen      int
+	previewAudio        *preview.AudioPlayer
+	previewAudioWave    preview.Waveform
+	previewAudioPos     float64
+	previewAudioDur     float64
+	previewAudioVol     float64
+	previewAudioPlaying bool
+	previewAudioCancel  func()
+	previewWaveW        float32
+	previewPDFBitmap    *gui.Bitmap
+	previewPDFPage      int
+	previewPDFPages     int
+	previewPDFGen       int
+
+	// Asset Stacks state.
+	stacks             []model.Stack
+	stackByID          map[string]model.Stack
+	stackVisibleCounts map[string]int
+	openStackID        string
+
+	// PureRef-style Always-on-Top Floating Reference Window state.
+	boardAlwaysOnTop bool
+	pureRefWin       *mygo.Window
+	pureRefPinned    bool
+	pureRefOpacity   float64
+	pureRefPanX      float64
+	pureRefPanY      float64
+	pureRefZoom      float64
+	pureRefDragging  bool
+	pureRefDragX     float64
+	pureRefDragY     float64
+	pureRefStartPanX float64
+	pureRefStartPanY float64
+	pureRefViewW     float32
+	pureRefViewH     float32
 
 	// Inspector Info / Similar tabs.
 	inspectorTab         int // 0 = Info, 1 = Similar
@@ -436,6 +478,14 @@ func NewApp() *App {
 		boardCounts:          map[string]int{},
 		boardPlacements:      map[string][]model.Placement{},
 		newProjTags:          map[string]bool{},
+		stackByID:            map[string]model.Stack{},
+		stackVisibleCounts:   map[string]int{},
+		previewSVGChecker:    true,
+		previewFontSize:      44,
+		previewAudioVol:      0.85,
+		pureRefPinned:        true,
+		pureRefOpacity:       0.96,
+		pureRefZoom:          1,
 		sidebarOpen:          true,
 		sidebarWidth:         240,
 		inspectorWidth:       316,
@@ -679,6 +729,7 @@ func (a *App) shutdown() {
 		_ = node.Close()
 	}
 	a.closePreview()
+	a.closePureRefWindow()
 	a.stopBuiltInServer()
 	if a.layaRuntime != nil {
 		a.layaRuntime.Stop()
@@ -860,8 +911,27 @@ func (a *App) reload() {
 		}
 		if asset.ThumbnailPath != "" {
 			a.ensureBitmap(asset.ID, asset.ThumbnailPath)
+		} else if model.IsSVG(asset.Mime, asset.Path) && !asset.Missing {
+			a.loadSVGThumbAsync(asset.ID, asset.Path)
 		} else {
 			a.queueThumb(asset)
+		}
+	}
+
+	// Load Asset Stacks metadata.
+	if stacks, serr := a.lib.ListStacks(); serr == nil {
+		a.stacks = stacks
+		a.stackByID = make(map[string]model.Stack, len(stacks))
+		for _, st := range stacks {
+			a.stackByID[st.ID] = st
+		}
+	} else {
+		a.stacks = nil
+		a.stackByID = map[string]model.Stack{}
+	}
+	if a.openStackID != "" {
+		if _, ok := a.stackByID[a.openStackID]; !ok {
+			a.openStackID = ""
 		}
 	}
 
@@ -1042,6 +1112,62 @@ func (a *App) applyFilters() {
 		}
 	}
 
+	a.stackVisibleCounts = map[string]int{}
+	if a.openStackID != "" {
+		// Inside an expanded stack: show every member in stack order.
+		if st, ok := a.stackByID[a.openStackID]; ok {
+			byID := make(map[string]model.Asset, len(out))
+			for _, it := range out {
+				byID[it.ID] = it
+			}
+			expanded := make([]model.Asset, 0, len(st.AssetIDs))
+			for _, id := range st.AssetIDs {
+				if it, exists := byID[id]; exists {
+					expanded = append(expanded, it)
+				}
+			}
+			out = expanded
+		}
+	} else if len(a.stackByID) > 0 {
+		// Collapse stacked versions into one representative cover card.
+		membersByStack := map[string][]model.Asset{}
+		for _, it := range out {
+			if it.StackID != "" {
+				if _, ok := a.stackByID[it.StackID]; ok {
+					membersByStack[it.StackID] = append(membersByStack[it.StackID], it)
+				}
+			}
+		}
+		collapsed := make([]model.Asset, 0, len(out))
+		emittedStack := map[string]bool{}
+		for _, it := range out {
+			if it.StackID == "" {
+				collapsed = append(collapsed, it)
+				continue
+			}
+			st, ok := a.stackByID[it.StackID]
+			if !ok {
+				collapsed = append(collapsed, it)
+				continue
+			}
+			if emittedStack[st.ID] {
+				continue
+			}
+			emittedStack[st.ID] = true
+			mems := membersByStack[st.ID]
+			a.stackVisibleCounts[st.ID] = len(mems)
+			rep := mems[0]
+			for _, m := range mems {
+				if m.ID == st.CoverID {
+					rep = m
+					break
+				}
+			}
+			collapsed = append(collapsed, rep)
+		}
+		out = collapsed
+	}
+
 	a.assets = out
 	if selectedID != "" {
 		a.assetIndex = -1
@@ -1217,7 +1343,14 @@ func (a *App) queueThumb(asset model.Asset) {
 	if hasThumb && hasVisual {
 		return
 	}
-	if model.MediaKind(asset.Mime) == model.MediaOther {
+	if model.IsSVG(asset.Mime, asset.Path) {
+		a.loadSVGThumbAsync(asset.ID, asset.Path)
+		return
+	}
+	if model.MediaKind(asset.Mime) == model.MediaOther &&
+		!model.IsFont(asset.Mime, asset.Path) &&
+		!model.IsAudio(asset.Mime, asset.Path) &&
+		!model.IsPDF(asset.Mime, asset.Path) {
 		return
 	}
 	a.queued[asset.ID] = true
@@ -1275,33 +1408,34 @@ func (a *App) ensureBitmap(id, path string) {
 	}()
 }
 
-// closePreview shuts down any active video player and closes the lightbox.
+// closePreview shuts down any active media players and closes the inline viewer.
 func (a *App) closePreview() {
 	if a.previewVideo != nil {
 		a.previewVideo.Close()
 		a.previewVideo = nil
 	}
+	a.resetNativePreviewState()
 	a.previewVideoErr = ""
 	a.previewLoading = false
 	a.previewOpen = false
 }
 
-// openPreview opens the full-resolution Quick Preview lightbox for asset,
-// starting in-app playback for videos (via ffmpeg -> ui.VideoPlayer) and
-// animated GIFs (via ui.NewGIFDecoder).
+// openPreview opens the full-resolution inline viewer for asset, supporting
+// images, animated GIFs, video, SVG vectors, TTF/OTF fonts, audio waveforms, and PDFs.
 func (a *App) openPreview(asset model.Asset) {
 	if asset.ID == "" {
 		return
 	}
 	a.previewOpen = true
 	a.previewZoom = 1.0
-	if a.previewAssetID == asset.ID && (a.previewBitmap != nil || a.previewVideo != nil || a.previewLoading) {
+	if a.previewAssetID == asset.ID && (a.previewBitmap != nil || a.previewVideo != nil || a.previewSVG != nil || a.previewFontBitmap != nil || a.previewPDFBitmap != nil || a.previewAudio != nil || a.previewLoading) {
 		return
 	}
 	if a.previewVideo != nil {
 		a.previewVideo.Close()
 		a.previewVideo = nil
 	}
+	a.resetNativePreviewState()
 	a.previewAssetID = asset.ID
 	// Keep inspector synced with the viewed asset.
 	for i, item := range a.assets {
@@ -1319,6 +1453,10 @@ func (a *App) openPreview(asset model.Asset) {
 	a.previewLoading = false
 
 	if asset.Missing || asset.Path == "" {
+		return
+	}
+
+	if a.loadNativeFormatPreview(asset) {
 		return
 	}
 
@@ -2338,6 +2476,13 @@ func (a *App) registerWindowShortcuts(c *gui.Context) {
 			a.selectAllVisible()
 		}
 	})
+	c.OnShortcut(gui.Cmd, gui.KeyG, func() {
+		if a.canRunLibraryShortcut() {
+			if ids := a.selectedAssetIDs(); len(ids) >= 2 {
+				a.stackSelectedAssets(ids)
+			}
+		}
+	})
 	c.OnShortcut(gui.Cmd, gui.KeyC, func() {
 		if a.canRunLibraryShortcut() {
 			if ids := a.selectedAssetIDs(); len(ids) > 0 {
@@ -2368,6 +2513,10 @@ func (a *App) registerWindowShortcuts(c *gui.Context) {
 			return
 		}
 		if !a.canRunLibraryShortcut() {
+			return
+		}
+		if a.openStackID != "" {
+			a.closeStackView()
 			return
 		}
 		if a.newTagOpen {

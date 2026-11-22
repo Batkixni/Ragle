@@ -113,6 +113,7 @@ func (a *App) buildGotoEntries() []gotoEntry {
 			}
 		}},
 		{"act-sim-img", iconImage, a.t("goto.actSearchImage"), func() { a.searchSimilarByFileDialog() }},
+		{"act-auto-stack", iconLayers, a.t("stack.autoGroup"), func() { a.autoStackVersions() }},
 		{"act-theme", iconPalette, a.t("goto.actToggleTheme"), func() {
 			if a.dark {
 				a.setThemeMode("light")

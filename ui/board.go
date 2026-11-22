@@ -72,6 +72,10 @@ func (a *App) boardToolbar(c *gui.Context) {
 				}
 				a.toolButton(c, "board-leave", iconArrowLeft, leaveLbl, false).OnClick(func() {
 					a.flushBoard(true)
+					a.closePureRefWindow()
+					if a.boardAlwaysOnTop {
+						a.toggleMainAlwaysOnTop()
+					}
 					a.session = nil
 					a.boardID = ""
 					if a.boardProject == "" {
@@ -142,6 +146,17 @@ func (a *App) boardToolbar(c *gui.Context) {
 							a.session.ZoomAt(400, 300, 1.15)
 						}
 					})
+				})
+
+				a.toolButton(c, "board-pureref-btn", iconPin, a.t("pureref.open"), a.pureRefWin != nil).OnClick(func() {
+					if a.pureRefWin != nil {
+						a.closePureRefWindow()
+					} else {
+						a.openPureRefWindow()
+					}
+				})
+				a.iconButton(c, "board-pin-main", iconPin, a.t("pureref.pinWindow"), a.boardAlwaysOnTop).OnClick(func() {
+					a.toggleMainAlwaysOnTop()
 				})
 
 				a.iconButton(c, "board-toggle-tray", iconPanelBottom, a.t("board.drawer"), a.boardDrawerOpen).OnClick(func() {
