@@ -113,7 +113,7 @@ func TestShellLibraryViewRenderingAndSearch(t *testing.T) {
 
 	// Verify selecting an asset displays metadata in inspector.
 	a.assetIndex = 0
-	a.syncInspectorSelection()
+	a.syncInspectorSelection(true)
 	tt.Frame()
 	if !tt.HasText("1920 × 1080") {
 		t.Fatalf("inspector dimensions missing, texts: %v", tt.Texts())
@@ -305,7 +305,7 @@ func TestRenderScreenshots(t *testing.T) {
 	a.screen = screenLibrary
 	a.assetIndex = 0
 	a.inspectorFileSize = 2480128
-	a.syncInspectorSelection()
+	a.syncInspectorSelection(true)
 
 	// 2. Library dark & light.
 	save("library_dark.png", gui.Render(a.View, 1360, 860, 1))

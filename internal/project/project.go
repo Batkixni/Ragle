@@ -63,6 +63,50 @@ func (s *Store) List() ([]model.Project, error) {
 	return out, err
 }
 
+// Update edits a project's name and description.
+func (s *Store) Update(projectID, name, description string) (model.Project, error) {
+	var updated model.Project
+	err := s.DB.Update(func(tx *bbolt.Tx) error {
+		p, err := db.GetProject(tx, projectID)
+		if err != nil {
+			return err
+		}
+		if name != "" {
+			p.Name = name
+		}
+		p.Description = description
+		updated = p
+		return db.PutProject(tx, p)
+	})
+	return updated, err
+}
+
+// UsageOfAsset returns the projects referencing assetID and total board placement count.
+func (s *Store) UsageOfAsset(assetID string) ([]model.Project, int, error) {
+	var projs []model.Project
+	var placements int
+	err := s.DB.View(func(tx *bbolt.Tx) error {
+		pids, err := db.ProjectsOfAsset(tx, assetID)
+		if err != nil {
+			return err
+		}
+		for _, id := range pids {
+			p, err := db.GetProject(tx, id)
+			if err != nil {
+				continue
+			}
+			projs = append(projs, p)
+		}
+		pl, err := db.PlacementsOfAsset(tx, assetID)
+		if err != nil {
+			return err
+		}
+		placements = len(pl)
+		return nil
+	})
+	return projs, placements, err
+}
+
 // ListByTag returns projects linked to tagID.
 func (s *Store) ListByTag(tagID string) ([]model.Project, error) {
 	var out []model.Project

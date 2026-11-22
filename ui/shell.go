@@ -156,7 +156,7 @@ func (a *App) sidebar(c *gui.Context) {
 				for _, tag := range a.tags {
 					tg := tag
 					item := gui.SidebarItem(c, "tag:"+tg.ID, iconTag, tg.Name)
-					item.ContextMenu(func(m *gui.Menu) {
+					item.PopoverMenu(func(m *gui.Menu) {
 						if m.Item(a.t("tag.delete")).Chosen() {
 							a.deleteTagPrompt(tg.ID)
 						}
@@ -303,43 +303,13 @@ func (a *App) workspaceBar(c *gui.Context) {
 
 			gui.Spacer(c)
 
-			// Filter popover menu (Kind + Min Rating).
+			// Toggle 1-click Filter & Storage Bar.
 			filterLabel := a.t("library.filter")
 			if a.kindFilter != 0 || a.minRating != 0 {
 				filterLabel = filterLabel + " ●"
 			}
-			gui.PopoverMenuButton(c.Key("top-filter"), filterLabel, func(m *gui.Menu) {
-				kindLabels := []string{
-					a.t("library.kind.all"),
-					a.t("library.kind.image"),
-					a.t("library.kind.video"),
-					a.t("library.kind.other"),
-				}
-				m.Submenu(a.t("library.kind"), func(sm *gui.Menu) {
-					for i, lbl := range kindLabels {
-						idx := i
-						if sm.Item(lbl).Radio(a.kindFilter == idx).Chosen() {
-							a.kindFilter = idx
-							a.applyFilters()
-						}
-					}
-				})
-				ratingLabels := []string{a.t("library.kind.all"), "★ 1+", "★ 2+", "★ 3+", "★ 4+", "★ 5"}
-				m.Submenu(a.t("library.rating"), func(sm *gui.Menu) {
-					for i, lbl := range ratingLabels {
-						idx := i
-						if sm.Item(lbl).Radio(a.minRating == idx).Chosen() {
-							a.minRating = idx
-							a.applyFilters()
-						}
-					}
-				})
-				if a.hasActiveFilters() {
-					m.Separator()
-					if m.Item(a.t("common.clear")).Chosen() {
-						a.clearFilters()
-					}
-				}
+			a.toolButton(c, "top-filter", iconFilter, filterLabel, a.filterBarOpen || a.kindFilter != 0 || a.minRating != 0).OnClick(func() {
+				a.filterBarOpen = !a.filterBarOpen
 			})
 
 			// Sort popover menu.
@@ -362,7 +332,7 @@ func (a *App) workspaceBar(c *gui.Context) {
 				}
 			})
 
-			// Import popover menu (Files, Folder, + Storage Mode selector).
+			// Import popover menu (direct Files / Folder + Storage Mode choices).
 			gui.PopoverMenuButton(c.Key("top-import"), "+ "+a.t("library.import"), func(m *gui.Menu) {
 				if m.Item(a.t("library.files")).Shortcut(gui.Cmd, gui.KeyI).Chosen() {
 					a.startImport(false)
@@ -370,21 +340,6 @@ func (a *App) workspaceBar(c *gui.Context) {
 				if m.Item(a.t("library.folder")).Chosen() {
 					a.startImport(true)
 				}
-				m.Separator()
-				modes := []string{
-					a.t("library.mode.index"),
-					a.t("library.mode.symlink"),
-					a.t("library.mode.move"),
-					a.t("library.mode.copy"),
-				}
-				m.Submenu(a.t("library.mode")+": "+modes[a.storageMode], func(sm *gui.Menu) {
-					for i, lbl := range modes {
-						idx := i
-						if sm.Item(lbl).Radio(a.storageMode == idx).Chosen() {
-							a.storageMode = idx
-						}
-					}
-				})
 			})
 
 			// Eagle-style thumbnail zoom slider.

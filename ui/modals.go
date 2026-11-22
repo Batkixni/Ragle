@@ -6,6 +6,25 @@ import (
 	gui "github.com/egoist/mygo/ui"
 )
 
+func (a *App) styledDialog(c *gui.Context, key string, open *bool, w, h float32, fn func(panel gui.Element)) {
+	gui.DialogBase(c.Key(key), open, func(backdrop, panel gui.Element) {
+		backdrop.Background(gui.RGBA(0, 0, 0, 0.52))
+		panel.
+			Radius(14).
+			Clip().
+			Background(a.pal.card).
+			Border(1, a.pal.hairline).
+			Shadow(0, 20, 48, 0, a.pal.shadow)
+		if w > 0 {
+			panel.Width(w)
+		}
+		if h > 0 {
+			panel.Height(h)
+		}
+		fn(panel)
+	})
+}
+
 func (a *App) previewModal(c *gui.Context) {
 	if !a.previewOpen {
 		return
@@ -18,20 +37,11 @@ func (a *App) previewModal(c *gui.Context) {
 	t := c.Theme()
 	services := c.Services()
 
-	m := gui.Modal(c.Key("preview-modal"), &a.previewOpen, func() {
-		box := gui.Column(c).
-			Width(860).
-			Height(620).
-			Radius(14).
-			Clip().
-			Background(a.pal.card).
-			Border(1, a.pal.hairline).
-			Shadow(0, 20, 48, 0, a.pal.shadow)
+	a.styledDialog(c, "preview-modal", &a.previewOpen, 880, 640, func(panel gui.Element) {
+		panel.OnShortcut(0, gui.KeyLeft, func() { a.stepPreview(-1) })
+		panel.OnShortcut(0, gui.KeyRight, func() { a.stepPreview(1) })
 
-		box.OnShortcut(0, gui.KeyLeft, func() { a.stepPreview(-1) })
-		box.OnShortcut(0, gui.KeyRight, func() { a.stepPreview(1) })
-
-		box.Children(func() {
+		gui.Column(c).Fill().Children(func() {
 			// Header bar.
 			gui.Row(c).
 				Height(48).
@@ -57,6 +67,9 @@ func (a *App) previewModal(c *gui.Context) {
 					if !asset.Missing && asset.Path != "" {
 						a.iconButton(c, "prev-open", iconExternal, a.t("common.openFile"), false).OnClick(func() {
 							_ = openLocalFile(asset.Path)
+						})
+						a.iconButton(c, "prev-reveal", iconFolder, a.t("common.revealFile"), false).OnClick(func() {
+							_ = revealLocalFile(asset.Path)
 						})
 					}
 					a.iconButton(c, "prev-copy", iconCopy, a.t("common.copyPath"), false).OnClick(func() {
@@ -101,7 +114,7 @@ func (a *App) previewModal(c *gui.Context) {
 				BorderWidth(1, 0, 0, 0).
 				BorderColor(a.pal.hairline).
 				Children(func() {
-					a.syncInspectorSelection()
+					a.syncInspectorSelection(false)
 					if a.inspectorAssetID == asset.ID {
 						gui.Rating(c.Key("prev-rating-"+asset.ID), &a.inspectorRating, 5).OnChange(func() {
 							if err := a.lib.SetRating(asset.ID, a.inspectorRating); err == nil {
@@ -118,7 +131,6 @@ func (a *App) previewModal(c *gui.Context) {
 				})
 		})
 	})
-	_ = m
 }
 
 func (a *App) newProjectModal(c *gui.Context) {
@@ -126,82 +138,116 @@ func (a *App) newProjectModal(c *gui.Context) {
 		return
 	}
 	t := c.Theme()
-	gui.Modal(c.Key("new-proj-modal"), &a.newProjOpen, func() {
-		gui.Column(c).
-			Width(440).
-			Padding(22, 24).
-			Gap(14).
-			Radius(14).
-			Background(a.pal.card).
-			Border(1, a.pal.hairline).
-			Shadow(0, 16, 40, 0, a.pal.shadow).
-			Children(func() {
-				gui.Row(c).AlignItems(gui.Center).Children(func() {
-					gui.Text(c, a.t("project.createTitle")).FontSize(16).Bold().Grow(1)
-					a.iconButton(c, "np-close", iconX, a.t("common.close"), false).OnClick(func() {
-						a.newProjOpen = false
-					})
+	a.styledDialog(c, "new-proj-modal", &a.newProjOpen, 450, 0, func(_ gui.Element) {
+		gui.Column(c).Padding(22, 24).Gap(14).Children(func() {
+			gui.Row(c).AlignItems(gui.Center).Children(func() {
+				gui.Text(c, a.t("project.createTitle")).FontSize(16).Bold().Grow(1)
+				a.iconButton(c, "np-close", iconX, a.t("common.close"), false).OnClick(func() {
+					a.newProjOpen = false
 				})
+			})
 
-				gui.Column(c).Gap(6).Children(func() {
-					a.sectionLabel(c, a.t("project.new"))
-					gui.TextInput(c.Key("np-name"), &a.newProjectName).
-						Placeholder(a.t("project.namePlaceholder")).
-						AutoFocus().
-						FillWidth().
-						OnSubmit(func() { a.createProjectFromModal() })
-				})
+			gui.Column(c).Gap(6).Children(func() {
+				a.sectionLabel(c, a.t("project.new"))
+				gui.TextInput(c.Key("np-name"), &a.newProjectName).
+					Placeholder(a.t("project.namePlaceholder")).
+					AutoFocus().
+					FillWidth().
+					OnSubmit(func() { a.createProjectFromModal() })
+			})
 
-				gui.Column(c).Gap(6).Children(func() {
-					a.sectionLabel(c, a.t("project.description"))
-					gui.TextInput(c.Key("np-desc"), &a.newProjectDesc).
-						Placeholder(a.t("project.descPlaceholder")).
-						FillWidth()
-				})
+			gui.Column(c).Gap(6).Children(func() {
+				a.sectionLabel(c, a.t("project.description"))
+				gui.TextInput(c.Key("np-desc"), &a.newProjectDesc).
+					Placeholder(a.t("project.descPlaceholder")).
+					FillWidth()
+			})
 
-				gui.Column(c).Gap(8).Children(func() {
-					a.sectionLabel(c, a.t("project.pickTags"))
-					if len(a.tags) == 0 {
-						gui.Text(c, a.t("project.needTag")).FontSize(12).TextColor(t.TextMuted)
-						gui.Row(c).Gap(6).AlignItems(gui.Center).Children(func() {
-							gui.TextInput(c.Key("np-inline-tag"), &a.newTagName).
-								Placeholder(a.t("tag.new")).
-								Grow(1).
-								OnSubmit(func() {
-									a.createTag()
-									if a.tagID != "" {
-										a.newProjTags[a.tagID] = true
-									}
-								})
-							gui.Button(c.Key("np-inline-tag-btn"), a.t("tag.create")).OnClick(func() {
+			gui.Column(c).Gap(8).Children(func() {
+				a.sectionLabel(c, a.t("project.pickTags"))
+				if len(a.tags) == 0 {
+					gui.Text(c, a.t("project.needTag")).FontSize(12).TextColor(t.TextMuted)
+					gui.Row(c).Gap(6).AlignItems(gui.Center).Children(func() {
+						gui.TextInput(c.Key("np-inline-tag"), &a.newTagName).
+							Placeholder(a.t("tag.new")).
+							Grow(1).
+							OnSubmit(func() {
 								a.createTag()
 								if a.tagID != "" {
 									a.newProjTags[a.tagID] = true
 								}
 							})
-						})
-					} else {
-						gui.Row(c).Gap(6).Wrap().Children(func() {
-							for _, tag := range a.tags {
-								tg := tag
-								active := a.newProjTags[tg.ID]
-								a.tagChip(c, "np-tag-"+tg.ID, tg.Name, active).OnClick(func() {
-									a.newProjTags[tg.ID] = !active
-								})
+						gui.Button(c.Key("np-inline-tag-btn"), a.t("tag.create")).OnClick(func() {
+							a.createTag()
+							if a.tagID != "" {
+								a.newProjTags[a.tagID] = true
 							}
 						})
-					}
-				})
+					})
+				} else {
+					gui.Row(c).Gap(6).Wrap().Children(func() {
+						for _, tag := range a.tags {
+							tg := tag
+							active := a.newProjTags[tg.ID]
+							a.tagChip(c, "np-tag-"+tg.ID, tg.Name, active).OnClick(func() {
+								a.newProjTags[tg.ID] = !active
+							})
+						}
+					})
+				}
+			})
 
-				gui.Divider(c)
-				gui.Row(c).Gap(8).Justify(gui.End).Children(func() {
-					gui.Button(c.Key("np-cancel"), a.t("common.cancel")).OnClick(func() {
-						a.newProjOpen = false
-					})
-					gui.PrimaryButton(c.Key("np-submit"), a.t("project.create")).OnClick(func() {
-						a.createProjectFromModal()
-					})
+			gui.Divider(c)
+			gui.Row(c).Gap(8).Justify(gui.End).Children(func() {
+				gui.Button(c.Key("np-cancel"), a.t("common.cancel")).OnClick(func() {
+					a.newProjOpen = false
+				})
+				gui.PrimaryButton(c.Key("np-submit"), a.t("project.create")).OnClick(func() {
+					a.createProjectFromModal()
 				})
 			})
+		})
+	})
+}
+
+func (a *App) editProjectModal(c *gui.Context) {
+	if !a.editProjOpen || a.projectID == "" {
+		return
+	}
+	a.styledDialog(c, "edit-proj-modal", &a.editProjOpen, 440, 0, func(_ gui.Element) {
+		gui.Column(c).Padding(22, 24).Gap(14).Children(func() {
+			gui.Row(c).AlignItems(gui.Center).Children(func() {
+				gui.Text(c, a.t("project.edit")).FontSize(16).Bold().Grow(1)
+				a.iconButton(c, "ep-close", iconX, a.t("common.close"), false).OnClick(func() {
+					a.editProjOpen = false
+				})
+			})
+
+			gui.Column(c).Gap(6).Children(func() {
+				a.sectionLabel(c, a.t("project.new"))
+				gui.TextInput(c.Key("ep-name"), &a.newProjectName).
+					AutoFocus().
+					FillWidth().
+					OnSubmit(func() { a.saveProjectFromModal() })
+			})
+
+			gui.Column(c).Gap(6).Children(func() {
+				a.sectionLabel(c, a.t("project.description"))
+				gui.TextInput(c.Key("ep-desc"), &a.newProjectDesc).
+					Placeholder(a.t("project.descPlaceholder")).
+					FillWidth().
+					OnSubmit(func() { a.saveProjectFromModal() })
+			})
+
+			gui.Divider(c)
+			gui.Row(c).Gap(8).Justify(gui.End).Children(func() {
+				gui.Button(c.Key("ep-cancel"), a.t("common.cancel")).OnClick(func() {
+					a.editProjOpen = false
+				})
+				gui.PrimaryButton(c.Key("ep-submit"), a.t("common.save")).OnClick(func() {
+					a.saveProjectFromModal()
+				})
+			})
+		})
 	})
 }

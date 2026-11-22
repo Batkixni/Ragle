@@ -12,6 +12,7 @@ func (a *App) View(c *gui.Context) {
 	}
 	a.previewModal(c)
 	a.newProjectModal(c)
+	a.editProjectModal(c)
 	a.shareModal(c)
 	a.receivePairModal(c)
 	a.confirm(c)

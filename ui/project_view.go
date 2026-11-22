@@ -36,6 +36,9 @@ func (a *App) projectView(c *gui.Context) {
 								a.referenceMode = true
 								a.screen = screenLibrary
 							})
+							gui.Button(c.Key("proj-edit-btn"), a.t("project.edit")).OnClick(func() {
+								a.openEditProjectModal()
+							})
 							gui.Button(c.Key("proj-share-btn"), a.t("share.send")).OnClick(func() {
 								a.shareOpen = true
 							})
@@ -165,7 +168,7 @@ func (a *App) boardCard(c *gui.Context, board model.Board) {
 		Border(1, a.pal.hairline).
 		Shadow(0, 2, 8, 0, a.pal.shadow)
 
-	card.ContextMenu(func(m *gui.Menu) {
+	card.PopoverMenu(func(m *gui.Menu) {
 		if m.Item(a.t("project.openBoard")).Chosen() {
 			a.openBoard(board)
 		}
@@ -217,16 +220,18 @@ func (a *App) projectAssetCard(c *gui.Context, item model.Asset) {
 
 	card := gui.Column(c.Key("pref-" + item.ID)).
 		Width(164).
-		Gap(6).
-		Drag(assetDrag{ID: item.ID})
+		Gap(6)
 
-	card.ContextMenu(func(m *gui.Menu) {
+	card.PopoverMenu(func(m *gui.Menu) {
 		if m.Item(a.t("library.preview")).Chosen() {
 			a.openPreview(item)
 		}
 		if !item.Missing && item.Path != "" {
 			if m.Item(a.t("common.openFile")).Chosen() {
 				_ = openLocalFile(item.Path)
+			}
+			if m.Item(a.t("common.revealFile")).Chosen() {
+				_ = revealLocalFile(item.Path)
 			}
 		}
 		if m.Item(a.t("common.copyPath")).Chosen() {

@@ -235,3 +235,18 @@ func formatBytes(n int64) string {
 		return fmt.Sprintf("%.2f GB", float64(n)/(1024*1024*1024))
 	}
 }
+
+func aspectRatioLabel(w, h int) string {
+	if w <= 0 || h <= 0 {
+		return ""
+	}
+	a, b := w, h
+	for b != 0 {
+		a, b = b, a%b
+	}
+	rw, rh := w/a, h/a
+	if rw > 32 || rh > 32 {
+		return fmt.Sprintf("%.2f:1", float64(w)/float64(h))
+	}
+	return fmt.Sprintf("%d:%d", rw, rh)
+}

@@ -66,98 +66,90 @@ func (a *App) shareModal(c *gui.Context) {
 	}
 	t := c.Theme()
 	services := c.Services()
-	gui.Modal(c.Key("share-modal"), &a.shareOpen, func() {
-		gui.Column(c).
-			Width(520).
-			Padding(22, 24).
-			Gap(16).
-			Radius(14).
-			Background(a.pal.card).
-			Border(1, a.pal.hairline).
-			Shadow(0, 16, 40, 0, a.pal.shadow).
-			Children(func() {
-				gui.Row(c).Gap(10).AlignItems(gui.Center).Children(func() {
-					gui.Icon(c, iconShare).Size(18, 18).TextColor(a.pal.ring)
-					gui.Text(c, a.t("share.send")+" · "+a.project.Name).FontSize(16).Bold().Grow(1).SingleLine()
-					a.iconButton(c, "share-close", iconX, a.t("common.close"), false).OnClick(func() {
-						a.shareOpen = false
-					})
+	a.styledDialog(c, "share-modal", &a.shareOpen, 520, 0, func(_ gui.Element) {
+		gui.Column(c).Padding(22, 24).Gap(16).Children(func() {
+			gui.Row(c).Gap(10).AlignItems(gui.Center).Children(func() {
+				gui.Icon(c, iconShare).Size(18, 18).TextColor(a.pal.ring)
+				gui.Text(c, a.t("share.send")+" · "+a.project.Name).FontSize(16).Bold().Grow(1).SingleLine()
+				a.iconButton(c, "share-close", iconX, a.t("common.close"), false).OnClick(func() {
+					a.shareOpen = false
 				})
+			})
 
-				gui.Checkbox(c.Key("share-files"), &a.shareFiles, a.t("share.files"))
+			gui.Checkbox(c.Key("share-files"), &a.shareFiles, a.t("share.files"))
 
-				// LAN section.
-				gui.Column(c).Padding(14).Gap(10).Radius(10).Background(a.pal.canvas).Border(1, a.pal.hairline).Children(func() {
-					a.sectionLabel(c, a.t("share.title"))
-					node := a.shareNode()
-					if node == nil || !node.DiscoveryOK() {
-						gui.Text(c, a.t("share.unavailable")).FontSize(12).TextColor(t.TextMuted)
-					} else {
-						peers := node.Peers()
-						if len(peers) == 0 {
-							gui.Text(c, a.t("share.none")).FontSize(12).TextColor(t.TextMuted)
-						}
-						for _, peer := range peers {
-							item := peer
-							label := item.Name
-							if label == "" {
-								label = item.Addr
-							}
-							gui.Row(c.Key("share-row-" + item.ID)).Gap(8).AlignItems(gui.Center).Children(func() {
-								gui.Text(c, label).Bold().FontSize(13).Grow(1).SingleLine()
-								gui.Text(c, item.Addr).FontSize(11).TextColor(t.TextMuted)
-								gui.PrimaryButton(c, a.t("share.sendTo")).Disabled(a.shareSending).OnClick(func() {
-									a.sendProject(item.Addr)
-								})
-							})
-						}
+			// LAN section.
+			gui.Column(c).Padding(14).Gap(10).Radius(10).Background(a.pal.canvas).Border(1, a.pal.hairline).Children(func() {
+				a.sectionLabel(c, a.t("share.title"))
+				node := a.shareNode()
+				if node == nil || !node.DiscoveryOK() {
+					gui.Text(c, a.t("share.unavailable")).FontSize(12).TextColor(t.TextMuted)
+				} else {
+					peers := node.Peers()
+					if len(peers) == 0 {
+						gui.Text(c, a.t("share.none")).FontSize(12).TextColor(t.TextMuted)
 					}
-				})
-
-				// Pairing code E2E section.
-				gui.Column(c).Padding(14).Gap(10).Radius(10).Background(a.pal.canvas).Border(1, a.pal.hairline).Children(func() {
-					a.sectionLabel(c, a.t("share.pairTitle"))
-					gui.Row(c).Gap(8).AlignItems(gui.Center).Children(func() {
-						gui.TextInput(c.Key("signal-url"), &a.signalURL).
-							Placeholder(a.t("share.signalURL")).
-							Grow(1)
-						if a.pairCode == "" {
-							gui.PrimaryButton(c.Key("pair-create"), a.t("share.createCode")).
-								Disabled(a.shareSending).
-								OnClick(func() { a.startPairSend() })
-						} else {
-							gui.Button(c.Key("pair-cancel"), a.t("common.cancel")).OnClick(func() {
-								a.cancelPair()
-							})
+					for _, peer := range peers {
+						item := peer
+						label := item.Name
+						if label == "" {
+							label = item.Addr
 						}
-					})
-					if a.pairCode != "" {
-						code := a.pairCode
-						gui.Row(c).
-							Padding(12, 14).
-							Gap(10).
-							Radius(8).
-							AlignItems(gui.Center).
-							Background(a.pal.ring.Alpha(0.10)).
-							Border(1, a.pal.ring.Alpha(0.30)).
-							Children(func() {
-								gui.Text(c, fmt.Sprintf(a.t("share.codeWaiting"), code)).
-									FontSize(14).
-									Bold().
-									TextColor(a.pal.ring).
-									Grow(1)
-								gui.Button(c.Key("pair-copy"), a.t("share.copyCode")).OnClick(func() {
-									services.WriteClipboard(code)
-									a.status = a.t("share.codeCopied")
-								})
+						gui.Row(c.Key("share-row-" + item.ID)).Gap(8).AlignItems(gui.Center).Children(func() {
+							gui.Text(c, label).Bold().FontSize(13).Grow(1).SingleLine()
+							gui.Text(c, item.Addr).FontSize(11).TextColor(t.TextMuted)
+							gui.PrimaryButton(c, a.t("share.sendTo")).Disabled(a.shareSending).OnClick(func() {
+								a.sendProject(item.Addr)
 							})
+						})
 					}
-				})
-
-				if a.status != "" {
-					gui.Text(c, a.status).FontSize(12).TextColor(t.TextMuted)
 				}
 			})
+
+			// Pairing code E2E section.
+			gui.Column(c).Padding(14).Gap(10).Radius(10).Background(a.pal.canvas).Border(1, a.pal.hairline).Children(func() {
+				a.sectionLabel(c, a.t("share.pairTitle"))
+				gui.Row(c).Gap(8).AlignItems(gui.Center).Children(func() {
+					gui.TextInput(c.Key("signal-url"), &a.signalURL).
+						Placeholder(a.t("share.signalURL")).
+						Grow(1)
+					if a.pairCode == "" {
+						gui.PrimaryButton(c.Key("pair-create"), a.t("share.createCode")).
+							Disabled(a.shareSending).
+							OnClick(func() { a.startPairSend() })
+					} else {
+						gui.Button(c.Key("pair-cancel"), a.t("common.cancel")).OnClick(func() {
+							a.cancelPair()
+						})
+					}
+				})
+				if a.pairCode != "" {
+					code := a.pairCode
+					gui.Row(c).
+						Padding(12, 14).
+						Gap(10).
+						Radius(8).
+						AlignItems(gui.Center).
+						Background(a.pal.ring.Alpha(0.10)).
+						Border(1, a.pal.ring.Alpha(0.30)).
+						Children(func() {
+							gui.Text(c, fmt.Sprintf(a.t("share.codeWaiting"), code)).
+								FontSize(14).
+								Bold().
+								TextColor(a.pal.ring).
+								Grow(1)
+							gui.Button(c.Key("pair-copy"), a.t("share.copyCode")).OnClick(func() {
+								services.WriteClipboard(code)
+								a.status = a.t("share.codeCopied")
+							})
+						})
+				}
+			})
+
+			if a.status != "" {
+				gui.Text(c, a.status).FontSize(12).TextColor(t.TextMuted)
+			}
+		})
 	})
 }
 
@@ -166,56 +158,48 @@ func (a *App) receivePairModal(c *gui.Context) {
 		return
 	}
 	t := c.Theme()
-	gui.Modal(c.Key("recv-pair-modal"), &a.pairRecvOpen, func() {
-		gui.Column(c).
-			Width(440).
-			Padding(22, 24).
-			Gap(14).
-			Radius(14).
-			Background(a.pal.card).
-			Border(1, a.pal.hairline).
-			Shadow(0, 16, 40, 0, a.pal.shadow).
-			Children(func() {
-				gui.Row(c).Gap(8).AlignItems(gui.Center).Children(func() {
-					gui.Icon(c, iconLink).Size(17, 17).TextColor(a.pal.ring)
-					gui.Text(c, a.t("share.pairTitle")).FontSize(15).Bold().Grow(1)
-					a.iconButton(c, "recv-pair-x", iconX, a.t("common.close"), false).OnClick(func() {
-						a.cancelPair()
-						a.pairRecvOpen = false
-					})
-				})
-
-				gui.Column(c).Gap(6).Children(func() {
-					a.sectionLabel(c, a.t("share.signalURL"))
-					gui.TextInput(c.Key("recv-signal-url"), &a.signalURL).
-						Placeholder("http://127.0.0.1:8787").
-						FillWidth()
-				})
-
-				gui.Column(c).Gap(6).Children(func() {
-					a.sectionLabel(c, a.t("share.receiveByCode"))
-					gui.TextInput(c.Key("recv-pair-code"), &a.pairRecvCode).
-						Placeholder(a.t("share.enterCode")).
-						AutoFocus().
-						FillWidth().
-						OnSubmit(func() { a.startPairReceive() })
-				})
-
-				if a.status != "" {
-					gui.Text(c, a.status).FontSize(12).TextColor(t.TextMuted)
-				}
-
-				gui.Divider(c)
-				gui.Row(c).Gap(8).Justify(gui.End).Children(func() {
-					gui.Button(c.Key("recv-pair-close"), a.t("common.cancel")).OnClick(func() {
-						a.cancelPair()
-						a.pairRecvOpen = false
-					})
-					gui.PrimaryButton(c.Key("recv-pair-go"), a.t("share.connect")).
-						Disabled(a.pairReceiving).
-						OnClick(func() { a.startPairReceive() })
+	a.styledDialog(c, "recv-pair-modal", &a.pairRecvOpen, 440, 0, func(_ gui.Element) {
+		gui.Column(c).Padding(22, 24).Gap(14).Children(func() {
+			gui.Row(c).Gap(8).AlignItems(gui.Center).Children(func() {
+				gui.Icon(c, iconLink).Size(17, 17).TextColor(a.pal.ring)
+				gui.Text(c, a.t("share.pairTitle")).FontSize(15).Bold().Grow(1)
+				a.iconButton(c, "recv-pair-x", iconX, a.t("common.close"), false).OnClick(func() {
+					a.cancelPair()
+					a.pairRecvOpen = false
 				})
 			})
+
+			gui.Column(c).Gap(6).Children(func() {
+				a.sectionLabel(c, a.t("share.signalURL"))
+				gui.TextInput(c.Key("recv-signal-url"), &a.signalURL).
+					Placeholder("http://127.0.0.1:8787").
+					FillWidth()
+			})
+
+			gui.Column(c).Gap(6).Children(func() {
+				a.sectionLabel(c, a.t("share.receiveByCode"))
+				gui.TextInput(c.Key("recv-pair-code"), &a.pairRecvCode).
+					Placeholder(a.t("share.enterCode")).
+					AutoFocus().
+					FillWidth().
+					OnSubmit(func() { a.startPairReceive() })
+			})
+
+			if a.status != "" {
+				gui.Text(c, a.status).FontSize(12).TextColor(t.TextMuted)
+			}
+
+			gui.Divider(c)
+			gui.Row(c).Gap(8).Justify(gui.End).Children(func() {
+				gui.Button(c.Key("recv-pair-close"), a.t("common.cancel")).OnClick(func() {
+					a.cancelPair()
+					a.pairRecvOpen = false
+				})
+				gui.PrimaryButton(c.Key("recv-pair-go"), a.t("share.connect")).
+					Disabled(a.pairReceiving).
+					OnClick(func() { a.startPairReceive() })
+			})
+		})
 	})
 }
 

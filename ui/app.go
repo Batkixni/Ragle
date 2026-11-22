@@ -117,6 +117,7 @@ type App struct {
 	assetIndex    int
 	cardSize      float64
 	inspectorOpen bool
+	filterBarOpen bool
 	storageMode   int
 	importing     bool
 
@@ -124,6 +125,8 @@ type App struct {
 	inspectorAssetID  string
 	inspectorRating   int
 	inspectorFileSize int64
+	inspectorProjects []model.Project
+	inspectorPlaces   int
 	quickTagName      string
 
 	// Quick Preview Lightbox state.
@@ -140,10 +143,11 @@ type App struct {
 	boards        []model.Board
 	referenceMode bool
 
-	// Inline & modal creation forms.
+	// Inline & modal creation/editing forms.
 	newTagOpen     bool
 	newTagName     string
 	newProjOpen    bool
+	editProjOpen   bool
 	newProjectName string
 	newProjectDesc string
 	newProjTags    map[string]bool
@@ -204,6 +208,7 @@ func NewApp() *App {
 		assetIndex:         -1,
 		cardSize:           184,
 		inspectorOpen:      true,
+		filterBarOpen:      true,
 		boardDrawerOpen:    true,
 		boardInspectorOpen: true,
 		bitmaps:            map[string]*gui.Bitmap{},
@@ -535,7 +540,7 @@ func (a *App) reload() {
 	if a.watch != nil {
 		_ = a.watch.Sync()
 	}
-	a.syncInspectorSelection()
+	a.syncInspectorSelection(true)
 	a.syncNavSelection()
 }
 
@@ -606,7 +611,7 @@ func (a *App) applyFilters() {
 	} else if a.assetIndex >= len(a.assets) {
 		a.assetIndex = -1
 	}
-	a.syncInspectorSelection()
+	a.syncInspectorSelection(false)
 }
 
 func (a *App) hasTag(assetID, tagID string) bool {
@@ -637,24 +642,37 @@ func (a *App) matchesQuery(asset model.Asset, q string) bool {
 	return false
 }
 
-func (a *App) syncInspectorSelection() {
+func (a *App) syncInspectorSelection(force bool) {
 	asset, ok := a.selectedAsset()
 	if !ok {
 		a.inspectorAssetID = ""
 		a.inspectorRating = 0
 		a.inspectorFileSize = 0
+		a.inspectorProjects = nil
+		a.inspectorPlaces = 0
 		return
 	}
-	a.inspectorRating = asset.Rating
-	if a.inspectorAssetID == asset.ID {
+	if !force && a.inspectorAssetID == asset.ID {
 		return
 	}
 	a.inspectorAssetID = asset.ID
+	a.inspectorRating = asset.Rating
 	a.inspectorFileSize = 0
 	if !asset.Missing && asset.Path != "" {
 		if fi, err := os.Stat(asset.Path); err == nil {
 			a.inspectorFileSize = fi.Size()
 		}
+	}
+	a.inspectorProjects = nil
+	a.inspectorPlaces = 0
+	if a.projects != nil {
+		if projs, places, err := a.projects.UsageOfAsset(asset.ID); err == nil {
+			a.inspectorProjects = projs
+			a.inspectorPlaces = places
+		}
+	}
+	if a.bitmaps[asset.ID] == nil && !asset.Missing && model.MediaKind(asset.Mime) == model.MediaImage && asset.Path != "" {
+		a.ensureBitmap(asset.ID, asset.Path)
 	}
 }
 
@@ -803,7 +821,7 @@ func (a *App) stepPreview(delta int) {
 		idx = (idx + delta + len(a.assets)) % len(a.assets)
 	}
 	a.assetIndex = idx
-	a.syncInspectorSelection()
+	a.syncInspectorSelection(true)
 	a.openPreview(a.assets[idx])
 }
 
@@ -935,18 +953,22 @@ func (a *App) importPaths(paths []string) {
 	}()
 }
 
-func (a *App) relinkMissing() {
+func (a *App) relinkMissing(directory bool) {
 	if a.win == nil || a.lib == nil {
 		return
 	}
 	win := a.win
 	lib := a.lib
 	title := a.t("inspector.relink")
+	if !directory {
+		title = a.t("inspector.relinkFile")
+	}
 	go func() {
 		paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{
 			Parent:    win,
 			Title:     title,
-			Directory: true,
+			Directory: directory,
+			Multiple:  !directory,
 		})
 		if err != nil || len(paths) == 0 {
 			return
@@ -1081,6 +1103,32 @@ func (a *App) openNewProjectModal() {
 		a.newProjTags[a.tags[0].ID] = true
 	}
 	a.newProjOpen = true
+}
+
+func (a *App) openEditProjectModal() {
+	if a.projectID == "" {
+		return
+	}
+	a.newProjectName = a.project.Name
+	a.newProjectDesc = a.project.Description
+	a.editProjOpen = true
+}
+
+func (a *App) saveProjectFromModal() {
+	name := trim(a.newProjectName)
+	if name == "" {
+		a.status = a.t("project.needName")
+		return
+	}
+	if a.projects == nil || a.projectID == "" {
+		return
+	}
+	if _, err := a.projects.Update(a.projectID, name, trim(a.newProjectDesc)); err != nil {
+		a.status = err.Error()
+		return
+	}
+	a.editProjOpen = false
+	a.reload()
 }
 
 func (a *App) createProjectFromModal() {

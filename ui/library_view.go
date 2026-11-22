@@ -15,7 +15,7 @@ func (a *App) libraryView(c *gui.Context) {
 		return
 	}
 	if a.libraryPercent <= 40 || a.libraryPercent >= 90 {
-		a.libraryPercent = 74
+		a.libraryPercent = 73
 	}
 	gui.SplitPercent(c, &a.libraryPercent, func() {
 		a.libraryMain(c)
@@ -26,7 +26,7 @@ func (a *App) libraryView(c *gui.Context) {
 
 func (a *App) libraryMain(c *gui.Context) {
 	t := c.Theme()
-	dropZone := gui.Column(c.Key("library-dropzone")).Fill().Padding(14, 18).Gap(12).Background(a.pal.canvas)
+	dropZone := gui.Column(c.Key("library-dropzone")).Fill().Padding(12, 16).Gap(10).Background(a.pal.canvas)
 	if files := dropZone.DroppedFiles(); len(files) > 0 {
 		a.importPaths(files)
 	}
@@ -50,6 +50,11 @@ func (a *App) libraryMain(c *gui.Context) {
 					gui.Icon(c, iconImport).Size(16, 16).TextColor(a.pal.ring)
 					gui.Text(c, fmt.Sprintf(a.t("library.dropHint"), modeLbl)).Bold().FontSize(13).TextColor(a.pal.ring)
 				})
+		}
+
+		// Serpent / Eagle 1-click Filter + Storage Mode strip.
+		if a.filterBarOpen {
+			a.filterBar(c)
 		}
 
 		// Project reference mode banner.
@@ -78,31 +83,13 @@ func (a *App) libraryMain(c *gui.Context) {
 				})
 		}
 
-		// Compact active filter & status strip (hidden when clean & idle).
-		if a.hasActiveFilters() || a.status != "" {
-			gui.Row(c).Gap(8).AlignItems(gui.Center).Wrap().Children(func() {
-				if a.kindFilter != 0 {
-					kinds := []string{"", a.t("library.kind.image"), a.t("library.kind.video"), a.t("library.kind.other")}
-					a.tagChip(c, "chip-kind", kinds[a.kindFilter]+" ×", true).OnClick(func() {
-						a.kindFilter = 0
-						a.applyFilters()
-					})
-				}
-				if a.minRating > 0 {
-					a.tagChip(c, "chip-rating", fmt.Sprintf("★ %d+ ×", a.minRating), true).OnClick(func() {
-						a.minRating = 0
-						a.applyFilters()
-					})
-				}
-				if a.hasActiveFilters() {
-					a.toolButton(c, "chip-clear", iconX, a.t("common.clear"), false).OnClick(func() {
-						a.clearFilters()
-					})
-				}
-				gui.Spacer(c)
-				if a.status != "" {
-					gui.Text(c, a.status).FontSize(12).TextColor(t.TextMuted).SingleLine().MaxWidth(420)
-				}
+		// Status message strip (when non-empty).
+		if a.status != "" {
+			gui.Row(c).Padding(4, 10).Radius(7).Background(a.pal.subtle).AlignItems(gui.Center).Gap(8).Children(func() {
+				gui.Text(c, a.status).FontSize(12).TextColor(t.TextMuted).Grow(1).SingleLine()
+				a.iconButton(c, "status-dismiss", iconX, a.t("common.close"), false).OnClick(func() {
+					a.status = ""
+				})
 			})
 		}
 
@@ -111,7 +98,7 @@ func (a *App) libraryMain(c *gui.Context) {
 			gui.Row(c).
 				Padding(10, 14).
 				Radius(10).
-				Gap(10).
+				Gap(8).
 				AlignItems(gui.Center).
 				Background(t.Danger.Alpha(0.10)).
 				Border(1, t.Danger.Alpha(0.28)).
@@ -119,8 +106,11 @@ func (a *App) libraryMain(c *gui.Context) {
 					gui.Icon(c, iconAlert).Size(15, 15).TextColor(t.Danger)
 					gui.Text(c, fmt.Sprintf("%s (%d)", a.t("shell.missing"), len(a.assets))).FontSize(12).Bold().TextColor(t.Danger)
 					gui.Spacer(c)
-					gui.Button(c.Key("relink-all-btn"), a.t("inspector.relink")).OnClick(func() {
-						a.relinkMissing()
+					gui.Button(c.Key("relink-file-all"), a.t("inspector.relinkFile")).OnClick(func() {
+						a.relinkMissing(false)
+					})
+					gui.Button(c.Key("relink-dir-all"), a.t("inspector.relink")).OnClick(func() {
+						a.relinkMissing(true)
 					})
 				})
 		}
@@ -132,6 +122,81 @@ func (a *App) libraryMain(c *gui.Context) {
 			a.assetGrid(c)
 		}
 	})
+}
+
+func (a *App) filterBar(c *gui.Context) {
+	kinds := []string{
+		a.t("library.kind.all"),
+		a.t("library.kind.image"),
+		a.t("library.kind.video"),
+		a.t("library.kind.other"),
+	}
+	ratings := []string{"0", "★1+", "★2+", "★3+", "★4+", "★5"}
+	modes := []string{
+		a.t("library.mode.index"),
+		a.t("library.mode.symlink"),
+		a.t("library.mode.move"),
+		a.t("library.mode.copy"),
+	}
+
+	gui.Row(c).
+		Padding(6, 10).
+		Gap(10).
+		Radius(9).
+		AlignItems(gui.Center).
+		Background(a.pal.card).
+		Border(1, a.pal.hairline).
+		Wrap().
+		Children(func() {
+			// Format 1-click pills.
+			gui.Row(c).Gap(4).AlignItems(gui.Center).Children(func() {
+				for i, lbl := range kinds {
+					idx := i
+					a.tagChip(c, fmt.Sprintf("fkind-%d", idx), lbl, a.kindFilter == idx).OnClick(func() {
+						a.kindFilter = idx
+						a.applyFilters()
+					})
+				}
+			})
+
+			// Rating 1-click pills.
+			gui.Row(c).Gap(4).AlignItems(gui.Center).Children(func() {
+				for i, lbl := range ratings {
+					idx := i
+					if idx == 0 {
+						continue
+					}
+					active := a.minRating == idx
+					a.tagChip(c, fmt.Sprintf("frate-%d", idx), lbl, active).OnClick(func() {
+						if a.minRating == idx {
+							a.minRating = 0
+						} else {
+							a.minRating = idx
+						}
+						a.applyFilters()
+					})
+				}
+			})
+
+			if a.hasActiveFilters() {
+				a.toolButton(c, "fbar-clear", iconX, a.t("common.clear"), false).OnClick(func() {
+					a.clearFilters()
+				})
+			}
+
+			gui.Spacer(c)
+
+			// Storage mode 1-click selector (clearly visible before importing or dropping files).
+			gui.Row(c).Gap(4).AlignItems(gui.Center).Children(func() {
+				gui.Text(c, a.t("library.mode")+":").FontSize(11).TextColor(a.pal.inkMuted)
+				for i, lbl := range modes {
+					idx := i
+					a.tagChip(c, fmt.Sprintf("fmode-%d", idx), lbl, a.storageMode == idx).OnClick(func() {
+						a.storageMode = idx
+					})
+				}
+			})
+		})
 }
 
 func (a *App) libraryEmptyState(c *gui.Context) {
@@ -191,7 +256,7 @@ func (a *App) assetGrid(c *gui.Context) {
 		Gap(14).
 		Grow(1).
 		OnChange(func() {
-			a.syncInspectorSelection()
+			a.syncInspectorSelection(false)
 		}).
 		OnSubmit(func() {
 			if asset, ok := a.selectedAsset(); ok {
@@ -217,8 +282,10 @@ func (a *App) assetCard(c *gui.Context, asset model.Asset, selected bool) {
 	name := a.assetName(asset)
 	ext := a.assetExt(asset)
 
-	card := gui.Column(c).Fill().Gap(6).Drag(assetDrag{ID: asset.ID})
-	card.ContextMenu(func(m *gui.Menu) {
+	// IMPORTANT: Do NOT set .Drag() on a child inside GridView's cell, because
+	// flagDraggable intercepts pointerDown before GridView's cell can select it.
+	card := gui.Column(c).Fill().Padding(3).Gap(6)
+	card.PopoverMenu(func(m *gui.Menu) {
 		if m.Item(a.t("library.preview")).Chosen() {
 			a.openPreview(asset)
 		}
@@ -251,14 +318,20 @@ func (a *App) assetCard(c *gui.Context, asset model.Asset, selected bool) {
 			if m.Item(a.t("common.openFile")).Chosen() {
 				_ = openLocalFile(asset.Path)
 			}
+			if m.Item(a.t("common.revealFile")).Chosen() {
+				_ = revealLocalFile(asset.Path)
+			}
 		}
 		if m.Item(a.t("common.copyPath")).Chosen() {
 			services.WriteClipboard(asset.Path)
 			a.status = a.t("common.copied")
 		}
 		if asset.Missing {
+			if m.Item(a.t("inspector.relinkFile")).Chosen() {
+				a.relinkMissing(false)
+			}
 			if m.Item(a.t("inspector.relink")).Chosen() {
-				a.relinkMissing()
+				a.relinkMissing(true)
 			}
 		}
 		m.Separator()
@@ -322,7 +395,7 @@ func (a *App) inspector(c *gui.Context) {
 	t := c.Theme()
 	services := c.Services()
 	asset, ok := a.selectedAsset()
-	a.syncInspectorSelection()
+	a.syncInspectorSelection(false)
 
 	gui.Column(c).
 		Fill().
@@ -344,15 +417,16 @@ func (a *App) inspector(c *gui.Context) {
 
 			gui.Scroll(c).Fill().Children(func() {
 				gui.Column(c).Padding(14, 16).Gap(12).Children(func() {
-					// Clickable hero preview thumbnail.
+					// Clickable hero preview thumbnail -> opens full-res Lightbox.
 					hero := gui.ButtonBase(c.Key("insp-hero-" + asset.ID)).
 						FillWidth().
-						Height(168).
+						Height(176).
 						Radius(10).
 						Clip().
 						Background(a.pal.card).
 						Border(1, a.pal.hairline).
 						Center().
+						Label(a.t("library.preview")).
 						Tooltip(a.t("library.preview")).
 						OnClick(func() {
 							a.openPreview(asset)
@@ -362,14 +436,40 @@ func (a *App) inspector(c *gui.Context) {
 							gui.Image(c, bm).Fit(gui.Contain).Grow(1).Padding(6).Radius(8)
 						} else {
 							gui.Column(c).Center().Gap(6).Children(func() {
-								gui.Icon(c, iconFile).Size(28, 28).TextColor(a.pal.inkFaint)
+								ic := iconFile
+								switch model.MediaKind(asset.Mime) {
+								case model.MediaVideo:
+									ic = iconVideo
+								case model.MediaImage:
+									ic = iconImage
+								}
+								gui.Icon(c, ic).Size(28, 28).TextColor(a.pal.inkFaint)
 								gui.Text(c, a.assetExt(asset)).Bold().TextColor(a.pal.inkMuted)
 							})
 						}
 					})
 
+					// Quick action toolbar directly below preview (Serpent / Eagle style).
+					gui.Row(c).Gap(6).AlignItems(gui.Center).Children(func() {
+						a.toolButton(c, "insp-preview-btn", iconEye, a.t("library.preview"), false).
+							Grow(1).
+							OnClick(func() { a.openPreview(asset) })
+						if !asset.Missing && asset.Path != "" {
+							a.iconButton(c, "insp-open-btn", iconExternal, a.t("common.openFile"), false).OnClick(func() {
+								_ = openLocalFile(asset.Path)
+							})
+							a.iconButton(c, "insp-reveal-btn", iconFolder, a.t("common.revealFile"), false).OnClick(func() {
+								_ = revealLocalFile(asset.Path)
+							})
+						}
+						a.iconButton(c, "insp-copy-path", iconCopy, a.t("common.copyPath"), false).OnClick(func() {
+							services.WriteClipboard(asset.Path)
+							a.status = a.t("common.copied")
+						})
+					})
+
 					// Title + compact badge strip.
-					gui.Column(c).Gap(8).Children(func() {
+					gui.Column(c).Gap(6).Children(func() {
 						gui.Text(c, a.assetName(asset)).FontSize(14).Bold().LineHeight(1.3)
 						gui.Row(c).Gap(6).Wrap().AlignItems(gui.Center).Children(func() {
 							a.pillBadge(c, a.assetExt(asset), t.Text, a.pal.subtle)
@@ -383,7 +483,7 @@ func (a *App) inspector(c *gui.Context) {
 						})
 					})
 
-					// Missing file alert & relink CTA.
+					// Missing file alert & relink actions.
 					if asset.Missing {
 						gui.Column(c).
 							Padding(10, 12).
@@ -396,8 +496,13 @@ func (a *App) inspector(c *gui.Context) {
 									gui.Icon(c, iconAlert).Size(14, 14).TextColor(t.Danger)
 									gui.Text(c, a.t("library.missing")).FontSize(12).Bold().TextColor(t.Danger)
 								})
-								gui.Button(c.Key("insp-relink"), a.t("inspector.relink")).FillWidth().OnClick(func() {
-									a.relinkMissing()
+								gui.Row(c).Gap(6).Children(func() {
+									gui.Button(c.Key("insp-relink-file"), a.t("inspector.relinkFile")).Grow(1).OnClick(func() {
+										a.relinkMissing(false)
+									})
+									gui.Button(c.Key("insp-relink-dir"), a.t("inspector.relink")).Grow(1).OnClick(func() {
+										a.relinkMissing(true)
+									})
 								})
 							})
 					}
@@ -447,54 +552,29 @@ func (a *App) inspector(c *gui.Context) {
 
 					gui.Divider(c)
 
-					// Details metadata grid.
+					// Used in Projects / References (core Ragle capability).
 					gui.Column(c).Gap(6).Children(func() {
-						a.sectionLabel(c, a.t("inspector.details"))
-						if asset.Width > 0 && asset.Height > 0 {
-							a.metaRow(c, a.t("inspector.dimensions"), fmt.Sprintf("%d × %d px", asset.Width, asset.Height))
-						}
-						if a.inspectorFileSize > 0 {
-							a.metaRow(c, a.t("inspector.size"), formatBytes(a.inspectorFileSize))
-						}
-						if asset.Mime != "" {
-							a.metaRow(c, a.t("library.mime"), asset.Mime)
-						}
-						a.metaRow(c, a.t("library.storage"), a.modeLabel(asset.StorageMode))
-						if !asset.CreatedAt.IsZero() {
-							a.metaRow(c, a.t("inspector.added"), asset.CreatedAt.Local().Format("2006-01-02 15:04"))
-						}
-						gui.Column(c).Gap(4).Padding(4, 0, 0, 0).Children(func() {
-							gui.Row(c).AlignItems(gui.Center).Children(func() {
-								gui.Text(c, a.t("library.path")).FontSize(11).TextColor(a.pal.inkMuted)
-								gui.Spacer(c)
-								a.iconButton(c, "insp-copy-path", iconCopy, a.t("common.copyPath"), false).OnClick(func() {
-									services.WriteClipboard(asset.Path)
-									a.status = a.t("common.copied")
-								})
-							})
-							gui.Box(c).Padding(6, 8).Radius(6).Background(a.pal.card).Border(1, a.pal.hairline).Children(func() {
-								gui.Text(c, asset.Path).FontSize(11).TextColor(t.TextMuted).LineHeight(1.4)
-							})
-						})
-					})
-
-					gui.Divider(c)
-
-					// Action buttons.
-					gui.Column(c).Gap(8).Children(func() {
-						a.sectionLabel(c, a.t("inspector.actions"))
-						gui.Row(c).Gap(8).Children(func() {
-							gui.Button(c.Key("insp-preview"), a.t("library.preview")).Grow(1).OnClick(func() {
-								a.openPreview(asset)
-							})
-							if !asset.Missing && asset.Path != "" {
-								gui.Button(c.Key("insp-open"), a.t("common.openFile")).Grow(1).OnClick(func() {
-									_ = openLocalFile(asset.Path)
-								})
+						gui.Row(c).AlignItems(gui.Center).Children(func() {
+							a.sectionLabel(c, a.t("inspector.usedIn"))
+							gui.Spacer(c)
+							if a.inspectorPlaces > 0 {
+								gui.Text(c, fmt.Sprintf(a.t("inspector.placements"), a.inspectorPlaces)).FontSize(10).TextColor(a.pal.inkMuted)
 							}
 						})
+						if len(a.inspectorProjects) == 0 {
+							gui.Text(c, a.t("inspector.usedNone")).FontSize(11).TextColor(a.pal.inkFaint)
+						} else {
+							gui.Row(c).Gap(6).Wrap().Children(func() {
+								for _, p := range a.inspectorProjects {
+									proj := p
+									a.tagChip(c, "insp-used-"+proj.ID, proj.Name, true).OnClick(func() {
+										a.openProject(proj.ID)
+									})
+								}
+							})
+						}
 						if len(a.projectList) > 0 {
-							gui.PopoverMenuButton(c.Key("insp-add-proj"), a.t("library.addToProject"), func(m *gui.Menu) {
+							gui.PopoverMenuButton(c.Key("insp-add-proj"), "+ "+a.t("library.addToProject"), func(m *gui.Menu) {
 								for _, p := range a.projectList {
 									proj := p
 									if m.Item(proj.Name).Chosen() {
@@ -503,11 +583,41 @@ func (a *App) inspector(c *gui.Context) {
 								}
 							}).FillWidth()
 						}
-						gui.Button(c.Key("insp-delete"), a.t("library.delete")).
-							FillWidth().
-							TextColor(t.Danger).
-							OnClick(func() { a.deleteAssetPrompt(asset) })
 					})
+
+					gui.Divider(c)
+
+					// Details metadata grid.
+					gui.Column(c).Gap(6).Children(func() {
+						a.sectionLabel(c, a.t("inspector.details"))
+						if asset.Width > 0 && asset.Height > 0 {
+							a.metaRow(c, a.t("inspector.dimensions"), fmt.Sprintf("%d × %d px", asset.Width, asset.Height))
+							a.metaRow(c, a.t("inspector.aspect"), aspectRatioLabel(asset.Width, asset.Height))
+						}
+						if a.inspectorFileSize > 0 {
+							a.metaRow(c, a.t("inspector.size"), formatBytes(a.inspectorFileSize))
+						}
+						if asset.Mime != "" {
+							a.metaRow(c, a.t("library.mime"), asset.Mime)
+						}
+						a.metaRow(c, a.t("library.storage"), a.modeLabel(asset.StorageMode))
+						if len(asset.Hash) >= 12 {
+							a.metaRow(c, a.t("inspector.hash"), asset.Hash[:12]+"…")
+						}
+						if !asset.CreatedAt.IsZero() {
+							a.metaRow(c, a.t("inspector.added"), asset.CreatedAt.Local().Format("2006-01-02 15:04"))
+						}
+						gui.Box(c).Padding(6, 8).Radius(6).Background(a.pal.card).Border(1, a.pal.hairline).Children(func() {
+							gui.Text(c, asset.Path).FontSize(11).TextColor(t.TextMuted).LineHeight(1.4)
+						})
+					})
+
+					gui.Divider(c)
+
+					gui.Button(c.Key("insp-delete"), a.t("library.delete")).
+						FillWidth().
+						TextColor(t.Danger).
+						OnClick(func() { a.deleteAssetPrompt(asset) })
 				})
 			})
 		})
