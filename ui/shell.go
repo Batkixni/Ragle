@@ -18,30 +18,6 @@ func (a *App) shell(c *gui.Context) {
 		a.cardSize = 184
 	}
 	gui.Column(c).Fill().Background(a.pal.canvas).Children(func() {
-		c.OnShortcut(gui.Cmd, gui.KeyF, func() {
-			if a.screen == screenLibrary {
-				a.searchHandle.Focus(c)
-			}
-		})
-		c.OnShortcut(gui.Cmd, gui.KeyI, func() {
-			if a.screen == screenLibrary {
-				a.startImport(false)
-			}
-		})
-		c.OnShortcut(gui.Cmd, gui.KeyComma, func() {
-			a.openSettings(a.settingsTab)
-		})
-		c.OnShortcut(gui.Cmd, gui.KeyA, func() {
-			if a.screen == screenLibrary && !a.previewOpen && !a.settingsOpen && !a.newProjOpen && !a.editProjOpen && !a.editTagOpen {
-				a.selectAllVisible()
-			}
-		})
-		c.OnShortcut(0, gui.KeyEscape, func() {
-			if a.screen == screenLibrary && (len(a.selectedIDs) > 1 || a.multiSelectMode) {
-				a.clearSelection()
-			}
-		})
-
 		if a.screen == screenBoard {
 			a.boardView(c)
 			return

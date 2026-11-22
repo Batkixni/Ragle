@@ -461,3 +461,128 @@ func TestExpandImportPathsPreferences(t *testing.T) {
 		t.Fatalf("recursive+includeHidden expected 5 files, got %d: %v", len(gotAll), gotAll)
 	}
 }
+
+func TestGlobalShortcutsAndMarqueeBoxSelection(t *testing.T) {
+	root := t.TempDir()
+	srcDir := t.TempDir()
+	img1 := filepath.Join(srcDir, "one.png")
+	img2 := filepath.Join(srcDir, "two.png")
+	img3 := filepath.Join(srcDir, "three.png")
+	writeSamplePNG(t, img1, 160, 120, color.RGBA{220, 80, 120, 255})
+	writeSamplePNG(t, img2, 160, 120, color.RGBA{60, 160, 220, 255})
+	writeSamplePNG(t, img3, 160, 120, color.RGBA{120, 200, 90, 255})
+
+	lib, err := library.Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lib.Close()
+	if _, err := lib.Import(context.Background(), []string{img1, img2, img3}, model.StorageCopy, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	a := NewApp()
+	a.lib = lib
+	a.projects = project.New(lib.DB)
+	a.lang = i18n.ZhHant
+	a.cfg.LibraryPath = root
+	a.screen = screenLibrary
+	a.reload()
+
+	tt := gui.NewTester(a.View, 1360, 860)
+	tt.Advance(400 * time.Millisecond)
+
+	// 1. Global Ctrl+A MUST select all 3 assets even with ZERO widget focused!
+	tt.Key(gui.Cmd, gui.KeyA)
+	if len(a.selectedAssetIDs()) != 3 {
+		t.Fatalf("Ctrl+A with no focus failed: selected=%d, want 3", len(a.selectedAssetIDs()))
+	}
+
+	// 2. Global Escape clears selection.
+	tt.Key(0, gui.KeyEscape)
+	if len(a.selectedAssetIDs()) != 0 {
+		t.Fatalf("Escape did not clear selection: selected=%d", len(a.selectedAssetIDs()))
+	}
+
+	// 3. Global Arrow Right selects first asset, Shift+Right extends to 2 assets, '5' rates both 5 stars!
+	tt.Key(0, gui.KeyRight)
+	if len(a.selectedAssetIDs()) != 1 {
+		t.Fatalf("Arrow Right expected 1 selected, got %d", len(a.selectedAssetIDs()))
+	}
+	tt.Key(gui.Shift, gui.KeyRight)
+	if len(a.selectedAssetIDs()) != 2 {
+		t.Fatalf("Shift+Right expected 2 selected, got %d", len(a.selectedAssetIDs()))
+	}
+	tt.Key(0, gui.Key5)
+	for _, id := range a.selectedAssetIDs() {
+		got, err := lib.Get(id)
+		if err != nil || got.Rating != 5 {
+			t.Fatalf("Key5 did not rate asset %s to 5 (got %d, err=%v)", id, got.Rating, err)
+		}
+	}
+
+	// 4. Global Space opens Quick Preview; Escape closes it.
+	tt.Key(0, gui.KeySpace)
+	if !a.previewOpen {
+		t.Fatal("global Space did not open Quick Preview")
+	}
+	tt.Key(0, gui.KeyEscape)
+	if a.previewOpen {
+		t.Fatal("Escape did not close Quick Preview")
+	}
+
+	// 5. Global Ctrl+, opens Preferences; Escape closes it.
+	tt.Key(gui.Cmd, gui.KeyComma)
+	if !a.settingsOpen {
+		t.Fatal("global Ctrl+, did not open Preferences")
+	}
+	tt.Key(0, gui.KeyEscape)
+	if a.settingsOpen {
+		t.Fatal("Escape did not close Preferences")
+	}
+
+	// 6. Global Delete opens batch delete confirmation dialog.
+	tt.Key(0, gui.KeyDelete)
+	if !a.askOpen {
+		t.Fatal("global Delete did not open confirmation dialog")
+	}
+	tt.Key(0, gui.KeyEscape)
+	tt.Frame()
+
+	// 7. Rubber-band marquee drag on empty space selects intersecting cards live
+	// across Bento, Waterfall Masonry, AND Grid layouts!
+	for _, mode := range []string{layoutBento, layoutMasonry, layoutGrid} {
+		a.setLayoutMode(mode)
+		a.clearSelection()
+		a.assetIndex = -1
+		tt.Frame()
+		tt.Advance(300 * time.Millisecond)
+
+		sb := a.stageBounds
+		if sb.W <= 0 || sb.H <= 0 {
+			t.Fatalf("[%s] stageBounds empty: %+v", mode, sb)
+		}
+		// Start on the empty space below the cards and drag up-left across them.
+		startX := sb.X + sb.W - 6
+		startY := sb.Y + sb.H - 20
+		endX := sb.X + 40
+		endY := sb.Y + 40
+		tt.Press(startX, startY)
+		tt.Move(endX, endY)
+		if !a.marqueeDragging {
+			t.Fatalf("[%s] marquee did not enter dragging state (active=%v stage=%+v)", mode, a.marqueeActive, sb)
+		}
+		tt.Release(endX, endY)
+
+		got := len(a.selectedAssetIDs())
+		if got < 2 {
+			t.Fatalf("[%s] rubber-band marquee selected %d cards, want >= 2 (cardBounds=%+v)", mode, got, a.cardBounds)
+		}
+
+		// Plain click on empty bottom canvas clears selection cleanly.
+		tt.ClickAt(startX, startY)
+		if len(a.selectedAssetIDs()) != 0 {
+			t.Fatalf("[%s] clicking empty canvas did not clear selection: got %d", mode, len(a.selectedAssetIDs()))
+		}
+	}
+}

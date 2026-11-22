@@ -138,6 +138,16 @@ type App struct {
 	anchorIndex     int
 	selectedIDs     map[string]bool
 	multiSelectMode bool
+	cardBounds      map[string]gui.Rect
+	stageBounds     gui.Rect
+	marqueeActive   bool
+	marqueeDragging bool
+	marqueeX0       float32
+	marqueeY0       float32
+	marqueeX1       float32
+	marqueeY1       float32
+	marqueeAdditive bool
+	marqueeBase     map[string]bool
 	cardSize        float64
 	inspectorOpen   bool
 	filterBarOpen   bool
@@ -292,6 +302,7 @@ func NewApp() *App {
 		assetIndex:           -1,
 		anchorIndex:          -1,
 		selectedIDs:          map[string]bool{},
+		cardBounds:           map[string]gui.Rect{},
 		cardSize:             184,
 		inspectorOpen:        true,
 		filterBarOpen:        false,
@@ -1940,6 +1951,149 @@ func (a *App) selectAllVisible() {
 func (a *App) clearSelection() {
 	a.selectedIDs = map[string]bool{}
 	a.multiSelectMode = false
+	a.marqueeActive = false
+	a.marqueeDragging = false
+}
+
+func (a *App) canRunLibraryShortcut() bool {
+	return a.lib != nil &&
+		a.screen == screenLibrary &&
+		!a.previewOpen &&
+		!a.settingsOpen &&
+		!a.newProjOpen &&
+		!a.editProjOpen &&
+		!a.editTagOpen &&
+		!a.shareOpen &&
+		!a.pairRecvOpen &&
+		!a.askOpen
+}
+
+func (a *App) stepAssetSelection(delta int, extend bool) {
+	if len(a.assets) == 0 {
+		return
+	}
+	next := a.assetIndex + delta
+	if a.assetIndex < 0 {
+		if delta >= 0 {
+			next = 0
+		} else {
+			next = len(a.assets) - 1
+		}
+	}
+	if next < 0 {
+		next = 0
+	}
+	if next >= len(a.assets) {
+		next = len(a.assets) - 1
+	}
+	var mods gui.Modifiers
+	if extend {
+		mods = gui.Shift
+	}
+	a.selectCard(next, mods)
+}
+
+func (a *App) batchSetRating(rating int) {
+	ids := a.selectedAssetIDs()
+	if len(ids) == 0 || a.lib == nil {
+		return
+	}
+	for _, id := range ids {
+		_ = a.lib.SetRating(id, rating)
+	}
+	a.reload()
+}
+
+func (a *App) registerWindowShortcuts(c *gui.Context) {
+	if a.lib == nil {
+		return
+	}
+	c.OnShortcut(gui.Cmd, gui.KeyComma, func() {
+		a.openSettings(a.settingsTab)
+	})
+	c.OnShortcut(gui.Cmd, gui.KeyF, func() {
+		if a.canRunLibraryShortcut() {
+			a.searchHandle.Focus(c)
+		}
+	})
+	c.OnShortcut(gui.Cmd, gui.KeyI, func() {
+		if a.canRunLibraryShortcut() {
+			a.startImport(false)
+		}
+	})
+	c.OnShortcut(gui.Cmd, gui.KeyA, func() {
+		if a.canRunLibraryShortcut() {
+			a.selectAllVisible()
+		}
+	})
+	c.OnShortcut(0, gui.KeyEscape, func() {
+		if !a.canRunLibraryShortcut() {
+			return
+		}
+		if a.newTagOpen {
+			a.newTagOpen = false
+			a.newTagName = ""
+			return
+		}
+		if len(a.selectedIDs) > 0 || a.multiSelectMode {
+			a.clearSelection()
+			a.assetIndex = -1
+			a.syncInspectorSelection(false)
+		}
+	})
+	c.OnShortcut(0, gui.KeySpace, func() {
+		if a.canRunLibraryShortcut() {
+			if asset, ok := a.selectedAsset(); ok {
+				a.openPreview(asset)
+			}
+		}
+	})
+	c.OnShortcut(0, gui.KeyDelete, func() {
+		if a.canRunLibraryShortcut() {
+			if ids := a.selectedAssetIDs(); len(ids) > 0 {
+				a.batchDeletePrompt(ids)
+			}
+		}
+	})
+	c.OnShortcut(0, gui.KeyLeft, func() {
+		if a.canRunLibraryShortcut() {
+			a.stepAssetSelection(-1, false)
+		}
+	})
+	c.OnShortcut(0, gui.KeyRight, func() {
+		if a.canRunLibraryShortcut() {
+			a.stepAssetSelection(1, false)
+		}
+	})
+	c.OnShortcut(gui.Shift, gui.KeyLeft, func() {
+		if a.canRunLibraryShortcut() {
+			a.stepAssetSelection(-1, true)
+		}
+	})
+	c.OnShortcut(gui.Shift, gui.KeyRight, func() {
+		if a.canRunLibraryShortcut() {
+			a.stepAssetSelection(1, true)
+		}
+	})
+	ratingKeys := []struct {
+		key gui.Key
+		val int
+	}{
+		{gui.Key0, 0},
+		{gui.Key1, 1},
+		{gui.Key2, 2},
+		{gui.Key3, 3},
+		{gui.Key4, 4},
+		{gui.Key5, 5},
+	}
+	for _, rk := range ratingKeys {
+		r := rk
+		c.OnShortcut(0, r.key, func() {
+			if a.canRunLibraryShortcut() {
+				a.batchSetRating(r.val)
+			}
+		})
+	}
 }
 
 func (a *App) batchReferenceToProject(ids []string, projectID string) {

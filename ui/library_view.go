@@ -146,14 +146,7 @@ func (a *App) libraryMain(c *gui.Context) {
 		if len(a.assets) == 0 {
 			a.libraryEmptyState(c)
 		} else {
-			switch a.layoutMode {
-			case layoutMasonry:
-				a.assetMasonry(c)
-			case layoutGrid:
-				a.assetGrid(c)
-			default:
-				a.assetBento(c)
-			}
+			a.libraryAssetStage(c)
 		}
 	})
 }
@@ -319,6 +312,165 @@ func (a *App) libraryEmptyState(c *gui.Context) {
 	})
 }
 
+// libraryAssetStage wraps Bento, Waterfall Masonry, and Grid views with
+// native rubber-band marquee box selection (hold left mouse button on empty
+// space, gaps, or margins and drag a rectangle to multi-select cards live).
+func (a *App) libraryAssetStage(c *gui.Context) {
+	a.cardBounds = make(map[string]gui.Rect, len(a.assets))
+	stage := gui.Box(c.Key("library-stage")).
+		Grow(1).
+		FillWidth().
+		Clip().
+		HandleInput(a.libraryMarqueeInput).
+		DrawOver(a.paintLibraryMarquee)
+	a.stageBounds = stage.Bounds()
+	stage.Children(func() {
+		switch a.layoutMode {
+		case layoutMasonry:
+			a.assetMasonry(c)
+		case layoutGrid:
+			a.assetGrid(c)
+		default:
+			a.assetBento(c)
+		}
+	})
+}
+
+func (a *App) libraryMarqueeInput(ev gui.InputEvent) bool {
+	switch ev.Kind {
+	case gui.InputPointerDown:
+		if ev.Button != 0 {
+			return false
+		}
+		// If pressing directly on an asset card (without Alt override), let the
+		// card's ButtonBase handle click, double-click, and drag-to-project.
+		if ev.Mods&gui.Alt == 0 {
+			wx := a.stageBounds.X + ev.X
+			wy := a.stageBounds.Y + ev.Y
+			for _, cb := range a.cardBounds {
+				if cb.W > 0 && cb.H > 0 && wx >= cb.X && wx <= cb.X+cb.W && wy >= cb.Y && wy <= cb.Y+cb.H {
+					return false
+				}
+			}
+		}
+		a.marqueeActive = true
+		a.marqueeDragging = false
+		a.marqueeX0, a.marqueeY0 = ev.X, ev.Y
+		a.marqueeX1, a.marqueeY1 = ev.X, ev.Y
+		a.marqueeAdditive = ev.Mods&(gui.Shift|gui.Cmd|gui.Ctrl) != 0
+		a.marqueeBase = make(map[string]bool, len(a.selectedIDs))
+		if a.marqueeAdditive {
+			for id := range a.selectedIDs {
+				a.marqueeBase[id] = true
+			}
+		}
+		return true
+	case gui.InputPointerMove:
+		if !a.marqueeActive {
+			return false
+		}
+		a.marqueeX1, a.marqueeY1 = ev.X, ev.Y
+		dx := a.marqueeX1 - a.marqueeX0
+		dy := a.marqueeY1 - a.marqueeY0
+		if !a.marqueeDragging && (dx*dx+dy*dy) >= 16 {
+			a.marqueeDragging = true
+		}
+		if a.marqueeDragging {
+			a.applyLibraryMarquee()
+		}
+		return true
+	case gui.InputPointerUp:
+		if !a.marqueeActive {
+			return false
+		}
+		wasDragging := a.marqueeDragging
+		a.marqueeActive = false
+		a.marqueeDragging = false
+		if !wasDragging && !a.marqueeAdditive {
+			// Plain click on empty canvas clears selection cleanly.
+			a.selectedIDs = map[string]bool{}
+			a.assetIndex = -1
+			a.syncInspectorSelection(false)
+		}
+		return true
+	}
+	return false
+}
+
+func (a *App) applyLibraryMarquee() {
+	x0, x1 := a.marqueeX0, a.marqueeX1
+	if x1 < x0 {
+		x0, x1 = x1, x0
+	}
+	y0, y1 := a.marqueeY0, a.marqueeY1
+	if y1 < y0 {
+		y0, y1 = y1, y0
+	}
+	winBox := gui.Rect{
+		X: a.stageBounds.X + x0,
+		Y: a.stageBounds.Y + y0,
+		W: x1 - x0,
+		H: y1 - y0,
+	}
+	next := make(map[string]bool, len(a.marqueeBase))
+	if a.marqueeAdditive {
+		for id := range a.marqueeBase {
+			next[id] = true
+		}
+	}
+	firstIdx := -1
+	for i, asset := range a.assets {
+		cb, ok := a.cardBounds[asset.ID]
+		if !ok || cb.W <= 0 || cb.H <= 0 {
+			continue
+		}
+		if rectsIntersect(winBox, cb) {
+			next[asset.ID] = true
+			if firstIdx < 0 {
+				firstIdx = i
+			}
+		}
+	}
+	a.selectedIDs = next
+	if firstIdx >= 0 {
+		a.assetIndex = firstIdx
+		a.anchorIndex = firstIdx
+	} else if len(next) == 0 {
+		a.assetIndex = -1
+	}
+	a.syncInspectorSelection(false)
+}
+
+func (a *App) paintLibraryMarquee(p *gui.Painter, r gui.Rect) {
+	if !a.marqueeActive || !a.marqueeDragging {
+		return
+	}
+	x0, x1 := a.marqueeX0, a.marqueeX1
+	if x1 < x0 {
+		x0, x1 = x1, x0
+	}
+	y0, y1 := a.marqueeY0, a.marqueeY1
+	if y1 < y0 {
+		y0, y1 = y1, y0
+	}
+	box := gui.Rect{
+		X: r.X + x0,
+		Y: r.Y + y0,
+		W: x1 - x0,
+		H: y1 - y0,
+	}
+	p.Clip(r, 0, func() {
+		fill := gui.RGBA(a.pal.controlOn.R, a.pal.controlOn.G, a.pal.controlOn.B, 0.12)
+		stroke := gui.RGBA(a.pal.controlOn.R, a.pal.controlOn.G, a.pal.controlOn.B, 0.72)
+		p.Fill(box, fill, 4)
+		p.Stroke(box, stroke, 4, 1.25)
+	})
+}
+
+func rectsIntersect(a, b gui.Rect) bool {
+	return a.X < b.X+b.W && a.X+a.W > b.X && a.Y < b.Y+b.H && a.Y+a.H > b.Y
+}
+
 func (a *App) assetGrid(c *gui.Context) {
 	if a.assetIndex >= len(a.assets) {
 		a.assetIndex = -1
@@ -448,7 +600,7 @@ func (a *App) assetMasonry(c *gui.Context) {
 	}
 
 	scroll.Children(func() {
-		gui.Row(c).FillWidth().Padding(2, 2, 16, 2).Gap(gap).AlignItems(gui.Start).Children(func() {
+		gui.Row(c).FillWidth().Padding(8, 12, 72, 8).Gap(gap).AlignItems(gui.Start).Children(func() {
 			for col := 0; col < cols; col++ {
 				entries := buckets[col]
 				gui.Column(c.Key(fmt.Sprintf("mcol-%d", col))).Grow(1).Gap(gap).Children(func() {
@@ -500,7 +652,7 @@ func (a *App) assetBento(c *gui.Context) {
 	}
 
 	scroll.Children(func() {
-		gui.Column(c).FillWidth().Padding(2, 2, 16, 2).Gap(gap).Children(func() {
+		gui.Column(c).FillWidth().Padding(8, 12, 72, 8).Gap(gap).Children(func() {
 			n := len(a.assets)
 			i := 0
 			blockIdx := 0
@@ -625,6 +777,7 @@ func (a *App) assetCard(c *gui.Context, index int, asset model.Asset, selected b
 		Clip().
 		Drag(assetBatchDrag{IDs: a.dragIDsFor(asset.ID)}).
 		Label(name)
+	a.cardBounds[asset.ID] = card.Bounds()
 
 	card.PopoverMenu(func(m *gui.Menu) {
 		batchIDs := a.dragIDsFor(asset.ID)
