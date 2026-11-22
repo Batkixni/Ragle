@@ -28,6 +28,7 @@ func probeWith(ffprobe, path string) (int, int, float64, error) {
 	cmd := exec.Command(ffprobe, "-v", "error", "-select_streams", "v:0",
 		"-show_entries", "stream=width,height", "-show_entries", "format=duration",
 		"-of", "default=noprint_wrappers=1:nokey=0", path)
+	hideCmd(cmd)
 	out, err := cmd.Output()
 	if err != nil {
 		return 0, 0, 0, err
@@ -58,6 +59,7 @@ var (
 
 func probeFFmpeg(ffmpeg, path string) (int, int, float64, error) {
 	cmd := exec.Command(ffmpeg, "-hide_banner", "-i", path)
+	hideCmd(cmd)
 	var buf bytes.Buffer
 	cmd.Stdout = &buf
 	cmd.Stderr = &buf
@@ -97,6 +99,7 @@ func ExtractFrame(path, dest string) error {
 
 func runFrame(ffmpeg, path, dest, ss string) error {
 	cmd := exec.Command(ffmpeg, "-y", "-ss", ss, "-i", path, "-frames:v", "1", dest)
+	hideCmd(cmd)
 	var buf bytes.Buffer
 	cmd.Stderr = &buf
 	return cmd.Run()

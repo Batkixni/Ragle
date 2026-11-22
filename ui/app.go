@@ -168,6 +168,14 @@ type App struct {
 	revealGen       int
 	storageMode     int
 	importing       bool
+	importStage     string // "scanning", "importing", "canceling"
+	importDone      int
+	importTotal     int
+	importAdded     int
+	importExisting  int
+	importFailed    int
+	importCurrent   string
+	importCancel    context.CancelFunc
 
 	// Tag management popup & edit modal state.
 	tagManagerOpen   bool
@@ -745,6 +753,10 @@ func (a *App) shutdown() {
 	a.mu.Unlock()
 	if pairCancel != nil {
 		pairCancel()
+	}
+	if a.importCancel != nil {
+		a.importCancel()
+		a.importCancel = nil
 	}
 	a.shareDB.Store(nil)
 	if node != nil {
@@ -1947,7 +1959,17 @@ func (a *App) importPaths(paths []string) {
 	if a.importing || a.lib == nil || len(paths) == 0 {
 		return
 	}
+	ctx, cancel := context.WithCancel(context.Background())
 	a.importing = true
+	a.importStage = "scanning"
+	a.importDone = 0
+	a.importTotal = 0
+	a.importAdded = 0
+	a.importExisting = 0
+	a.importFailed = 0
+	a.importCurrent = filepath.Base(paths[0])
+	a.importCancel = cancel
+
 	lib := a.lib
 	mode := storageModes[a.storageMode]
 	var tags []string
@@ -1960,25 +1982,51 @@ func (a *App) importPaths(paths []string) {
 	notifyDup := a.notifyDuplicates
 	win := a.win
 	go func() {
+		defer cancel()
 		resolved := expandImportPaths(paths, recursive, ignoreHidden)
-		if len(resolved) == 0 {
+		if len(resolved) == 0 || ctx.Err() != nil {
 			if win != nil {
 				win.Update(func() {
 					a.importing = false
+					a.importCancel = nil
+					a.importStage = ""
 				})
 			}
 			return
 		}
-		res, importErr := lib.Import(nilContext(), resolved, mode, tags, func(done, total int) {
-			if win == nil {
-				return
-			}
-			d, n := done, total
+		if win != nil {
+			totalFiles := len(resolved)
+			firstFile := filepath.Base(resolved[0])
 			win.Update(func() {
 				if a.isClosed() {
 					return
 				}
-				a.status = fmt.Sprintf(a.t("library.importing"), d, n)
+				a.importStage = "importing"
+				a.importTotal = totalFiles
+				a.importCurrent = firstFile
+			})
+		}
+		res, importErr := lib.ImportWithProgress(ctx, resolved, mode, tags, func(p library.ImportProgress) {
+			if win == nil {
+				return
+			}
+			prog := p
+			win.Update(func() {
+				if a.isClosed() {
+					return
+				}
+				if a.importStage != "canceling" {
+					a.importStage = "importing"
+				}
+				a.importDone = prog.Done
+				a.importTotal = prog.Total
+				a.importAdded = prog.Added
+				a.importExisting = prog.Existing
+				a.importFailed = prog.Failed
+				if prog.Current != "" {
+					a.importCurrent = prog.Current
+				}
+				a.status = fmt.Sprintf(a.t("library.importing"), prog.Done, prog.Total)
 			})
 		})
 		if win == nil {
@@ -1986,29 +2034,34 @@ func (a *App) importPaths(paths []string) {
 		}
 		win.Update(func() {
 			a.importing = false
+			a.importCancel = nil
+			a.importStage = ""
 			if a.isClosed() || a.lib == nil {
 				return
 			}
 			var firstAddedID string
-			if importErr != nil {
+			if importErr != nil && errors.Is(importErr, context.Canceled) {
+				a.notify(fmt.Sprintf(a.t("import.canceled"), res.Added, res.Existing))
+			} else if importErr != nil {
 				a.status = importErr.Error()
+				a.notify(importErr.Error())
 			} else {
 				if notifyDup || res.Added > 0 || res.Failed > 0 {
 					a.notify(fmt.Sprintf(a.t("library.imported"), res.Added, res.Existing, res.Failed))
 				}
-				for _, item := range res.Items {
-					if item.Status == "added" {
-						if firstAddedID == "" {
-							firstAddedID = item.AssetID
-						}
-						if a.thumbs != nil {
-							a.thumbs.Enqueue(item.AssetID)
-							a.queued[item.AssetID] = true
-						}
+			}
+			for _, item := range res.Items {
+				if item.Status == "added" {
+					if firstAddedID == "" {
+						firstAddedID = item.AssetID
 					}
-					if item.Err != nil && errors.Is(item.Err, library.ErrSymlink) {
-						a.notify(a.t("library.symlinkFailed"))
+					if a.thumbs != nil {
+						a.thumbs.Enqueue(item.AssetID)
+						a.queued[item.AssetID] = true
 					}
+				}
+				if item.Err != nil && errors.Is(item.Err, library.ErrSymlink) {
+					a.notify(a.t("library.symlinkFailed"))
 				}
 			}
 			a.reload()
@@ -2023,6 +2076,13 @@ func (a *App) importPaths(paths []string) {
 			}
 		})
 	}()
+}
+
+func (a *App) cancelImport() {
+	if a.importCancel != nil {
+		a.importStage = "canceling"
+		a.importCancel()
+	}
 }
 
 func isIgnoredImportFile(name string) bool {

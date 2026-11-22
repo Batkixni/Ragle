@@ -58,6 +58,17 @@ type Result struct {
 	Items    []Item
 }
 
+// ImportProgress reports live status during a batched import.
+type ImportProgress struct {
+	Stage    string // "scanning", "importing"
+	Done     int
+	Total    int
+	Added    int
+	Existing int
+	Failed   int
+	Current  string
+}
+
 // Library is the open asset catalog.
 type Library struct {
 	DB *db.DB
@@ -601,6 +612,20 @@ func (l *Library) PurgeAuxiliarySidecars() (int, error) {
 // progress may be nil. A symlink failure is reported on that file and does
 // not copy it instead.
 func (l *Library) Import(ctx context.Context, paths []string, mode string, tagIDs []string, progress func(done, total int)) (Result, error) {
+	var fn func(ImportProgress)
+	if progress != nil {
+		fn = func(p ImportProgress) {
+			if p.Total > 0 {
+				progress(p.Done, p.Total)
+			}
+		}
+	}
+	return l.ImportWithProgress(ctx, paths, mode, tagIDs, fn)
+}
+
+// ImportWithProgress imports paths in fast 128-file transactions while
+// reporting live file-level progress and respecting ctx cancellation.
+func (l *Library) ImportWithProgress(ctx context.Context, paths []string, mode string, tagIDs []string, progress func(ImportProgress)) (Result, error) {
 	files, err := collectFiles(l.DB.Root(), paths)
 	if err != nil {
 		return Result{}, err
@@ -609,6 +634,28 @@ func (l *Library) Import(ctx context.Context, paths []string, mode string, tagID
 	if len(files) == 0 {
 		return result, nil
 	}
+
+	total := len(files)
+	lastEmit := time.Time{}
+	emit := func(done int, current string, force bool) {
+		if progress == nil {
+			return
+		}
+		if !force && !lastEmit.IsZero() && time.Since(lastEmit) < 60*time.Millisecond {
+			return
+		}
+		lastEmit = time.Now()
+		progress(ImportProgress{
+			Stage:    "importing",
+			Done:     done,
+			Total:    total,
+			Added:    result.Added,
+			Existing: result.Existing,
+			Failed:   result.Failed,
+			Current:  filepath.Base(current),
+		})
+	}
+	emit(0, files[0], true)
 
 	const batchSize = 128
 	type preparedItem struct {
@@ -630,6 +677,10 @@ func (l *Library) Import(ctx context.Context, paths []string, mode string, tagID
 
 		// Phase 1: hash & check existing in a single read transaction.
 		for i, rawPath := range chunk {
+			if ctx.Err() != nil {
+				return result, ctx.Err()
+			}
+			emit(start+i, rawPath, false)
 			abs, err := cleanPath(rawPath)
 			if err != nil {
 				prep[i] = preparedItem{abs: rawPath, err: err}
@@ -662,7 +713,17 @@ func (l *Library) Import(ctx context.Context, paths []string, mode string, tagID
 		// Phase 2: place new files & inspect dimensions outside the DB lock.
 		seenHashInBatch := map[string]string{}
 		for i := range prep {
+			if ctx.Err() != nil {
+				// Roll back any un-committed files placed earlier in this chunk.
+				for j := 0; j < i; j++ {
+					if prep[j].stored != "" {
+						undoPlace(mode, prep[j].abs, prep[j].stored)
+					}
+				}
+				return result, ctx.Err()
+			}
 			p := &prep[i]
+			emit(start+i, p.abs, false)
 			if p.err != nil || p.existing != "" {
 				continue
 			}
@@ -744,10 +805,8 @@ func (l *Library) Import(ctx context.Context, paths []string, mode string, tagID
 				result.Added++
 			}
 			result.Items = append(result.Items, item)
-			if progress != nil && ((start+i+1)%16 == 0 || start+i+1 == len(files)) {
-				progress(start+i+1, len(files))
-			}
 		}
+		emit(end, chunk[len(chunk)-1], true)
 	}
 	return result, nil
 }

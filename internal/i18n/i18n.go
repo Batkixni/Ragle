@@ -649,6 +649,11 @@ var pairs = []pair{
 	{"preview.quickLookHint", "再按一次 Space 進入完整檢視 · Esc 關閉", "Press Space again for full view · Esc to close"},
 	{"preview.fullView", "完整檢視 (Space)", "Full View (Space)"},
 	{"inspector.addTag", "加入標籤", "Add tag"},
+	{"import.scanning", "正在掃描資料夾…", "Scanning folder…"},
+	{"import.progressTitle", "正在匯入素材", "Importing Assets"},
+	{"import.canceling", "正在取消…", "Canceling…"},
+	{"import.canceled", "已取消匯入：已新增 %d，已存在 %d", "Import canceled: %d added, %d existing"},
+	{"import.liveStats", "新增 %d · 已存在 %d", "%d added · %d existing"},
 }
 
 var (

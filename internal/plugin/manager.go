@@ -257,6 +257,7 @@ func (m *Manager) Execute(ctx context.Context, pluginID string, req Request) (Re
 	}
 
 	cmd := exec.CommandContext(ctx, exe, args...)
+	hideCmd(cmd)
 	cmd.Dir = inst.Dir
 	cmd.Stdin = bytes.NewReader(rawIn)
 	var stdout, stderr bytes.Buffer

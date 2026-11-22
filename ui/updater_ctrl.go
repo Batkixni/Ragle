@@ -6,6 +6,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/egoist/mygo"
+
 	"raglex/internal/updater"
 )
 
@@ -29,7 +31,7 @@ func (a *App) startQuietUpdateCheck() {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
 		rel, newer, err := client.Check(ctx)
-		if err != nil || !newer || rel == nil {
+		if err != nil || !newer || rel == nil || rel.DownloadURL == "" {
 			return
 		}
 		win.Update(func() {
@@ -161,11 +163,17 @@ func (a *App) applyUpdateNow() {
 }
 
 // restartToApplyUpdate relaunches the freshly installed Raglex binary and exits.
+// Using mygo.App.Relaunch ensures windows and the bbolt database lock are closed
+// cleanly on the main thread before the new process starts.
 func (a *App) restartToApplyUpdate() {
+	if a.win != nil {
+		mygo.App.Relaunch()
+		return
+	}
+	a.shutdown()
 	if err := updater.Relaunch(); err != nil {
 		a.notify(fmt.Sprintf(a.t("update.failed"), err.Error()))
 		return
 	}
-	a.shutdown()
 	os.Exit(0)
 }

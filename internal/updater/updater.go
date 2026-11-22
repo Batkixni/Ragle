@@ -25,7 +25,7 @@ import (
 
 // Version is the application's current semantic version.
 // Override at build time with: -ldflags "-X raglex/internal/updater.Version=..."
-var Version = "0.1.2"
+var Version = "0.1.3"
 
 // DefaultRepo is the upstream GitHub repository slug ("owner/repo").
 const DefaultRepo = "Batkixni/Raglex"
@@ -229,6 +229,21 @@ func (c *Client) Check(ctx context.Context) (*Release, bool, error) {
 	return out, IsNewer(out.TagName, c.currentVersion()), nil
 }
 
+// startExe captures the executable path at process startup before any in-place
+// update renames the running binary to ".old" on Windows.
+var startExe = resolveExecutablePath()
+
+func resolveExecutablePath() string {
+	exePath, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	if resolved, err := filepath.EvalSymlinks(exePath); err == nil {
+		exePath = resolved
+	}
+	return strings.TrimSuffix(exePath, ".old")
+}
+
 // MatchAsset picks the best desktop release asset for the given OS/arch.
 func MatchAsset(names []string, goos, goarch string) string {
 	assets := make([]ghAsset, len(names))
@@ -245,28 +260,72 @@ func matchPlatformAsset(assets []ghAsset, goos, goarch string) *ghAsset {
 	var best *ghAsset
 	bestScore := -1
 	osTokens := []string{goos}
-	if goos == "darwin" {
+	var foreignOS []string
+	switch goos {
+	case "darwin":
 		osTokens = append(osTokens, "macos", "osx")
-	} else if goos == "windows" {
+		foreignOS = []string{"windows", "linux"}
+	case "windows":
 		osTokens = append(osTokens, "win")
+		foreignOS = []string{"darwin", "macos", "osx", "linux"}
+	case "linux":
+		foreignOS = []string{"darwin", "macos", "osx", "windows"}
 	}
+
 	archTokens := []string{goarch}
-	if goarch == "amd64" {
+	var foreignArch []string
+	switch goarch {
+	case "amd64":
 		archTokens = append(archTokens, "x86_64", "x64")
+		foreignArch = []string{"arm64", "aarch64"}
+	case "arm64":
+		archTokens = append(archTokens, "aarch64")
+		foreignArch = []string{"amd64", "x86_64", "x64"}
 	}
 
 	for i := range assets {
 		a := &assets[i]
 		low := strings.ToLower(a.Name)
-		// Skip CLI bundles, browser extensions, checksums, and source archives.
+		// Skip installers (NSIS setup, deb, rpm, dmg, msi), CLI bundles, browser
+		// extensions, checksums, and signature files so self-update never overwrites
+		// the app binary with an installer wizard or non-portable package.
 		if strings.Contains(low, "cli") ||
 			strings.Contains(low, "server") ||
 			strings.Contains(low, "mcp") ||
 			strings.Contains(low, "extension") ||
 			strings.Contains(low, "checksum") ||
 			strings.Contains(low, "sha256") ||
+			strings.Contains(low, "setup") ||
+			strings.Contains(low, "installer") ||
+			strings.Contains(low, "uninstall") ||
 			strings.HasSuffix(low, ".txt") ||
-			strings.HasSuffix(low, ".sig") {
+			strings.HasSuffix(low, ".sig") ||
+			strings.HasSuffix(low, ".deb") ||
+			strings.HasSuffix(low, ".rpm") ||
+			strings.HasSuffix(low, ".dmg") ||
+			strings.HasSuffix(low, ".msi") ||
+			strings.HasSuffix(low, ".pkg") {
+			continue
+		}
+
+		// Hard-reject assets belonging to another OS or CPU architecture.
+		skipForeign := false
+		for _, bad := range foreignOS {
+			if strings.Contains(low, bad) {
+				skipForeign = true
+				break
+			}
+		}
+		if skipForeign {
+			continue
+		}
+		for _, bad := range foreignArch {
+			if strings.Contains(low, bad) {
+				skipForeign = true
+				break
+			}
+		}
+		if skipForeign {
 			continue
 		}
 
@@ -279,19 +338,20 @@ func matchPlatformAsset(assets []ghAsset, goos, goarch string) *ghAsset {
 				break
 			}
 		}
-		if goos == "windows" && strings.HasSuffix(low, ".exe") && !hasOS {
-			hasOS = true
-			score += 30
-		}
 		if !hasOS {
 			continue
 		}
 
+		hasArch := false
 		for _, tok := range archTokens {
 			if strings.Contains(low, tok) {
+				hasArch = true
 				score += 30
 				break
 			}
+		}
+		if !hasArch {
+			continue
 		}
 
 		switch goos {
@@ -300,12 +360,16 @@ func matchPlatformAsset(assets []ghAsset, goos, goarch string) *ghAsset {
 				score += 20
 			} else if strings.HasSuffix(low, ".exe") {
 				score += 18
+			} else {
+				continue
 			}
 		case "darwin", "linux":
 			if strings.HasSuffix(low, ".zip") {
 				score += 20
 			} else if strings.HasSuffix(low, ".tar.gz") || strings.HasSuffix(low, ".tgz") {
 				score += 16
+			} else {
+				continue
 			}
 		}
 		if strings.HasPrefix(low, "raglex") {
@@ -337,12 +401,12 @@ func findChecksumsURL(assets []ghAsset, useAPIURL bool) string {
 // extracts the executable when archived, and atomically replaces the currently
 // running Raglex binary.
 func (c *Client) DownloadAndApply(ctx context.Context, rel *Release, onProgress func(Progress)) error {
-	exePath, err := os.Executable()
-	if err != nil {
-		return fmt.Errorf("locate current executable: %w", err)
+	exePath := startExe
+	if exePath == "" {
+		exePath = resolveExecutablePath()
 	}
-	if resolved, err := filepath.EvalSymlinks(exePath); err == nil {
-		exePath = resolved
+	if exePath == "" {
+		return errors.New("locate current executable: empty executable path")
 	}
 	return c.DownloadAndApplyTo(ctx, rel, exePath, onProgress)
 }
@@ -517,7 +581,10 @@ func extractExecutableFromZip(zipPath, dstDir, targetBase string) (string, error
 			chosen = f
 			break
 		}
-		if chosen == nil && runtime.GOOS == "windows" && strings.HasSuffix(base, ".exe") && !strings.Contains(base, "server") && !strings.Contains(base, "mcp") {
+		if chosen == nil && runtime.GOOS == "windows" && strings.HasSuffix(base, ".exe") &&
+			!strings.Contains(base, "server") && !strings.Contains(base, "mcp") &&
+			!strings.Contains(base, "setup") && !strings.Contains(base, "installer") &&
+			!strings.Contains(base, "uninstall") {
 			chosen = f
 		}
 	}
@@ -547,6 +614,14 @@ func extractExecutableFromZip(zipPath, dstDir, targetBase string) (string, error
 }
 
 func replaceBinary(targetExe, newBinPath string) error {
+	st, err := os.Stat(newBinPath)
+	if err != nil {
+		return err
+	}
+	if st.Size() == 0 {
+		return errors.New("downloaded binary is empty")
+	}
+	targetExe = strings.TrimSuffix(targetExe, ".old")
 	dir := filepath.Dir(targetExe)
 	staged := targetExe + ".new"
 	backup := targetExe + ".old"
@@ -608,29 +683,33 @@ func copyFile(src, dst string, mode os.FileMode) error {
 
 // CleanupOldBinary removes leftover ".old" executables from a previous update.
 func CleanupOldBinary() {
-	exePath, err := os.Executable()
-	if err != nil {
-		return
+	exePath := startExe
+	if exePath == "" {
+		exePath = resolveExecutablePath()
 	}
-	if resolved, err := filepath.EvalSymlinks(exePath); err == nil {
-		exePath = resolved
+	if exePath == "" {
+		return
 	}
 	_ = os.Remove(exePath + ".old")
 	_ = os.Remove(exePath + ".new")
 }
 
-// Relaunch starts the newly installed executable in a detached process.
+// Relaunch starts the newly installed executable.
 func Relaunch() error {
-	exePath, err := os.Executable()
-	if err != nil {
-		return err
+	exePath := startExe
+	if exePath == "" {
+		exePath = resolveExecutablePath()
 	}
-	if resolved, err := filepath.EvalSymlinks(exePath); err == nil {
-		exePath = resolved
+	if exePath == "" {
+		return errors.New("locate current executable: empty executable path")
 	}
 	cmd := exec.Command(exePath, os.Args[1:]...)
 	detachCmd(cmd)
-	return cmd.Start()
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	_ = cmd.Process.Release()
+	return nil
 }
 
 // IsNewer returns true when candidate is strictly greater than current per SemVer 2.0.

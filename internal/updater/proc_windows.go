@@ -4,12 +4,11 @@ package updater
 
 import (
 	"os/exec"
-	"syscall"
 )
 
 func detachCmd(cmd *exec.Cmd) {
-	// DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
-	cmd.SysProcAttr = &syscall.SysProcAttr{
-		CreationFlags: 0x00000008 | 0x00000200,
-	}
+	// GUI executables on Windows do not need DETACHED_PROCESS; passing it can
+	// prevent foreground window activation on relaunch.
+	cmd.Stdout = nil
+	cmd.Stderr = nil
 }

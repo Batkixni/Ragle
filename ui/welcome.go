@@ -1,6 +1,10 @@
 package ui
 
-import gui "github.com/egoist/mygo/ui"
+import (
+	"fmt"
+
+	gui "github.com/egoist/mygo/ui"
+)
 
 // View builds the window. Tester calls it without a running app.
 func (a *App) View(c *gui.Context) {
@@ -28,13 +32,105 @@ func (a *App) View(c *gui.Context) {
 	a.shareModal(c)
 	a.receivePairModal(c)
 	a.confirm(c)
+	a.importProgressPopup(c)
 	a.toastOverlay(c)
+}
+
+// importProgressPopup shows a sleek floating progress card at the bottom-center
+// while importing files or folders so users always see live progress and filename.
+func (a *App) importProgressPopup(c *gui.Context) {
+	if !a.importing {
+		return
+	}
+	title := a.t("import.progressTitle")
+	if a.importStage == "scanning" {
+		title = a.t("import.scanning")
+	} else if a.importStage == "canceling" {
+		title = a.t("import.canceling")
+	}
+
+	var targetPct float32 = 12
+	countText := ""
+	if a.importTotal > 0 {
+		pct := float32(a.importDone) * 100 / float32(a.importTotal)
+		if pct < 2 {
+			pct = 2
+		} else if pct > 100 {
+			pct = 100
+		}
+		targetPct = pct
+		countText = fmt.Sprintf("%d / %d (%d%%)", a.importDone, a.importTotal, int(pct))
+	}
+
+	borderCol := gui.RGBA(255, 255, 255, 0.12)
+	if !a.dark {
+		borderCol = gui.RGBA(24, 24, 27, 0.12)
+	}
+
+	gui.Row(c.Key("import-progress-wrap")).
+		Absolute().
+		Left(0).
+		Right(0).
+		Bottom(24).
+		Justify(gui.Center).
+		PassThrough().
+		Children(func() {
+			card := gui.Column(c.Key("import-progress-card")).
+				Width(420).
+				Padding(14, 16).
+				Gap(10).
+				Radius(radiusPanel).
+				Background(a.pal.surfaceRaised).
+				Border(1, borderCol).
+				Shadow(0, 14, 38, 0, a.pal.shadowFloating).
+				Transition(gui.ElementTransition{
+					Animation: &springSnappy,
+					Enter:     &gui.Motion{Y: 16, Opacity: 0},
+					Exit:      &gui.Motion{Y: 10, Opacity: 0},
+				})
+			animPct := card.AnimateTo("imp-pct", targetPct, animFast)
+			card.Children(func() {
+				// Top row: Spinner + Title + Counter + Cancel button.
+				gui.Row(c).FillWidth().Gap(8).AlignItems(gui.Center).Children(func() {
+					gui.Spinner(c)
+					gui.Text(c, title).FontSize(13).Bold().TextColor(a.pal.ink).Grow(1).SingleLine()
+					if countText != "" {
+						gui.Text(c, countText).FontSize(11).Bold().TextColor(a.pal.inkSecondary).SingleLine()
+					}
+					if a.importCancel != nil && a.importStage != "canceling" {
+						a.toolButton(c, "import-cancel-btn", iconX, a.t("common.cancel"), false).
+							Padding(3, 8).
+							OnClick(func() { a.cancelImport() })
+					}
+				})
+
+				// Smooth monochrome progress track.
+				gui.Box(c).FillWidth().Height(6).Radius(radiusPill).Clip().Background(a.pal.surfaceMuted).Children(func() {
+					gui.Box(c).WidthPercent(animPct).FillHeight().Radius(radiusPill).Background(a.pal.controlOn)
+				})
+
+				// Bottom row: Current filename + live added/existing tally.
+				gui.Row(c).FillWidth().Gap(10).AlignItems(gui.Center).Children(func() {
+					cur := a.importCurrent
+					if cur == "" {
+						cur = "…"
+					}
+					gui.Text(c, cur).FontSize(11).TextColor(a.pal.inkMuted).Grow(1).SingleLine()
+					if a.importAdded > 0 || a.importExisting > 0 {
+						gui.Text(c, fmt.Sprintf(a.t("import.liveStats"), a.importAdded, a.importExisting)).
+							FontSize(11).
+							TextColor(a.pal.inkSecondary).
+							SingleLine()
+					}
+				})
+			})
+		})
 }
 
 // toastOverlay renders a sleek auto-dismissing floating toast pill at the
 // bottom-center of the window so import/backup/batch notices never shift layout.
 func (a *App) toastOverlay(c *gui.Context) {
-	if !a.toastVisible || a.toastMsg == "" {
+	if a.importing || !a.toastVisible || a.toastMsg == "" {
 		return
 	}
 	gui.Row(c.Key("floating-toast-wrap")).

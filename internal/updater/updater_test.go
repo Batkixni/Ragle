@@ -38,18 +38,62 @@ func TestCompareVersion(t *testing.T) {
 
 func TestMatchAsset(t *testing.T) {
 	assets := []string{
-		"Raglex-windows-amd64.zip",
-		"Raglex-windows-amd64.exe",
-		"raglex-cli-windows-amd64.zip",
+		"raglex-0.1.2-1.aarch64.rpm",
+		"raglex-0.1.2-1.x86_64.rpm",
+		"raglex-0.1.2-linux-amd64.tar.gz",
+		"raglex-0.1.2-linux-arm64.tar.gz",
 		"raglex-browser-extension.zip",
+		"raglex-cli-darwin-amd64.zip",
+		"raglex-cli-darwin-arm64.zip",
+		"raglex-cli-linux-amd64.zip",
+		"raglex-cli-linux-arm64.zip",
+		"raglex-cli-windows-amd64.zip",
+		"raglex-cli-windows-arm64.zip",
+		"Raglex-darwin-amd64.zip",
 		"Raglex-darwin-arm64.zip",
+		"raglex-setup-0.1.2-amd64.exe",
+		"raglex-setup-0.1.2-arm64.exe",
+		"Raglex-windows-amd64.exe",
+		"Raglex-windows-amd64.zip",
+		"Raglex-windows-arm64.exe",
+		"Raglex-windows-arm64.zip",
+		"raglex_0.1.2_amd64.deb",
+		"raglex_0.1.2_arm64.deb",
 		"SHA256SUMS.txt",
 	}
 	if got := MatchAsset(assets, "windows", "amd64"); got != "Raglex-windows-amd64.zip" {
 		t.Fatalf("windows/amd64 matched %q, want Raglex-windows-amd64.zip", got)
 	}
+	if got := MatchAsset(assets, "windows", "arm64"); got != "Raglex-windows-arm64.zip" {
+		t.Fatalf("windows/arm64 matched %q, want Raglex-windows-arm64.zip", got)
+	}
 	if got := MatchAsset(assets, "darwin", "arm64"); got != "Raglex-darwin-arm64.zip" {
 		t.Fatalf("darwin/arm64 matched %q, want Raglex-darwin-arm64.zip", got)
+	}
+	if got := MatchAsset(assets, "darwin", "amd64"); got != "Raglex-darwin-amd64.zip" {
+		t.Fatalf("darwin/amd64 matched %q, want Raglex-darwin-amd64.zip", got)
+	}
+	if got := MatchAsset(assets, "linux", "amd64"); got != "raglex-0.1.2-linux-amd64.tar.gz" {
+		t.Fatalf("linux/amd64 matched %q, want raglex-0.1.2-linux-amd64.tar.gz", got)
+	}
+	if got := MatchAsset(assets, "linux", "arm64"); got != "raglex-0.1.2-linux-arm64.tar.gz" {
+		t.Fatalf("linux/arm64 matched %q, want raglex-0.1.2-linux-arm64.tar.gz", got)
+	}
+
+	// Never match NSIS setup installers or wrong CPU architecture (e.g., arm64 on amd64).
+	partialUpload := []string{
+		"raglex-setup-0.1.2-amd64.exe",
+		"raglex-setup-0.1.2-arm64.exe",
+		"Raglex-windows-arm64.zip",
+		"Raglex-windows-arm64.exe",
+		"raglex_0.1.2_amd64.deb",
+		"raglex-0.1.2-1.x86_64.rpm",
+	}
+	if got := MatchAsset(partialUpload, "windows", "amd64"); got != "" {
+		t.Fatalf("windows/amd64 must not match installer or arm64 binary, got %q", got)
+	}
+	if got := MatchAsset([]string{"Raglex-windows-amd64.zip", "raglex-setup-0.1.2-arm64.exe"}, "windows", "arm64"); got != "" {
+		t.Fatalf("windows/arm64 must not match amd64 binary or setup installer, got %q", got)
 	}
 }
 
