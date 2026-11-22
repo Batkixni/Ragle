@@ -66,11 +66,19 @@ func (a *App) boardToolbar(c *gui.Context) {
 			Shadow(0, 6, 20, 0, a.pal.shadowRaised).
 			Children(func() {
 				// Back & breadcrumb.
-				a.toolButton(c, "board-leave", iconArrowLeft, a.t("board.leave"), false).OnClick(func() {
+				leaveLbl := a.t("board.leave")
+				if a.boardProject == "" {
+					leaveLbl = a.t("board.leaveToLib")
+				}
+				a.toolButton(c, "board-leave", iconArrowLeft, leaveLbl, false).OnClick(func() {
 					a.flushBoard(true)
 					a.session = nil
 					a.boardID = ""
-					a.screen = screenProject
+					if a.boardProject == "" {
+						a.screen = screenLibrary
+					} else {
+						a.screen = screenProject
+					}
 					a.syncNavSelection()
 				})
 				gui.Row(c).Gap(8).FillHeight().AlignItems(gui.Center).DragWindow().Children(func() {
@@ -78,6 +86,16 @@ func (a *App) boardToolbar(c *gui.Context) {
 					gui.Text(c, a.boardName).Bold().FontSize(13).SingleLine().MaxWidth(160)
 					a.pillBadge(c, fmt.Sprintf(a.t("board.placementCount"), itemCount), t.TextMuted, a.pal.surface)
 				})
+				if a.boardProject == "" && len(a.projectList) > 0 {
+					gui.PopoverMenuButton(c.Key("board-move-proj"), a.t("board.moveToProject"), func(m *gui.Menu) {
+						for _, p := range a.projectList {
+							proj := p
+							if m.Item(proj.Name).Chosen() {
+								a.moveBoardToProject(a.boardID, proj.ID)
+							}
+						}
+					})
+				}
 
 				gui.Box(c).Grow(1).FillHeight().DragWindow()
 
@@ -156,8 +174,9 @@ func (a *App) boardSurface(c *gui.Context) {
 
 func (a *App) boardTray(c *gui.Context) {
 	t := c.Theme()
+	standalone := a.boardProject == ""
 	list := a.projectAssets
-	if a.tray == 1 {
+	if standalone || a.tray == 1 {
 		list = a.allAssets
 	}
 	trays := []string{a.t("board.trayProject"), a.t("board.trayLibrary")}
@@ -175,9 +194,13 @@ func (a *App) boardTray(c *gui.Context) {
 			}).
 			Children(func() {
 				gui.Row(c).Padding(8, 14, 4, 14).Gap(10).AlignItems(gui.Center).Children(func() {
-					a.arcPillTabs(c, "board-tray-tabs", a.tray, trays, func(idx int) {
-						a.tray = idx
-					})
+					if standalone {
+						gui.Text(c, a.t("board.trayLibrary")).FontSize(12).Bold().TextColor(a.pal.ink)
+					} else {
+						a.arcPillTabs(c, "board-tray-tabs", a.tray, trays, func(idx int) {
+							a.tray = idx
+						})
+					}
 					gui.Text(c, a.t("board.clickToPlace")).FontSize(11).TextColor(a.pal.inkMuted)
 					gui.Spacer(c)
 					gui.Text(c, fmt.Sprintf(a.t("common.itemsCount"), len(list))).FontSize(11).TextColor(t.TextMuted)

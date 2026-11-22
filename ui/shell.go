@@ -326,6 +326,67 @@ func (a *App) sidebar(c *gui.Context) {
 							renderTagNodes(a.tagChildren[""], 0)
 						}
 
+						// Standalone Boards section header with inline "+" creator button.
+						gui.Row(c).FillWidth().Padding(14, 4, 4, 10).AlignItems(gui.Center).Children(func() {
+							a.sectionLabel(c, a.t("shell.boards"))
+							gui.Spacer(c)
+							a.miniHeaderButton(c, "sb-add-board", iconPlus, a.t("board.newStandalone"), a.newStandaloneBoardOpen).OnClick(func() {
+								a.newStandaloneBoardOpen = !a.newStandaloneBoardOpen
+							})
+						})
+
+						if a.newStandaloneBoardOpen {
+							gui.Row(c.Key("inline-new-board-row")).
+								Padding(4, 4, 6, 4).
+								Gap(4).
+								AlignItems(gui.Center).
+								Transition(gui.ElementTransition{
+									Animation: &springSmooth,
+									Enter:     &gui.Motion{Y: -6, Opacity: 0, Collapse: true},
+									Exit:      &gui.Motion{Y: -6, Opacity: 0, Collapse: true},
+								}).
+								Children(func() {
+									gui.TextInput(c.Key("new-standalone-board"), &a.newStandaloneBoardName).
+										Placeholder(a.t("board.newStandalone")).
+										AutoFocus().
+										Grow(1).
+										OnSubmit(func() { a.createStandaloneBoard() })
+									a.iconButton(c, "new-sb-ok", iconCheck, a.t("project.addBoard"), true).OnClick(func() {
+										a.createStandaloneBoard()
+									})
+									a.iconButton(c, "new-sb-x", iconX, a.t("common.cancel"), false).OnClick(func() {
+										a.newStandaloneBoardOpen = false
+										a.newStandaloneBoardName = ""
+									})
+								})
+						}
+
+						for _, sb := range a.standaloneBoards {
+							board := sb
+							if sf != "" && !strings.Contains(strings.ToLower(board.Name), sf) {
+								continue
+							}
+							bID := board.ID
+							addNav("board:"+bID, iconBoard, nil, board.Name, a.boardCounts[bID], 0, false, false, nil, func(m *gui.Menu) {
+								if len(a.projectList) > 0 {
+									m.Submenu(a.t("board.moveToProject"), func(sm *gui.Menu) {
+										for _, p := range a.projectList {
+											proj := p
+											if sm.Item(proj.Name).Chosen() {
+												a.moveBoardToProject(bID, proj.ID)
+											}
+										}
+									})
+									m.Separator()
+								}
+								if m.Item(a.t("board.deleteBoard")).Chosen() {
+									a.deleteStandaloneBoardPrompt(board)
+								}
+							}, func(ids []string) {
+								a.sendAssetsToBoard(ids, bID)
+							})
+						}
+
 						// Projects section header with inline "+" creator button.
 						gui.Row(c).FillWidth().Padding(14, 4, 4, 10).AlignItems(gui.Center).Children(func() {
 							a.sectionLabel(c, a.t("shell.projects"))

@@ -241,8 +241,11 @@ type App struct {
 	dbStatsLoaded        bool
 
 	// Project & board state.
-	projectList   []model.Project
-	projectID     string
+	projectList            []model.Project
+	standaloneBoards       []model.Board
+	newStandaloneBoardOpen bool
+	newStandaloneBoardName string
+	projectID              string
 	project       model.Project
 	projectAssets []model.Asset
 	boards        []model.Board
@@ -767,6 +770,17 @@ func (a *App) reload() {
 	a.projectTags = map[string]bool{}
 	a.boardCounts = map[string]int{}
 	a.boardPlacements = map[string][]model.Placement{}
+	if a.projects != nil {
+		if sb, err := a.projects.StandaloneBoards(); err == nil {
+			a.standaloneBoards = sb
+			for _, b := range sb {
+				if items, err := a.projects.LoadPlacements(b.ID); err == nil {
+					a.boardCounts[b.ID] = len(items)
+					a.boardPlacements[b.ID] = items
+				}
+			}
+		}
+	}
 	if a.projectID != "" && a.projects != nil {
 		projects, err := a.projects.List()
 		if err != nil {
@@ -1704,6 +1718,9 @@ func (a *App) openBoard(b model.Board) {
 	a.boardName = b.Name
 	a.boardProject = b.ProjectID
 	a.projectID = b.ProjectID
+	if b.ProjectID == "" {
+		a.tray = 1 // Standalone boards default to Library tray.
+	}
 	a.screen = screenBoard
 	a.gesture = gesture{}
 	a.boundID = ""
@@ -1870,11 +1887,21 @@ func (a *App) handleNav(nav string) {
 	case strings.HasPrefix(nav, "project:"):
 		pid := strings.TrimPrefix(nav, "project:")
 		a.openProject(pid)
+	case strings.HasPrefix(nav, "board:"):
+		bid := strings.TrimPrefix(nav, "board:")
+		if a.projects != nil {
+			if b, err := a.projects.GetBoard(bid); err == nil {
+				a.openBoard(b)
+			}
+		}
 	}
 }
 
 func (a *App) syncNavSelection() {
-	if a.screen == screenProject || a.screen == screenBoard {
+	if a.screen == screenBoard && a.boardProject == "" && a.boardID != "" {
+		a.selectedNav = "board:" + a.boardID
+		a.lastNav = a.selectedNav
+	} else if a.screen == screenProject || a.screen == screenBoard {
 		if a.projectID != "" {
 			a.selectedNav = "project:" + a.projectID
 			a.lastNav = a.selectedNav
@@ -2443,4 +2470,105 @@ func (a *App) toggleTagExpand(id string) {
 		a.expandedTags = map[string]bool{}
 	}
 	a.expandedTags[id] = !a.expandedTags[id]
+}
+
+// --- Stage 13: Standalone Board Actions ---
+
+func (a *App) createStandaloneBoard() {
+	if a.projects == nil {
+		return
+	}
+	name := trim(a.newStandaloneBoardName)
+	if name == "" {
+		name = a.t("board.newStandalone")
+	}
+	b, err := a.projects.CreateStandaloneBoard(name)
+	if err != nil {
+		a.notify(err.Error())
+		return
+	}
+	a.newStandaloneBoardOpen = false
+	a.newStandaloneBoardName = ""
+	a.openBoard(b)
+}
+
+func (a *App) sendAssetsToBoard(ids []string, boardID string) {
+	if a.projects == nil || len(ids) == 0 || boardID == "" {
+		return
+	}
+	n, err := a.projects.AddAssetsToBoard(boardID, ids)
+	if err != nil {
+		a.notify(err.Error())
+		return
+	}
+	bName := boardID
+	if b, err := a.projects.GetBoard(boardID); err == nil {
+		bName = b.Name
+	}
+	a.reload()
+	a.notify(fmt.Sprintf(a.t("board.addedTo"), n, bName))
+}
+
+func (a *App) sendAssetsToNewBoard(ids []string) {
+	if a.projects == nil || len(ids) == 0 {
+		return
+	}
+	name := fmt.Sprintf("%s %s", a.t("shell.boards"), time.Now().Format("01-02 15:04"))
+	b, err := a.projects.CreateStandaloneBoard(name)
+	if err != nil {
+		a.notify(err.Error())
+		return
+	}
+	if _, err := a.projects.AddAssetsToBoard(b.ID, ids); err != nil {
+		a.notify(err.Error())
+		return
+	}
+	a.openBoard(b)
+}
+
+func (a *App) moveBoardToProject(boardID, projectID string) {
+	if a.projects == nil || boardID == "" || projectID == "" {
+		return
+	}
+	if err := a.projects.MoveBoardToProject(boardID, projectID); err != nil {
+		a.notify(err.Error())
+		return
+	}
+	if a.boardID == boardID {
+		a.boardProject = projectID
+		a.projectID = projectID
+	}
+	projName := projectID
+	for _, p := range a.projectList {
+		if p.ID == projectID {
+			projName = p.Name
+			break
+		}
+	}
+	a.reload()
+	a.notify(fmt.Sprintf(a.t("board.movedToProject"), projName))
+}
+
+func (a *App) deleteStandaloneBoardPrompt(b model.Board) {
+	a.ask(
+		a.t("board.deleteBoard"),
+		fmt.Sprintf(a.t("board.deleteBoardConfirm"), b.Name),
+		a.t("common.delete"),
+		func() {
+			if a.projects == nil {
+				return
+			}
+			if a.boardID == b.ID {
+				a.session = nil
+				a.boardID = ""
+				a.boardProject = ""
+				a.screen = screenLibrary
+			}
+			if err := a.projects.DeleteBoard(b.ID); err != nil {
+				a.notify(err.Error())
+				return
+			}
+			a.reload()
+		},
+	)
 }

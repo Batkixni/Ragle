@@ -239,6 +239,176 @@ func (s *Store) CreateBoard(projectID, name string) (model.Board, error) {
 	return b, err
 }
 
+// CreateStandaloneBoard creates a board outside of any project (ProjectID == "").
+func (s *Store) CreateStandaloneBoard(name string) (model.Board, error) {
+	b := model.Board{
+		ID:        model.NewID(),
+		ProjectID: "",
+		Name:      name,
+		CreatedAt: time.Now().UTC(),
+	}
+	err := s.DB.Update(func(tx *bbolt.Tx) error {
+		return db.PutBoard(tx, b)
+	})
+	return b, err
+}
+
+// StandaloneBoards lists every board not attached to a project.
+func (s *Store) StandaloneBoards() ([]model.Board, error) {
+	var out []model.Board
+	err := s.DB.View(func(tx *bbolt.Tx) error {
+		ids, err := db.StandaloneBoards(tx)
+		if err != nil {
+			return err
+		}
+		for _, id := range ids {
+			b, err := db.GetBoard(tx, id)
+			if err != nil {
+				return err
+			}
+			out = append(out, b)
+		}
+		return nil
+	})
+	return out, err
+}
+
+// GetBoard fetches one board by ID.
+func (s *Store) GetBoard(boardID string) (model.Board, error) {
+	var b model.Board
+	err := s.DB.View(func(tx *bbolt.Tx) error {
+		var err error
+		b, err = db.GetBoard(tx, boardID)
+		return err
+	})
+	return b, err
+}
+
+// RenameBoard renames a standalone or project board.
+func (s *Store) RenameBoard(boardID, name string) (model.Board, error) {
+	var updated model.Board
+	err := s.DB.Update(func(tx *bbolt.Tx) error {
+		b, err := db.GetBoard(tx, boardID)
+		if err != nil {
+			return err
+		}
+		if name != "" {
+			b.Name = name
+		}
+		updated = b
+		return db.PutBoard(tx, b)
+	})
+	return updated, err
+}
+
+// MoveBoardToProject attaches a standalone board (or moves an existing board)
+// to projectID. Passing empty projectID detaches it into a standalone board.
+// When attaching to a project, any image assets placed on the board are also
+// referenced in that project.
+func (s *Store) MoveBoardToProject(boardID, projectID string) error {
+	return s.DB.Update(func(tx *bbolt.Tx) error {
+		if projectID != "" {
+			if _, err := db.GetProject(tx, projectID); err != nil {
+				return err
+			}
+		}
+		if err := db.MoveBoardProject(tx, boardID, projectID); err != nil {
+			return err
+		}
+		if projectID != "" {
+			items, err := db.LoadBoard(tx, boardID)
+			if err != nil {
+				return err
+			}
+			for _, it := range items {
+				if it.Kind == model.KindImage && it.AssetID != "" {
+					if _, err := db.GetAsset(tx, it.AssetID); err == nil {
+						_ = db.LinkProjectAsset(tx, projectID, it.AssetID)
+					}
+				}
+			}
+		}
+		return nil
+	})
+}
+
+// AddAssetsToBoard appends image placements for assetIDs in a neat grid on boardID.
+func (s *Store) AddAssetsToBoard(boardID string, assetIDs []string) (int, error) {
+	if len(assetIDs) == 0 {
+		return 0, nil
+	}
+	added := 0
+	err := s.DB.Update(func(tx *bbolt.Tx) error {
+		b, err := db.GetBoard(tx, boardID)
+		if err != nil {
+			return err
+		}
+		existing, err := db.LoadBoard(tx, boardID)
+		if err != nil {
+			return err
+		}
+		maxZ := 0
+		baseX := 220.0
+		baseY := 200.0
+		if len(existing) > 0 {
+			maxY := 0.0
+			for _, it := range existing {
+				if it.ZIndex > maxZ {
+					maxZ = it.ZIndex
+				}
+				bottom := it.Y + it.Height*it.ScaleOrOne()/2
+				if bottom > maxY {
+					maxY = bottom
+				}
+			}
+			baseY = maxY + 180
+		}
+		cols := 4
+		const cellW = 340.0
+		const cellH = 260.0
+		for i, aid := range assetIDs {
+			asset, err := db.GetAsset(tx, aid)
+			if err != nil {
+				continue
+			}
+			w, h := 300.0, 220.0
+			if asset.Width > 0 && asset.Height > 0 {
+				if asset.Width >= asset.Height {
+					w = 300
+					h = 300 * float64(asset.Height) / float64(asset.Width)
+				} else {
+					h = 300
+					w = 300 * float64(asset.Width) / float64(asset.Height)
+				}
+			}
+			maxZ++
+			col := i % cols
+			row := i / cols
+			pl := model.Placement{
+				ID:      model.NewID(),
+				BoardID: boardID,
+				Kind:    model.KindImage,
+				AssetID: asset.ID,
+				X:       baseX + float64(col)*cellW,
+				Y:       baseY + float64(row)*cellH,
+				Width:   w,
+				Height:  h,
+				Scale:   1,
+				ZIndex:  maxZ,
+			}
+			if err := db.PutPlacement(tx, pl); err != nil {
+				return err
+			}
+			if b.ProjectID != "" {
+				_ = db.LinkProjectAsset(tx, b.ProjectID, asset.ID)
+			}
+			added++
+		}
+		return nil
+	})
+	return added, err
+}
+
 // Boards lists a project's boards.
 func (s *Store) Boards(projectID string) ([]model.Board, error) {
 	var out []model.Board

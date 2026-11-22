@@ -6,7 +6,7 @@ import (
 	"ragle/internal/model"
 )
 
-// PutBoard writes a board and the project index.
+// PutBoard writes a board and updates its project or standalone index.
 func PutBoard(tx *bbolt.Tx, b model.Board) error {
 	raw, err := encode(b)
 	if err != nil {
@@ -15,7 +15,46 @@ func PutBoard(tx *bbolt.Tx, b model.Board) error {
 	if err := tx.Bucket(BucketBoards).Put([]byte(b.ID), raw); err != nil {
 		return err
 	}
+	if b.ProjectID == "" {
+		return putEmpty(tx.Bucket(BucketBoardsStandalone), []byte(b.ID))
+	}
 	return putEmpty(tx.Bucket(BucketBoardsByProject), indexKey(b.ProjectID, b.ID))
+}
+
+// StandaloneBoards lists board IDs not attached to any project.
+func StandaloneBoards(tx *bbolt.Tx) ([]string, error) {
+	b := tx.Bucket(BucketBoardsStandalone)
+	if b == nil {
+		return nil, nil
+	}
+	var ids []string
+	err := b.ForEach(func(k, _ []byte) error {
+		ids = append(ids, string(k))
+		return nil
+	})
+	return ids, err
+}
+
+// MoveBoardProject re-assigns a board's ProjectID (empty string makes it standalone).
+func MoveBoardProject(tx *bbolt.Tx, boardID, newProjectID string) error {
+	b, err := GetBoard(tx, boardID)
+	if err != nil {
+		return err
+	}
+	if b.ProjectID == newProjectID {
+		return nil
+	}
+	if b.ProjectID == "" {
+		if err := tx.Bucket(BucketBoardsStandalone).Delete([]byte(b.ID)); err != nil {
+			return err
+		}
+	} else {
+		if err := tx.Bucket(BucketBoardsByProject).Delete(indexKey(b.ProjectID, b.ID)); err != nil {
+			return err
+		}
+	}
+	b.ProjectID = newProjectID
+	return PutBoard(tx, b)
 }
 
 // GetBoard reads one board.
@@ -181,8 +220,14 @@ func DeleteBoard(tx *bbolt.Tx, boardID string) error {
 			return err
 		}
 	}
-	if err := tx.Bucket(BucketBoardsByProject).Delete(indexKey(b.ProjectID, b.ID)); err != nil {
-		return err
+	if b.ProjectID == "" {
+		if err := tx.Bucket(BucketBoardsStandalone).Delete([]byte(b.ID)); err != nil {
+			return err
+		}
+	} else {
+		if err := tx.Bucket(BucketBoardsByProject).Delete(indexKey(b.ProjectID, b.ID)); err != nil {
+			return err
+		}
 	}
 	return tx.Bucket(BucketBoards).Delete([]byte(boardID))
 }

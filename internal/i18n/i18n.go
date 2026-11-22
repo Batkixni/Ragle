@@ -475,6 +475,18 @@ var pairs = []pair{
 	{"inspector.source", "來源網址", "Source URL"},
 	{"inspector.saveMeta", "儲存備註", "Save notes"},
 	{"inspector.metaSaved", "已儲存素材備註", "Asset metadata saved"},
+
+	// Stage 13: Standalone Boards.
+	{"shell.boards", "獨立白板", "Boards"},
+	{"board.newStandalone", "新獨立白板", "New standalone board"},
+	{"board.leaveToLib", "返回母庫", "Back to library"},
+	{"board.sendTo", "送到白板", "Send to board"},
+	{"board.sendToNew", "+ 建立新白板並放置", "+ New board with selection"},
+	{"board.addedTo", "已將 %d 個素材加入白板「%s」", "Added %d assets to board “%s”"},
+	{"board.moveToProject", "歸類到專案", "Move to project"},
+	{"board.movedToProject", "已將白板移入專案「%s」", "Moved board to project “%s”"},
+	{"board.deleteBoard", "刪除白板", "Delete board"},
+	{"board.deleteBoardConfirm", "確定要刪除獨立白板「%s」嗎？母庫中的原始素材不會被刪除。", "Delete standalone board “%s”? Original assets in your library will not be deleted."},
 }
 
 var (

@@ -248,6 +248,20 @@ func (a *App) batchActionBar(c *gui.Context) {
 			}
 
 			if len(ids) > 0 {
+				gui.PopoverMenuButton(c.Key("batch-send-board"), a.t("board.sendTo"), func(m *gui.Menu) {
+					if m.Item(a.t("board.sendToNew")).Chosen() {
+						a.sendAssetsToNewBoard(ids)
+					}
+					if len(a.standaloneBoards) > 0 {
+						m.Separator()
+						for _, sb := range a.standaloneBoards {
+							b := sb
+							if m.Item(b.Name).Chosen() {
+								a.sendAssetsToBoard(ids, b.ID)
+							}
+						}
+					}
+				})
 				a.toolButton(c, "batch-rename-btn", iconEdit, a.t("rename.batchAction"), false).OnClick(func() {
 					a.openRenameModal(ids)
 				})
@@ -803,6 +817,26 @@ func (a *App) assetCard(c *gui.Context, index int, asset model.Asset, selected b
 				}
 			})
 		}
+		targetIDs := []string{asset.ID}
+		boardMenuTitle := a.t("board.sendTo")
+		if multi {
+			targetIDs = batchIDs
+			boardMenuTitle = fmt.Sprintf("%s (%d)", a.t("board.sendTo"), len(batchIDs))
+		}
+		m.Submenu(boardMenuTitle, func(sm *gui.Menu) {
+			if sm.Item(a.t("board.sendToNew")).Chosen() {
+				a.sendAssetsToNewBoard(targetIDs)
+			}
+			if len(a.standaloneBoards) > 0 {
+				sm.Separator()
+				for _, sb := range a.standaloneBoards {
+					b := sb
+					if sm.Item(b.Name).Chosen() {
+						a.sendAssetsToBoard(targetIDs, b.ID)
+					}
+				}
+			}
+		})
 		if !multi {
 			m.Submenu(a.t("library.rating"), func(sm *gui.Menu) {
 				for r := 0; r <= 5; r++ {
