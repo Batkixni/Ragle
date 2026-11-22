@@ -15,9 +15,12 @@
   <img src="https://shieldcn.dev/badge/Platform-macOS_%7C_Windows_%7C_Linux-3F3F46.svg" alt="Platforms" />
 </p>
 
-<p align="center">
-[![Listed on Awesome MyGo](https://awesomemygo.dev/badge.svg)](https://awesomemygo.dev/apps/raglex)
-</p>
+
+<div align="center">
+  <a href="https://awesomemygo.dev/apps/raglex">
+    <img src="https://awesomemygo.dev/badge.svg" alt="Listed on Awesome MyGo">
+  </a>
+</div>
 
 ## Workspace Previews
 
