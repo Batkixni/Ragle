@@ -17,9 +17,13 @@
 
 ## 介面預覽
 
-| 專案空間與白板即時預覽 | 無限靈感白板與置頂參考浮窗 |
+| 毛玻璃視覺資料庫與資訊檢視器 | 專案空間與白板即時預覽 |
 | :---: | :---: |
-| <img src="docs/screenshots/project.png" alt="專案空間" width="100%" /> | <img src="docs/screenshots/board.png" alt="無限靈感白板" width="100%" /> |
+| <img src="docs/screenshots/inspector.png" alt="毛玻璃視覺資料庫與資訊檢視器" width="100%" /> | <img src="docs/screenshots/project.png" alt="專案空間" width="100%" /> |
+
+| 無限靈感白板工作室 | 透明置頂參考浮窗（Always on Top） |
+| :---: | :---: |
+| <img src="docs/screenshots/board.png" alt="無限靈感白板" width="100%" /> | <img src="docs/screenshots/refwin.png" alt="透明置頂參考浮窗" width="100%" /> |
 
 ---
 

@@ -155,7 +155,8 @@ func (a *App) shell(c *gui.Context) {
 				Children(func() {
 					gui.Box(c).
 						Radius(radiusPill).
-						Background(a.pal.surfaceRaised).
+						Background(a.popoverSurface()).
+						Border(1, a.chromeHairline()).
 						Shadow(0, 6, 18, 0, a.pal.shadowRaised).
 						Padding(2).
 						Children(func() {

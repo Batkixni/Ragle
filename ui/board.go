@@ -244,7 +244,7 @@ func (a *App) boardFloatingDock(c *gui.Context) {
 				Padding(5, 8).
 				Gap(3).
 				Radius(radiusPanel).
-				Background(a.pal.surfaceRaised).
+				Background(a.popoverSurface()).
 				Border(1, a.chromeHairline()).
 				Shadow(0, 12, 32, 0, a.pal.shadowFloating).
 				AlignItems(gui.Center).
@@ -432,6 +432,10 @@ func (a *App) boardMinimap(c *gui.Context, boardEl gui.Element) {
 		a.session.PanY = float64(viewR.H)/2 - wy*z
 	}
 
+	miniBg := gui.RGBA(20, 20, 24, 0.92)
+	if !a.dark {
+		miniBg = gui.RGBA(255, 255, 255, 0.92)
+	}
 	mini := gui.Box(c.Key("board-minimap")).
 		Absolute().
 		Right(14).
@@ -439,7 +443,7 @@ func (a *App) boardMinimap(c *gui.Context, boardEl gui.Element) {
 		Size(mw, mh).
 		Radius(radiusControl).
 		Clip().
-		Background(gui.RGBA(18, 18, 22, 0.86)).
+		Background(miniBg).
 		Border(1, a.chromeHairline()).
 		Shadow(0, 10, 24, 0, a.pal.shadowFloating).
 		Cursor(gui.CursorPointer).

@@ -24,9 +24,13 @@
 
 ## Workspace Previews
 
-| Project Workspace & Board Previews | Infinite Moodboard & Floating Reference |
+| Frosted Glass Library & Inspector | Project Workspace & Board Previews |
 | :---: | :---: |
-| <img src="docs/screenshots/project.png" alt="Project Workspace" width="100%" /> | <img src="docs/screenshots/board.png" alt="Infinite Moodboard" width="100%" /> |
+| <img src="docs/screenshots/inspector.png" alt="Frosted Glass Library & Inspector" width="100%" /> | <img src="docs/screenshots/project.png" alt="Project Workspace" width="100%" /> |
+
+| Infinite Moodboard Studio | Always-on-Top Floating Reference Window |
+| :---: | :---: |
+| <img src="docs/screenshots/board.png" alt="Infinite Moodboard" width="100%" /> | <img src="docs/screenshots/refwin.png" alt="Floating Reference Window" width="100%" /> |
 
 ---
 
