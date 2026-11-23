@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	gui "github.com/egoist/mygo/ui"
@@ -114,8 +115,9 @@ func (a *App) buildTagContextMenu(m *gui.Menu, tg model.Tag, services gui.Servic
 	}
 }
 
-// tagManagerModal renders the sleek popup modal for organizing parent/child
-// tags, colors, renaming, reparenting, and jumping to tagged assets.
+// tagManagerModal renders a sleek, flat divider-separated Tag Manager matching
+// our Preferences & Watch Folders design language, with full-row expand/collapse,
+// smooth spring drag-and-drop ordering, and crisp hierarchical guide lines.
 func (a *App) tagManagerModal(c *gui.Context) {
 	if !a.tagManagerOpen {
 		return
@@ -124,10 +126,10 @@ func (a *App) tagManagerModal(c *gui.Context) {
 	services := c.Services()
 
 	gui.DialogBase(c.Key("tag-manager-modal"), &a.tagManagerOpen, func(backdrop, panel gui.Element) {
-		backdrop.Background(gui.RGBA(0, 0, 0, 0.58))
+		backdrop.Background(gui.RGBA(0, 0, 0, 0.56))
 		panel.
-			Width(720).
-			Height(560).
+			Width(660).
+			Height(550).
 			Radius(radiusSurface).
 			Clip().
 			Background(a.popoverSurface()).
@@ -136,23 +138,26 @@ func (a *App) tagManagerModal(c *gui.Context) {
 		applyBlurReveal(panel, "tag-manager-modal", 0)
 
 		gui.Column(c).Fill().Children(func() {
-			// Header row.
+			// Sleek unified header separated by a crisp 1px hairline.
 			gui.Row(c).
-				Height(56).
-				Padding(0, 20).
-				Gap(10).
+				Height(54).
+				Padding(0, 18).
+				Gap(8).
 				AlignItems(gui.Center).
-				Background(a.pal.surface).
+				BorderWidth(0, 0, 1, 0).
+				BorderColor(a.chromeHairline()).
 				Children(func() {
-					gui.Icon(c, iconTag).Size(16, 16).TextColor(a.pal.ink)
-					gui.Text(c, a.t("tags.manage")).FontSize(15).Bold()
-					a.pillBadge(c, fmt.Sprintf("%d", len(a.tags)), a.pal.inkSecondary, a.pal.surfaceMuted)
+					gui.Icon(c, iconTag).Size(15, 15).TextColor(a.pal.ink)
+					gui.Text(c, a.t("tags.manage")).FontSize(14.5).Bold().SingleLine()
+					if a.showSidebarCounts {
+						a.pillBadge(c, strconv.Itoa(len(a.tags)), a.pal.inkSecondary, a.pal.surfaceMuted)
+					}
 
 					gui.Spacer(c)
 
 					gui.SearchField(c.Key("tm-search"), &a.tagSearch).
 						Placeholder(a.t("tags.search")).
-						Width(190)
+						Width(176)
 
 					a.toolButton(c, "tm-exp-all", nil, a.t("tags.expandAll"), false).OnClick(func() {
 						a.expandAllTags(true)
@@ -165,11 +170,13 @@ func (a *App) tagManagerModal(c *gui.Context) {
 					})
 				})
 
-			// Quick root tag creator + color dot picker.
+			// Compact flat quick-create bar with refined color dots.
 			gui.Row(c).
-				Padding(12, 20, 8, 20).
-				Gap(8).
+				Padding(10, 18).
+				Gap(10).
 				AlignItems(gui.Center).
+				BorderWidth(0, 0, 1, 0).
+				BorderColor(a.chromeHairline()).
 				Children(func() {
 					gui.TextInput(c.Key("tm-new-root"), &a.newRootTagName).
 						Placeholder(a.t("tags.addRoot")).
@@ -189,18 +196,16 @@ func (a *App) tagManagerModal(c *gui.Context) {
 					})
 				})
 
-			// Scrollable hierarchical tree.
+			// Scrollable flat divider-separated hierarchical tree.
 			gui.Scroll(c.Key("tm-scroll")).Grow(1).FillWidth().Children(func() {
-				gui.Column(c).FillWidth().Padding(4, 20, 16, 20).Gap(6).Children(func() {
+				gui.Column(c).FillWidth().Padding(8, 14, 14, 14).Gap(2).Children(func() {
 					roots := a.tagChildren[""]
 					q := strings.ToLower(strings.TrimSpace(a.tagSearch))
 					if len(roots) == 0 {
 						gui.Column(c).
 							FillWidth().
-							Padding(40).
+							Padding(48, 24).
 							Gap(10).
-							Radius(radiusPanel).
-							Background(a.pal.surface).
 							Center().
 							Children(func() {
 								gui.Icon(c, iconTag).Size(24, 24).TextColor(a.pal.inkFaint)
@@ -218,29 +223,34 @@ func (a *App) tagManagerModal(c *gui.Context) {
 						if q != "" && !a.tagBranchMatches(root.ID, q) {
 							continue
 						}
+						if shown > 0 {
+							gui.Box(c).FillWidth().Height(1).Margin(3, 8).Background(a.chromeHairline())
+						}
 						shown++
 						a.tagManagerRow(c, root, 0, q, services)
 					}
 					if shown == 0 {
-						gui.Box(c).FillWidth().Padding(28).Center().Children(func() {
+						gui.Box(c).FillWidth().Padding(32).Center().Children(func() {
 							gui.Text(c, a.t("library.noMatch")).FontSize(12).TextColor(a.pal.inkSecondary)
 						})
 					}
 				})
 			})
 
-			// Compact footer.
+			// Minimal footer separated by a crisp 1px top hairline.
 			gui.Row(c).
-				Height(52).
-				Padding(0, 20).
+				Height(50).
+				Padding(0, 18).
 				Gap(10).
 				AlignItems(gui.Center).
-				Background(a.pal.surface).
+				BorderWidth(1, 0, 0, 0).
+				BorderColor(a.chromeHairline()).
 				Children(func() {
 					gui.Text(c, fmt.Sprintf(a.t("tags.summary"), len(a.tags), len(a.tagChildren[""]))).
-						FontSize(11).
+						FontSize(11.5).
 						TextColor(a.pal.inkMuted).
-						Grow(1)
+						Grow(1).
+						SingleLine()
 					a.arcButton(c, "tm-done", a.t("common.done"), true).OnClick(func() {
 						a.tagManagerOpen = false
 					})
@@ -250,11 +260,11 @@ func (a *App) tagManagerModal(c *gui.Context) {
 }
 
 func (a *App) tagColorDots(c *gui.Context, keyPrefix, selected string, onPick func(string)) {
-	gui.Row(c).Gap(4).AlignItems(gui.Center).Children(func() {
+	gui.Row(c).Gap(5).AlignItems(gui.Center).Children(func() {
 		// Neutral (clear color) dot.
 		noneOn := selected == ""
 		noneBtn := gui.ButtonBase(c.Key(keyPrefix+"-none")).
-			Size(16, 16).
+			Size(14, 14).
 			Radius(radiusPill).
 			Background(a.pal.surfaceMuted).
 			Tooltip(a.t("tags.colorDefault")).
@@ -267,7 +277,7 @@ func (a *App) tagColorDots(c *gui.Context, keyPrefix, selected string, onPick fu
 			if col, ok := parseHexColor(ch.hex); ok {
 				on := strings.EqualFold(selected, ch.hex)
 				dot := gui.ButtonBase(c.Key(fmt.Sprintf("%s-%d", keyPrefix, i))).
-					Size(16, 16).
+					Size(14, 14).
 					Radius(radiusPill).
 					Background(col).
 					Tooltip(a.t(ch.key)).
@@ -296,36 +306,42 @@ func (a *App) tagManagerRow(c *gui.Context, tg model.Tag, depth int, q string, s
 	children := a.tagChildren[tg.ID]
 	hasChildren := len(children) > 0
 	expanded := a.expandedTags[tg.ID] || q != ""
-	indent := float32(depth * 20)
+	indent := float32(depth * 22)
 
 	iconColor := a.pal.inkSecondary
 	if col, ok := a.effectiveTagColor(tg.ID); ok {
 		iconColor = col
 	}
 
+	guideCol := gui.RGBA(255, 255, 255, 0.14)
+	if !a.dark {
+		guideCol = gui.RGBA(0, 0, 0, 0.12)
+	}
+
 	gui.Column(c.Key("tm-node-" + tg.ID)).
 		FillWidth().
-		Gap(4).
+		Gap(2).
 		Transition(gui.ElementTransition{
 			Animation: &springSnappy,
 			Position:  true,
 		}).
 		Children(func() {
-			row := gui.Row(c.Key("tm-row-"+tg.ID)).
+			row := gui.ButtonBase(c.Key("tm-row-"+tg.ID)).
 				FillWidth().
-				Padding(7, 10, 7, 10+indent).
+				Padding(7, 8, 7, 8+indent).
 				Gap(8).
-				Radius(radiusControl).
-				AlignItems(gui.Center)
-			bg := a.pal.surface
-			if depth > 0 {
-				bg = a.pal.surfaceRaised
-			}
-			if row.Hovered() {
-				bg = a.pal.surfaceMuted
-			}
-			row.Background(row.AnimateColor("bg", bg, animFast)).
-				Drag(tagReorderDrag{ID: tg.ID}).
+				Radius(8).
+				AlignItems(gui.Center).
+				OnClick(func() {
+					if hasChildren {
+						a.toggleTagExpand(tg.ID)
+					} else {
+						a.tagManagerOpen = false
+						a.handleNav("tag:" + tg.ID)
+					}
+				})
+
+			row.Drag(tagReorderDrag{ID: tg.ID}).
 				PopoverMenu(func(m *gui.Menu) {
 					a.buildTagContextMenu(m, tg, services)
 				}, a.popoverMenuOpts())
@@ -335,98 +351,156 @@ func (a *App) tagManagerRow(c *gui.Context, tg model.Tag, depth int, q string, s
 			if _, ok := gui.Drop[tagReorderDrag](row); ok {
 				a.lastReorderPair = ""
 			}
+
+			dragging := row.Dragging()
 			targetOp := float32(1.0)
-			if row.Dragging() {
+			if dragging {
 				targetOp = 0.24
 			}
 			if op := row.AnimateTo("drag-op", targetOp, animFast); op < 0.995 {
 				row.Opacity(op)
 			}
 
-		row.Children(func() {
-			if hasChildren {
-				chev := "▸"
-				if expanded {
-					chev = "▾"
-				}
-				gui.ButtonBase(c.Key("tm-tog-"+tg.ID)).
-					Size(20, 20).
-					Center().
-					Radius(6).
-					OnClick(func() { a.toggleTagExpand(tg.ID) }).
-					Children(func() {
-						gui.Text(c, chev).FontSize(11).TextColor(a.pal.inkMuted)
-					})
-			} else {
-				gui.Box(c).Size(20, 20)
+			bg := gui.Transparent
+			if dragging {
+				bg = a.pal.surfaceMuted
+			} else if row.Hovered() {
+				bg = a.settingsRowHoverBg()
 			}
+			row.Background(row.AnimateColor("bg", bg, animFast))
 
-			gui.Icon(c, iconTag).Size(14, 14).TextColor(iconColor)
-			gui.Text(c, tg.Name).FontSize(13).Bold().Grow(1).SingleLine()
-
-			if a.showSidebarCounts {
-				a.pillBadge(c, fmt.Sprintf("%d", a.tagDisplayCount(tg.ID)), a.pal.inkSecondary, a.pal.surfaceMuted)
-			}
-
-			a.iconButton(c, "tm-view-"+tg.ID, iconEye, a.t("tags.viewAssets"), false).OnClick(func() {
-				a.tagManagerOpen = false
-				a.handleNav("tag:" + tg.ID)
-			})
-			a.iconButton(c, "tm-addch-"+tg.ID, iconPlus, a.t("tags.addChild"), a.newChildParentID == tg.ID).OnClick(func() {
-				if a.newChildParentID == tg.ID {
-					a.newChildParentID = ""
-					a.newChildTagName = ""
+			row.Children(func() {
+				if hasChildren {
+					chevBtn := gui.ButtonBase(c.Key("tm-tog-"+tg.ID)).
+						Size(22, 22).
+						Center().
+						Radius(6).
+						Tooltip(a.t("tags.expand")).
+						OnClick(func() { a.toggleTagExpand(tg.ID) })
+					cbg := gui.Transparent
+					cfg := a.pal.inkMuted
+					if chevBtn.Hovered() || chevBtn.Pressed() {
+						cbg = a.pal.surfaceMuted
+						cfg = a.pal.ink
+					}
+					chevRotTarget := float32(0)
+					if expanded {
+						chevRotTarget = 90
+					}
+					chevRot := chevBtn.AnimateTo("chev-rot", chevRotTarget, springSnappy)
+					chevBtn.Background(chevBtn.AnimateColor("cbg", cbg, animFast)).
+						TextColor(chevBtn.AnimateColor("cfg", cfg, animFast)).
+						Children(func() {
+							gui.Icon(c, iconChevronRgt).Size(12, 12).Rotate(chevRot)
+						})
 				} else {
-					a.newChildParentID = tg.ID
-					a.newChildTagName = ""
-					a.expandedTags[tg.ID] = true
+					gui.Box(c).Size(22, 22)
 				}
-			})
-			a.iconButton(c, "tm-edit-"+tg.ID, iconEdit, a.t("tags.edit"), false).OnClick(func() {
-				a.openEditTagModal(tg)
-			})
-			a.iconButton(c, "tm-del-"+tg.ID, iconTrash, a.t("tag.delete"), false).OnClick(func() {
-				a.deleteTagPrompt(tg.ID)
-			})
-		})
 
-		if a.newChildParentID == tg.ID {
-			gui.Row(c.Key("tm-inline-ch-"+tg.ID)).
-				FillWidth().
-				Padding(6, 10, 6, 30+indent).
-				Gap(8).
-				Radius(radiusControl).
-				Background(a.pal.surfaceMuted).
-				AlignItems(gui.Center).
-				Children(func() {
-					gui.TextInput(c.Key("tm-ch-in-"+tg.ID), &a.newChildTagName).
-						Placeholder(a.t("tags.addChild")).
-						AutoFocus().
-						Grow(1).
-						OnSubmit(func() {
+				gui.Icon(c, iconTag).Size(14, 14).TextColor(iconColor)
+
+				nameTxt := gui.Text(c, tg.Name).FontSize(13).TextColor(a.pal.ink).Grow(1).SingleLine()
+				if depth == 0 {
+					nameTxt.Bold()
+				}
+
+				if hasChildren && !expanded {
+					a.pillBadge(c, fmt.Sprintf("+%d", len(children)), a.pal.inkMuted, a.pal.surfaceMuted)
+				}
+				if a.showSidebarCounts {
+					if cnt := a.tagDisplayCount(tg.ID); cnt > 0 {
+						gui.Text(c, strconv.Itoa(cnt)).
+							FontSize(11.5).
+							TextColor(a.pal.inkMuted).
+							Padding(0, 4).
+							SingleLine()
+					}
+				}
+
+				// Compact quiet monochrome actions on the right.
+				gui.Row(c).Gap(2).AlignItems(gui.Center).Children(func() {
+					a.miniHeaderButton(c, "tm-view-"+tg.ID, iconEye, a.t("tags.viewAssets"), false).OnClick(func() {
+						a.tagManagerOpen = false
+						a.handleNav("tag:" + tg.ID)
+					})
+					a.miniHeaderButton(c, "tm-addch-"+tg.ID, iconPlus, a.t("tags.addChild"), a.newChildParentID == tg.ID).OnClick(func() {
+						if a.newChildParentID == tg.ID {
+							a.newChildParentID = ""
+							a.newChildTagName = ""
+						} else {
+							a.newChildParentID = tg.ID
+							a.newChildTagName = ""
+							a.expandedTags[tg.ID] = true
+						}
+					})
+					a.miniHeaderButton(c, "tm-edit-"+tg.ID, iconEdit, a.t("tags.edit"), false).OnClick(func() {
+						a.openEditTagModal(tg)
+					})
+					a.miniHeaderButton(c, "tm-del-"+tg.ID, iconTrash, a.t("tag.delete"), false).OnClick(func() {
+						a.deleteTagPrompt(tg.ID)
+					})
+				})
+			})
+
+			if a.newChildParentID == tg.ID {
+				gui.Row(c.Key("tm-inline-ch-"+tg.ID)).
+					FillWidth().
+					Padding(6, 10, 6, 36+indent).
+					Gap(8).
+					Radius(8).
+					Background(a.settingsRowHoverBg()).
+					AlignItems(gui.Center).
+					Transition(gui.ElementTransition{
+						Animation: &springSmooth,
+						Enter:     &gui.Motion{Y: -4, Opacity: 0, Collapse: true},
+						Exit:      &gui.Motion{Y: -4, Opacity: 0, Collapse: true},
+					}).
+					Children(func() {
+						gui.TextInput(c.Key("tm-ch-in-"+tg.ID), &a.newChildTagName).
+							Placeholder(a.t("tags.addChild")).
+							AutoFocus().
+							Grow(1).
+							OnSubmit(func() {
+								a.createTagWithParent(a.newChildTagName, tg.ID)
+								a.newChildTagName = ""
+								a.newChildParentID = ""
+							})
+						a.arcButton(c, "tm-ch-ok-"+tg.ID, a.t("tag.create"), true).OnClick(func() {
 							a.createTagWithParent(a.newChildTagName, tg.ID)
 							a.newChildTagName = ""
 							a.newChildParentID = ""
 						})
-					a.arcButton(c, "tm-ch-ok-"+tg.ID, a.t("tag.create"), true).OnClick(func() {
-						a.createTagWithParent(a.newChildTagName, tg.ID)
-						a.newChildTagName = ""
-						a.newChildParentID = ""
+						a.iconButton(c, "tm-ch-x-"+tg.ID, iconX, a.t("common.cancel"), false).OnClick(func() {
+							a.newChildParentID = ""
+							a.newChildTagName = ""
+						})
 					})
-					a.iconButton(c, "tm-ch-x-"+tg.ID, iconX, a.t("common.cancel"), false).OnClick(func() {
-						a.newChildParentID = ""
-						a.newChildTagName = ""
-					})
-				})
-		}
-
-		if hasChildren && expanded {
-			for _, ch := range children {
-				if q != "" && !a.tagBranchMatches(ch.ID, q) {
-					continue
-				}
-				a.tagManagerRow(c, ch, depth+1, q, services)
 			}
-		}
-	})
+
+			if hasChildren && expanded {
+				lineX := indent + 19
+				chCol := gui.Column(c.Key("tm-ch-" + tg.ID)).
+					FillWidth().
+					Gap(2).
+					Transition(gui.ElementTransition{
+						Animation: &springSnappy,
+						Position:  true,
+						Enter:     &gui.Motion{Y: -4, Opacity: 0, Collapse: true},
+						Exit:      &gui.Motion{Y: -4, Opacity: 0, Collapse: true},
+					}).
+					Draw(func(p *gui.Painter, r gui.Rect) {
+						if r.H > 6 {
+							p.Fill(gui.Rect{X: r.X + lineX, Y: r.Y + 2, W: 1, H: r.H - 6}, guideCol, 0.5)
+						}
+					})
+				chCol.Children(func() {
+					for _, ch := range children {
+						if q != "" && !a.tagBranchMatches(ch.ID, q) {
+							continue
+						}
+						a.tagManagerRow(c, ch, depth+1, q, services)
+					}
+				})
+			}
+		})
 }

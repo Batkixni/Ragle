@@ -656,9 +656,19 @@ func (a *App) boardInspector(c *gui.Context) {
 									lbl = a.t("board.toolFrame")
 								}
 								a.sectionLabel(c, lbl)
-								field := gui.TextInput(c.Key("body"), &a.editText).FillWidth().OnChange(func() {
-									a.commitEditText()
-								})
+								var field gui.Element
+								if item.Kind == model.KindText {
+									field = gui.TextArea(c.Key("body"), &a.editText).
+										FillWidth().
+										Height(96).
+										OnChange(func() {
+											a.commitEditText(c)
+										})
+								} else {
+									field = gui.TextInput(c.Key("body"), &a.editText).FillWidth().OnChange(func() {
+										a.commitEditText(c)
+									})
+								}
 								if a.focusBody {
 									field.Focus()
 									a.focusBody = false
@@ -674,6 +684,7 @@ func (a *App) boardInspector(c *gui.Context) {
 									}
 									cur := a.session.Items[a.boundID]
 									cur.FontSize = a.fontSizeBuf
+									a.fitBoardTextHeight(c, &cur)
 									a.session.Items[a.boundID] = cur
 									a.markBoard()
 								})
@@ -795,7 +806,7 @@ func (a *App) syncSelectionBuffers() {
 	}
 }
 
-func (a *App) commitEditText() {
+func (a *App) commitEditText(c *gui.Context) {
 	if a.session == nil || a.boundID == "" {
 		return
 	}
@@ -804,7 +815,60 @@ func (a *App) commitEditText() {
 		return
 	}
 	a.session.SetText(a.boundID, a.editText)
+	if cur, exists := a.session.Items[a.boundID]; exists && cur.Kind == model.KindText {
+		a.fitBoardTextHeight(c, &cur)
+		a.session.Items[a.boundID] = cur
+	}
 	a.markBoard()
+}
+
+// fitBoardTextHeight grows a text box's height automatically when wrapped or
+// multiline text exceeds its current vertical bounds.
+func (a *App) fitBoardTextHeight(c *gui.Context, cur *model.Placement) {
+	if c == nil || cur == nil || cur.Kind != model.KindText || cur.Text == "" {
+		return
+	}
+	fs := cur.FontSize
+	if fs <= 0 {
+		fs = 18
+	}
+	maxW := float32(cur.Width - 12)
+	if maxW < 24 {
+		maxW = 24
+	}
+	_, h := c.MeasureText(maxW, gui.Span{Text: cur.Text, Size: float32(fs)})
+	needH := float64(h) + 14
+	if needH > cur.Height {
+		cur.Height = needH
+	}
+}
+
+// paintWrappedBoardText draws multiline, auto-wrapping text cleanly clipped
+// inside a board text item's bounding rect.
+func paintWrappedBoardText(p *gui.Painter, rect gui.Rect, pad float32, text string, fontSize float32, col gui.Color) {
+	if text == "" || rect.W <= 2 || rect.H <= 2 {
+		return
+	}
+	if fontSize < 1 {
+		fontSize = 1
+	}
+	if pad < 2 {
+		pad = 2
+	}
+	if pad > 16 {
+		pad = 16
+	}
+	maxW := rect.W - pad*2
+	if maxW < 4 {
+		maxW = 4
+	}
+	p.Clip(rect, 0, func() {
+		p.RichText(rect.X+pad, rect.Y+pad, maxW, gui.Span{
+			Text:  text,
+			Size:  fontSize,
+			Color: col,
+		})
+	})
 }
 
 func (a *App) markBoard() {
@@ -1772,7 +1836,7 @@ func (a *App) paintItem(p *gui.Painter, origin gui.Rect, id string) {
 			if size <= 0 {
 				size = 18
 			}
-			p.Text(rect.X+6, rect.Y+6, item.Text, float32(size*scale*zoom), txtCol)
+			paintWrappedBoardText(p, rect, float32(6*scale*zoom), item.Text, float32(size*scale*zoom), txtCol)
 		case model.KindFrame, model.KindRect, model.KindArrow, model.KindStroke, model.KindHighlight:
 			paintPlacementAnnotation(p, item, rect, cx, cy, scale, zoom)
 		case model.KindGroup:

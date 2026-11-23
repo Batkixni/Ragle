@@ -277,12 +277,16 @@ func (a *App) refWinView(c *gui.Context) {
 						switch item.Kind {
 						case model.KindText:
 							p.Fill(dst, a.pal.surface, 8)
+							txtCol := a.pal.ink
+							if c2, ok := parseHexColor(item.Color); ok {
+								txtCol = c2
+							}
 							sz := item.FontSize
 							if sz <= 0 {
 								sz = 18
 							}
 							fs := float32(max(10.0, sz*sc*cam.Zoom))
-							p.Text(dst.X+8, dst.Y+8, item.Text, fs, a.pal.ink)
+							paintWrappedBoardText(p, dst, 8, item.Text, fs, txtCol)
 						case model.KindFrame, model.KindRect, model.KindArrow, model.KindStroke, model.KindHighlight:
 							paintPlacementAnnotation(p, item, dst, cx, cy, sc, cam.Zoom)
 						default:

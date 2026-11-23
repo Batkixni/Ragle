@@ -416,11 +416,19 @@ func TestRealUserClicksEveryControl(t *testing.T) {
 	if _, err := lib.UpdateTag(tagA.ID, tagA.Name, child.ID); err == nil {
 		t.Fatal("expected cycle error when reparenting parent under its own child")
 	}
-	a.expandedTags[tagA.ID] = true
+	// Verify clicking the parent tag row in Tag Manager expands its children!
+	a.expandedTags[tagA.ID] = false
 	a.reload()
 	tt.Advance(200 * time.Millisecond)
-	if !tt.HasText("Character") {
-		t.Fatalf("child tag missing in Tag Manager popup, texts=%v", tt.Texts())
+	if tt.HasText("Character") {
+		t.Fatalf("expected child tag hidden while collapsed, texts=%v", tt.Texts())
+	}
+	if err := tt.Click(tagA.Name); err != nil {
+		t.Fatalf("clicking parent tag row in Tag Manager failed: %v", err)
+	}
+	tt.Advance(200 * time.Millisecond)
+	if !a.expandedTags[tagA.ID] || !tt.HasText("Character") {
+		t.Fatalf("clicking parent tag row did not expand children! expanded=%v texts=%v", a.expandedTags[tagA.ID], tt.Texts())
 	}
 	if _, ok := a.effectiveTagColor(child.ID); !ok {
 		t.Fatal("expected child tag to inherit parent tag color")
@@ -942,4 +950,16 @@ func TestStacksNativePreviewsAndRefWindowUI(t *testing.T) {
 	if tt.HasText("個素材") {
 		t.Fatalf("expected header items count pill hidden when showSidebarCounts=false, texts=%v", tt.Texts())
 	}
+
+	// 7. Multiline & auto-wrapping board text renders and expands box height cleanly.
+	a.openBoard(b)
+	tid := a.session.PlaceText("Line 1\nLine 2\nVeryLongWordWithoutSpaces_aaaaaaaaaaaaaaaaaaaaaaaaaaaa", 100, 100)
+	a.session.Selected = map[string]bool{tid: true}
+	tt.Frame()
+	if cur := a.session.Items[tid]; cur.Kind != model.KindText {
+		t.Fatalf("expected board text item, got %+v", cur)
+	}
+	a.editText = "First line\nSecond line\nThird line\nFourth line\nFifth line"
+	a.session.SetText(tid, a.editText)
+	tt.Frame()
 }
