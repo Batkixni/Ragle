@@ -62,7 +62,7 @@ Raglex/
 │   ├── updater/        # GitHub Releases SemVer checker, SHA-256 verifier & self-updater
 │   ├── config/         # User preference persistence (<UserConfigDir>/Raglex/config.json)
 │   └── i18n/           # Bilingual Traditional Chinese (zh-Hant) & English catalog
-├── ui/                 # MyGo native views, animations, PureRef floating window, UI tests
+├── ui/                 # MyGo native views, animations, floating reference window, UI tests
 ├── extensions/browser/ # Chrome / Edge MV3 Browser Companion Extension
 └── examples/plugins/   # Reference plugin templates
 ```
@@ -80,7 +80,7 @@ Raglex uses **[MyGo Native UI](https://github.com/egoist/mygo)** (`v0.10.0`). Pl
 5. **Bilingual i18n Parity**: Every user-visible string MUST be added to `internal/i18n/i18n.go` in **both Traditional Chinese (`zh-Hant`) and English (`en`)**. `internal/i18n` tests enforce strict parity.
 6. **Clean Terminology & Visual Grammar**:
    - In Traditional Chinese UI copy, refer to the asset database as **「資料庫」** and boards as **「白板」**.
-   - Keep surfaces neutral obsidian/zinc monochrome (`#111111` / `#18181B` in dark mode, `#FFFFFF` / `#F4F4F5` in light mode) with crisp monochrome accent controls (`#EDEDED` dark / `#18181B` light) so the user's artwork remains the visual focus.
+   - Keep surfaces neutral charcoal/zinc monochrome (`#111111` / `#18181B` in dark mode, `#FFFFFF` / `#F4F4F5` in light mode) with crisp monochrome accent controls (`#EDEDED` dark / `#18181B` light) so the user's artwork remains the visual focus.
 
 ---
 

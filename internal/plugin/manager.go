@@ -29,7 +29,8 @@ type Manifest struct {
 	Description string   `json:"description,omitempty"`
 	Author      string   `json:"author,omitempty"`
 	Command     []string `json:"command"`               // executable + args (resolved relative to plugin dir if relative)
-	Hooks       []string `json:"hooks,omitempty"`       // context_menu, batch_action, exporter, importer
+	Hooks       []string `json:"hooks,omitempty"`       // context_menu, batch_action, preview_renderer, inspector_card, exporter, importer
+	Extensions  []string `json:"extensions,omitempty"`  // optional file extensions handled by preview_renderer (e.g. [".md", ".markdown"])
 	Permissions []string `json:"permissions,omitempty"` // read_library, write_tags, disk, network
 }
 
@@ -65,11 +66,14 @@ type Request struct {
 
 // Response is read as JSON from the plugin's stdout.
 type Response struct {
-	OK      bool                `json:"ok"`
-	Toast   string              `json:"toast,omitempty"`
-	Error   string              `json:"error,omitempty"`
-	Reload  bool                `json:"reload,omitempty"`
-	AddTags map[string][]string `json:"add_tags,omitempty"` // assetID -> []tagName
+	OK           bool                `json:"ok"`
+	Toast        string              `json:"toast,omitempty"`
+	Error        string              `json:"error,omitempty"`
+	Reload       bool                `json:"reload,omitempty"`
+	AddTags      map[string][]string `json:"add_tags,omitempty"`      // assetID -> []tagName
+	PreviewTitle string              `json:"preview_title,omitempty"` // returned by preview_renderer hook
+	PreviewText  string              `json:"preview_text,omitempty"`  // returned by preview_renderer hook
+	PreviewKV    map[string]string   `json:"preview_kv,omitempty"`    // optional metadata key/values
 }
 
 // Manager tracks installed plugins for a library.
@@ -193,6 +197,23 @@ func (m *Manager) ForHook(hook string) []Installed {
 		}
 	}
 	return out
+}
+
+// PreviewProviderForExt returns the first enabled plugin declaring hook
+// "preview_renderer" that handles file extension ext (e.g. ".md").
+func (m *Manager) PreviewProviderForExt(ext string) (Installed, bool) {
+	ext = strings.ToLower(strings.TrimSpace(ext))
+	if m == nil || ext == "" {
+		return Installed{}, false
+	}
+	for _, p := range m.ForHook("preview_renderer") {
+		for _, cand := range p.Manifest.Extensions {
+			if strings.EqualFold(strings.TrimSpace(cand), ext) {
+				return p, true
+			}
+		}
+	}
+	return Installed{}, false
 }
 
 // SetEnabled toggles whether a plugin is enabled.

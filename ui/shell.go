@@ -727,7 +727,7 @@ func (a *App) deleteTagPrompt(id string) {
 
 // workspaceBar is the responsive seamless edge-to-edge Library top bar:
 // fuses cleanly with the window edge (no floating card gap or outer corner radius)
-// and includes the Eagle-style Global Display Options Popover & Web URL import.
+// and includes the Global Display Options Popover & Web URL import.
 func (a *App) workspaceBar(c *gui.Context) {
 	bar := gui.Row(c.Key("floating-navbar")).
 		Height(48).
@@ -831,7 +831,7 @@ func (a *App) workspaceBar(c *gui.Context) {
 				}
 			})
 
-		// Eagle-style Global View Display Options Popover (Layout, Thumb Bg, Show Titles/Ext/Rating, Grayscale, Glass, Panels).
+		// Global View Display Options Popover (Layout, Thumb Bg, Show Titles/Ext/Rating, Grayscale, Glass, Panels).
 		gui.PopoverBase(c.Key("view-display-popover"), layoutBtn, &a.displayPopoverOpen, func(p gui.Element) {
 			p.AttachTo(layoutBtn, gui.AnchorBottomRight, gui.AnchorTopRight).
 				Margin(6, 0, 0, 0).

@@ -631,7 +631,7 @@ func (a *App) bindAssetShortcuts(el gui.Element) {
 	})
 }
 
-// assetMasonry renders an Eagle-style multi-column waterfall masonry layout
+// assetMasonry renders a multi-column waterfall masonry layout
 // preserving each asset's natural aspect ratio in balanced shortest-column order,
 // with cached prefix-sum geometry and O(log N) binary search viewport culling.
 func (a *App) assetMasonry(c *gui.Context) {

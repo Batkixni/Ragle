@@ -1,0 +1,21 @@
+services:
+  raglex-server:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    container_name: raglex-server
+    restart: unless-stopped
+    ports:
+      - "41595:41595"
+    volumes:
+      - ./data/library:/data/library
+    environment:
+      # Set a strong bearer token for sync, mobile PWA uploads, and MCP:
+      RAGLEX_TOKEN: "${RAGLEX_TOKEN:-change-me-to-a-strong-token}"
+      # Optional Cloudflare R2 / S3 / MinIO presigned blob storage (zero egress with R2!):
+      # RAGLEX_S3_ENDPOINT: "https://<account-id>.r2.cloudflarestorage.com"
+      # RAGLEX_S3_BUCKET: "raglex-blobs"
+      # RAGLEX_S3_REGION: "auto"
+      # RAGLEX_S3_ACCESS_KEY: "..."
+      # RAGLEX_S3_SECRET_KEY: "..."
+    command: ["-addr", ":41595", "-library", "/data/library", "-token", "${RAGLEX_TOKEN:-change-me-to-a-strong-token}"]

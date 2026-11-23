@@ -479,7 +479,7 @@ func (a *App) exportModal(c *gui.Context) {
 }
 
 // copySelectedFilesToClipboard writes real OS file paths for the selected
-// assets so users can paste them directly into Photoshop, Figma, Blender, etc.
+// assets so users can paste them directly into external creative apps.
 func (a *App) copySelectedFilesToClipboard(ids []string) {
 	if a.lib == nil || len(ids) == 0 {
 		return

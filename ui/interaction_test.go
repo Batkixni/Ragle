@@ -17,6 +17,7 @@ import (
 	"raglex/internal/library"
 	"raglex/internal/model"
 	"raglex/internal/project"
+	"raglex/internal/updater"
 )
 
 func writeSamplePNG(t *testing.T, path string, w, h int, c color.RGBA) {
@@ -375,7 +376,7 @@ func TestRealUserClicksEveryControl(t *testing.T) {
 		t.Fatalf("clicking Import tab failed: %v", err)
 	}
 	tt.Advance(350 * time.Millisecond)
-	if !tt.HasText("預設存放方式") {
+	if !tt.HasText("檔案存放方式") {
 		t.Fatalf("Import settings controls missing, texts=%v", tt.Texts())
 	}
 	if err := tt.Click("複製"); err != nil {
@@ -757,7 +758,7 @@ func TestGlobalShortcutsAndMarqueeBoxSelection(t *testing.T) {
 	}
 }
 
-func TestStacksNativePreviewsAndPureRefUI(t *testing.T) {
+func TestStacksNativePreviewsAndRefWindowUI(t *testing.T) {
 	root := t.TempDir()
 	lib, err := library.Open(root)
 	if err != nil {
@@ -867,7 +868,7 @@ func TestStacksNativePreviewsAndPureRefUI(t *testing.T) {
 	a.closePreview()
 	tt.Frame()
 
-	// 3. PureRef floating window view renders cleanly with active board session.
+	// 3. Floating reference window view renders cleanly with active board session.
 	b, err := a.projects.CreateStandaloneBoard("RefMood")
 	if err != nil {
 		t.Fatal(err)
@@ -876,11 +877,24 @@ func TestStacksNativePreviewsAndPureRefUI(t *testing.T) {
 	a.openBoard(b)
 	tt.Frame()
 	if !tt.HasText("置頂參考浮窗") {
-		t.Fatalf("expected PureRef button on board toolbar, texts=%v", tt.Texts())
+		t.Fatalf("expected Floating Ref button on board toolbar, texts=%v", tt.Texts())
 	}
-	refTester := gui.NewTester(a.pureRefView, 540, 420)
+	refTester := gui.NewTester(a.refWinView, 540, 420)
 	refTester.Frame()
 	if !refTester.HasText("RefMood") {
-		t.Fatalf("expected board title in PureRef floating HUD, texts=%v", refTester.Texts())
+		t.Fatalf("expected board title in Floating Ref HUD, texts=%v", refTester.Texts())
+	}
+
+	// 4. Auto-update confirmation popup renders cleanly with 1-click update & restart button.
+	a.updateRelease = &updater.Release{
+		TagName:     "v9.9.0",
+		Body:        "Performance & UX polish",
+		DownloadURL: "https://example.com/raglex.zip",
+	}
+	a.updateAvailable = true
+	a.updatePromptOpen = true
+	tt.Frame()
+	if !tt.HasText("立即更新並重啟") || !tt.HasText("稍後再說") {
+		t.Fatalf("expected auto-update popup actions, texts=%v", tt.Texts())
 	}
 }

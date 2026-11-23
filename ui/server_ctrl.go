@@ -12,6 +12,7 @@ import (
 	"raglex/internal/mcp"
 	"raglex/internal/plugin"
 	"raglex/internal/server"
+	rsync "raglex/internal/sync"
 )
 
 func (a *App) serverPortValue() int {
@@ -81,7 +82,6 @@ func (a *App) startBuiltInServer() {
 	a.localSrv = srv
 	a.serverRunning = true
 	a.syncConfigFromState()
-	a.notify(fmt.Sprintf(a.t("server.started"), srv.LocalURL()))
 }
 
 func (a *App) stopBuiltInServer() {
@@ -97,6 +97,9 @@ func (a *App) stopBuiltInServer() {
 func (a *App) toggleBuiltInServer() {
 	if a.serverRunning {
 		a.startBuiltInServer()
+		if a.localSrv != nil && a.localSrv.Running() {
+			a.notify(fmt.Sprintf(a.t("server.started"), a.localSrv.LocalURL()))
+		}
 	} else {
 		a.stopBuiltInServer()
 		a.notify(a.t("server.stopped"))
@@ -213,4 +216,165 @@ func (a *App) runPlugin(pluginID, hook string, assetIDs []string) {
 		return
 	}
 	go run()
+}
+
+// refreshPluginMarketplace fetches the community GitHub PR registry.json
+// merged with Raglex's built-in official starter plugins off the UI thread.
+func (a *App) refreshPluginMarketplace() {
+	if a.pluginMarketLoading {
+		return
+	}
+	a.pluginMarketLoading = true
+	a.pluginMarketErr = ""
+	win := a.win
+	run := func() {
+		entries, err := plugin.FetchRegistry(context.Background(), plugin.DefaultRegistryURL)
+		finish := func() {
+			a.pluginMarketLoading = false
+			a.pluginMarketLoaded = true
+			a.pluginMarket = entries
+			if err != nil {
+				a.pluginMarketErr = err.Error()
+			} else {
+				a.pluginMarketErr = ""
+			}
+		}
+		if win == nil {
+			finish()
+			return
+		}
+		win.Update(func() {
+			if !a.isClosed() {
+				finish()
+			}
+		})
+	}
+	if win == nil {
+		run()
+		return
+	}
+	go run()
+}
+
+func (a *App) installMarketplacePlugin(entry plugin.RegistryEntry) {
+	if a.plugins == nil || a.pluginMarketBusyID != "" {
+		return
+	}
+	a.pluginMarketBusyID = entry.ID
+	mgr := a.plugins
+	win := a.win
+	run := func() {
+		err := mgr.Install(context.Background(), entry)
+		finish := func() {
+			a.pluginMarketBusyID = ""
+			if err != nil {
+				a.notify(err.Error())
+				return
+			}
+			a.notify(fmt.Sprintf(a.t("plugins.installedDone"), entry.Name))
+		}
+		if win == nil {
+			finish()
+			return
+		}
+		win.Update(func() {
+			if !a.isClosed() {
+				finish()
+			}
+		})
+	}
+	if win == nil {
+		run()
+		return
+	}
+	go run()
+}
+
+func (a *App) uninstallPlugin(id, name string) {
+	if a.plugins == nil {
+		return
+	}
+	if err := a.plugins.Uninstall(id); err != nil {
+		a.notify(err.Error())
+		return
+	}
+	a.notify(fmt.Sprintf(a.t("plugins.uninstalledDone"), name))
+}
+
+// runCloudSyncNow executes a bidirectional delta + SHA-256 blob sync with the
+// configured Raglex Sync API v1 server (self-hosted Docker or Raglex Cloud).
+func (a *App) runCloudSyncNow() {
+	if a.lib == nil || a.syncBusy || strings.TrimSpace(a.syncServerURL) == "" {
+		return
+	}
+	a.syncConfigFromState()
+	a.syncBusy = true
+	a.syncStatusMsg = a.t("sync.syncing")
+	lib := a.lib
+	projs := a.projects
+	cfg := rsync.ClientConfig{
+		ServerURL: strings.TrimSpace(a.syncServerURL),
+		Token:     strings.TrimSpace(a.syncToken),
+		DeviceID:  strings.TrimSpace(a.deviceName),
+	}
+	win := a.win
+	run := func() {
+		rep, err := rsync.SyncNow(context.Background(), cfg, lib, projs)
+		finish := func() {
+			a.syncBusy = false
+			if err != nil {
+				a.syncStatusMsg = err.Error()
+				a.notify(err.Error())
+				return
+			}
+			msg := fmt.Sprintf(a.t("sync.done"), rep.PushedOps, rep.PulledOps, rep.UploadedBlobs, rep.DownloadedBlobs)
+			a.syncStatusMsg = msg
+			if rep.PulledOps > 0 || rep.DownloadedBlobs > 0 {
+				a.reload()
+			}
+			a.notify(msg)
+		}
+		if win == nil {
+			finish()
+			return
+		}
+		win.Update(func() {
+			if !a.isClosed() {
+				finish()
+			}
+		})
+	}
+	if win == nil {
+		run()
+		return
+	}
+	go run()
+}
+
+// createPublicShareLink ensures the built-in Raglex server is running and mints
+// a shareable web URL (/s/<id>) with optional password & download toggle.
+func (a *App) createPublicShareLink(kind, targetID, title, password string, allowDownload bool) (string, error) {
+	if a.localSrv == nil || !a.localSrv.Running() {
+		a.startBuiltInServer()
+	}
+	if a.localSrv == nil || !a.localSrv.Running() {
+		return "", fmt.Errorf("built-in server is not running")
+	}
+	_, relPath, err := a.localSrv.CreatePublicShare(rsync.CreateShareRequest{
+		Kind:          kind,
+		TargetID:      targetID,
+		Title:         title,
+		Password:      strings.TrimSpace(password),
+		AllowDownload: allowDownload,
+	})
+	if err != nil {
+		return "", err
+	}
+	base := a.localSrv.LocalURL()
+	if a.serverBindAll {
+		if lan := a.localSrv.LANURL(); lan != "" {
+			base = lan
+		}
+	}
+	return base + relPath, nil
 }

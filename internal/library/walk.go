@@ -84,7 +84,7 @@ func skipLibraryFile(path, root string) bool {
 	return IsAuxiliarySidecarFile(base)
 }
 
-// IsAuxiliarySidecarFile reports whether base is an Eagle or OS auxiliary sidecar
+// IsAuxiliarySidecarFile reports whether base is an external or OS auxiliary sidecar
 // file (such as metadata.json, mtime.json, tags.json, or *_thumbnail.png) that
 // should not be imported as a user creative asset.
 func IsAuxiliarySidecarFile(base string) bool {

@@ -404,7 +404,7 @@ func (a *App) coloredTagChip(c *gui.Context, key string, tg model.Tag, active bo
 }
 
 // tintedTagChip renders a sleek translucent tinted tag badge with a delicate
-// matching border and an optional inline remove ("×") button (Eagle style).
+// matching border and an optional inline remove ("×") button.
 func (a *App) tintedTagChip(c *gui.Context, key string, tg model.Tag, onRemove func()) {
 	bg := a.pal.surfaceMuted
 	border := gui.RGBA(255, 255, 255, 0.14)

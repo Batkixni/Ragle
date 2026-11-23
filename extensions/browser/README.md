@@ -10,4 +10,4 @@ Collect images, drag-and-drop visual references, capture screenshots, and batch-
 ## Features
 - **Drag-to-Save**: Drag any image on a webpage to reveal the bottom-center `#FF5C33` Raglex drop capsule.
 - **Right-click Menu**: *Save Image to Raglex* or *Capture Screenshot to Raglex* (automatically preserves Source URL & Page Title).
-- **Batch Page Grabber**: Click **Scan Page Images** in the popup to pick multiple high-resolution images from Behance, ArtStation, Pixiv, Pinterest, or any site.
+- **Batch Page Grabber**: Click **Scan Page Images** in the popup to pick multiple high-resolution images from any website.

@@ -307,27 +307,27 @@ type App struct {
 	stackVisibleCounts map[string]int
 	openStackID        string
 
-	// PureRef-style Always-on-Top Floating Reference Window state.
-	boardAlwaysOnTop    bool
-	pureRefWin          *mygo.Window
-	pureRefPinned       bool
-	pureRefOpacity      float64
-	pureRefBgOpacity    float64
-	pureRefImgOpacity   float64
-	pureRefFlipH        bool
-	pureRefGray         bool
-	pureRefClickThrough bool
-	pureRefBorderless   bool
-	pureRefPanX         float64
-	pureRefPanY         float64
-	pureRefZoom         float64
-	pureRefDragging     bool
-	pureRefDragX        float64
-	pureRefDragY        float64
-	pureRefStartPanX    float64
-	pureRefStartPanY    float64
-	pureRefViewW        float32
-	pureRefViewH        float32
+	// Always-on-Top Floating Reference Window state.
+	boardAlwaysOnTop   bool
+	refWin             *mygo.Window
+	refWinPinned       bool
+	refWinOpacity      float64
+	refWinBgOpacity    float64
+	refWinImgOpacity   float64
+	refWinFlipH        bool
+	refWinGray         bool
+	refWinClickThrough bool
+	refWinBorderless   bool
+	refWinPanX         float64
+	refWinPanY         float64
+	refWinZoom         float64
+	refWinDragging     bool
+	refWinDragX        float64
+	refWinDragY        float64
+	refWinStartPanX    float64
+	refWinStartPanY    float64
+	refWinViewW        float32
+	refWinViewH        float32
 
 	// Inspector Info / Similar tabs.
 	inspectorTab         int // 0 = Info, 1 = Similar
@@ -343,7 +343,7 @@ type App struct {
 	// Random discovery seed.
 	randomSeed int64
 
-	// Custom theme overrides & Zeron-style Frosted Glass (Acrylic / Vibrancy).
+	// Custom theme overrides & Frosted Glass (Acrylic / Vibrancy).
 	themePreset   string
 	customCanvas  string
 	customSurface string
@@ -385,6 +385,26 @@ type App struct {
 	dbStats              dbStatsInfo
 	dbStatsBusy          bool
 	dbStatsLoaded        bool
+	pluginSubTab         int // 0=Installed, 1=Marketplace
+	pluginMarket         []plugin.RegistryEntry
+	pluginMarketSearch   string
+	pluginMarketLoading  bool
+	pluginMarketLoaded   bool
+	pluginMarketBusyID   string
+	pluginMarketErr      string
+	syncServerURL        string
+	syncToken            string
+	syncBusy             bool
+	syncStatusMsg        string
+	pairForceRelay       bool
+	pairTransport        string // "p2p" or "e2e-relay"
+	pubSharePass         string
+	pubShareURL          string
+	updatePromptOpen     bool
+	updateAutoRestart    bool
+	settingsAdvShareOpen bool
+	settingsAdvAIOpen    bool
+	pairAdvRelayOpen     bool
 
 	// Project & board state.
 	projectList            []model.Project
@@ -519,8 +539,8 @@ func NewApp() *App {
 		showCardRating:       true,
 		previewVideoVol:      1.0,
 		previewVideoRate:     1.0,
-		pureRefBgOpacity:     0.88,
-		pureRefImgOpacity:    1.0,
+		refWinBgOpacity:      0.88,
+		refWinImgOpacity:     1.0,
 		boardShowMinimap:     true,
 		boardStrokeColor:     "#FF5C33",
 		boardStrokeWidth:     3.0,
@@ -568,9 +588,9 @@ func NewApp() *App {
 		previewSVGChecker:    true,
 		previewFontSize:      44,
 		previewAudioVol:      0.85,
-		pureRefPinned:        true,
-		pureRefOpacity:       0.96,
-		pureRefZoom:          1,
+		refWinPinned:         true,
+		refWinOpacity:        0.96,
+		refWinZoom:           1,
 		sidebarOpen:          true,
 		sidebarWidth:         240,
 		inspectorWidth:       316,
@@ -667,10 +687,10 @@ func (a *App) applyConfig(cfg config.Config) {
 		a.thumbBg = cfg.ThumbBg
 	}
 	a.grayscalePreview = cfg.GrayscalePreview
-	if cfg.PureRefBgOpacity != nil {
-		v := *cfg.PureRefBgOpacity
+	if cfg.RefWinBgOpacity != nil {
+		v := *cfg.RefWinBgOpacity
 		if v >= 0 && v <= 1 {
-			a.pureRefBgOpacity = v
+			a.refWinBgOpacity = v
 		}
 	}
 	a.autoSelectImported = config.BoolOr(cfg.AutoSelectImported, true)
@@ -699,6 +719,9 @@ func (a *App) applyConfig(cfg config.Config) {
 	a.serverBindAll = cfg.ServerBindAll
 	a.serverAutoStart = cfg.ServerAutoStart
 	a.serverToken = cfg.ServerToken
+	a.syncServerURL = cfg.SyncServerURL
+	a.syncToken = cfg.SyncToken
+	a.pairForceRelay = cfg.PairForceRelay
 	a.autoCheckUpdates = config.BoolOr(cfg.AutoCheckUpdates, true)
 	a.updateBetaChannel = config.BoolOr(cfg.UpdateBetaChannel, false)
 }
@@ -728,8 +751,8 @@ func (a *App) syncConfigFromState() {
 	a.cfg.ShowCardRating = config.BoolPtr(a.showCardRating)
 	a.cfg.ThumbBg = a.thumbBg
 	a.cfg.GrayscalePreview = a.grayscalePreview
-	bgOp := a.pureRefBgOpacity
-	a.cfg.PureRefBgOpacity = &bgOp
+	bgOp := a.refWinBgOpacity
+	a.cfg.RefWinBgOpacity = &bgOp
 	a.cfg.AutoSelectImported = config.BoolPtr(a.autoSelectImported)
 	a.cfg.AutoTagOnImport = config.BoolPtr(a.autoTagOnImport)
 	a.cfg.IgnoreHiddenOnImport = config.BoolPtr(a.ignoreHiddenOnImport)
@@ -747,6 +770,9 @@ func (a *App) syncConfigFromState() {
 	a.cfg.ServerBindAll = a.serverBindAll
 	a.cfg.ServerAutoStart = a.serverAutoStart
 	a.cfg.ServerToken = strings.TrimSpace(a.serverToken)
+	a.cfg.SyncServerURL = strings.TrimSpace(a.syncServerURL)
+	a.cfg.SyncToken = strings.TrimSpace(a.syncToken)
+	a.cfg.PairForceRelay = a.pairForceRelay
 	a.cfg.AutoCheckUpdates = config.BoolPtr(a.autoCheckUpdates)
 	a.cfg.UpdateBetaChannel = config.BoolPtr(a.updateBetaChannel)
 	a.saveConfig()
@@ -865,7 +891,7 @@ func (a *App) shutdown() {
 		_ = node.Close()
 	}
 	a.closePreview()
-	a.closePureRefWindow()
+	a.closeRefWindow()
 	a.stopBuiltInServer()
 	if a.layaRuntime != nil {
 		a.layaRuntime.Stop()
@@ -3288,7 +3314,7 @@ var tagColorPalette = []tagColorChoice{
 }
 
 // effectiveTagColor returns a tag's display color (inheriting its nearest colored
-// ancestor so child folders stay visually cohesive, like Eagle), or false when
+// ancestor so child folders stay visually cohesive), or false when
 // ShowTagColors is disabled or no color is assigned.
 func (a *App) effectiveTagColor(tagID string) (gui.Color, bool) {
 	if !a.showTagColors || tagID == "" {

@@ -28,6 +28,7 @@ import (
 	"raglex/internal/model"
 	"raglex/internal/project"
 	"raglex/internal/share"
+	rsync "raglex/internal/sync"
 	"raglex/internal/thumbnail"
 )
 
@@ -46,14 +47,17 @@ type Options struct {
 	ExtraRoutes func(mux *http.ServeMux)
 }
 
-// Server hosts the unified HTTP API, Web Viewer, and Signaling service.
+// Server hosts the unified HTTP API, Web/Mobile PWA Viewer, Sync API v1,
+// Public Share Links, and WebRTC/E2E Relay Signaling service.
 type Server struct {
-	lib      *library.Library
-	projects *project.Store
-	token    string
-	signal   *share.SignalingServer
-	onChange func()
-	mux      *http.ServeMux
+	lib         *library.Library
+	projects    *project.Store
+	token       string
+	signal      *share.SignalingServer
+	syncStore   *rsync.Store
+	syncHandler *rsync.Handler
+	onChange    func()
+	mux         *http.ServeMux
 
 	mu       sync.Mutex
 	srv      *http.Server
@@ -82,11 +86,41 @@ func New(opts Options) *Server {
 		onChange: opts.OnChange,
 		mux:      http.NewServeMux(),
 	}
+	if s.lib != nil {
+		if st, err := rsync.OpenStore(s.lib.DB.Root()); err == nil {
+			blobs, berr := rsync.NewLocalBlobStore(s.lib.DB.Root(), rsync.R2FromEnv())
+			if berr == nil {
+				s.syncStore = st
+				s.syncHandler = &rsync.Handler{
+					Store:    st,
+					Blobs:    blobs,
+					Lib:      s.lib,
+					Projects: s.projects,
+					Auth:     s.isAuthorized,
+				}
+			} else {
+				_ = st.Close()
+			}
+		}
+	}
 	s.registerRoutes()
 	if opts.ExtraRoutes != nil {
 		opts.ExtraRoutes(s.mux)
 	}
 	return s
+}
+
+// CreatePublicShare creates a public or password-protected web share link directly
+// on this server's share store and returns its full relative path ("/s/<id>").
+func (s *Server) CreatePublicShare(req rsync.CreateShareRequest) (rsync.ShareLink, string, error) {
+	if s == nil || s.syncStore == nil {
+		return rsync.ShareLink{}, "", errors.New("sync/share store unavailable")
+	}
+	link, err := s.syncStore.CreateShare(req)
+	if err != nil {
+		return rsync.ShareLink{}, "", err
+	}
+	return link.Sanitized(), "/s/" + link.ID, nil
 }
 
 // Handler returns the root HTTP handler (with CORS middleware).
@@ -132,6 +166,10 @@ func (s *Server) Stop(ctx context.Context) error {
 
 	if s.signal != nil {
 		s.signal.Close()
+	}
+	if s.syncStore != nil {
+		_ = s.syncStore.Close()
+		s.syncStore = nil
 	}
 	if srv == nil {
 		return nil
@@ -240,6 +278,14 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/api/v1/rename/preview", s.requireToken(s.handleRenamePreview))
 	s.mux.HandleFunc("/api/v1/rename/apply", s.requireToken(s.handleRenameApply))
 
+	// Sync API v1 (Oplog + SHA-256 Blobs + Public Share Links).
+	if s.syncHandler != nil {
+		s.syncHandler.RegisterRoutes(s.mux)
+	}
+
+	// Mobile-First PWA (/mobile, /manifest.webmanifest, /sw.js).
+	s.registerPWARoutes()
+
 	// Web Gallery & Interactive Board Viewer.
 	s.mux.HandleFunc("/", s.handleWebIndex)
 	s.mux.HandleFunc("/board/", s.handleWebBoard)
@@ -252,7 +298,7 @@ func (s *Server) withCORS(next http.Handler) http.Handler {
 		if origin != "" {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Vary", "Origin")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Raglex-Token")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Raglex-Token, X-Raglex-Share-Password")
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		}
 		if r.Method == http.MethodOptions {
@@ -263,23 +309,28 @@ func (s *Server) withCORS(next http.Handler) http.Handler {
 	})
 }
 
+func (s *Server) isAuthorized(r *http.Request) bool {
+	if s.token == "" {
+		return true
+	}
+	got := strings.TrimSpace(r.Header.Get("X-Raglex-Token"))
+	if got == "" {
+		auth := strings.TrimSpace(r.Header.Get("Authorization"))
+		if strings.HasPrefix(strings.ToLower(auth), "bearer ") {
+			got = strings.TrimSpace(auth[7:])
+		}
+	}
+	if got == "" {
+		got = strings.TrimSpace(r.URL.Query().Get("token"))
+	}
+	return got == s.token
+}
+
 func (s *Server) requireToken(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if s.token != "" {
-			got := strings.TrimSpace(r.Header.Get("X-Raglex-Token"))
-			if got == "" {
-				auth := strings.TrimSpace(r.Header.Get("Authorization"))
-				if strings.HasPrefix(strings.ToLower(auth), "bearer ") {
-					got = strings.TrimSpace(auth[7:])
-				}
-			}
-			if got == "" {
-				got = strings.TrimSpace(r.URL.Query().Get("token"))
-			}
-			if got != s.token {
-				writeJSONError(w, http.StatusUnauthorized, "unauthorized: missing or invalid token")
-				return
-			}
+		if !s.isAuthorized(r) {
+			writeJSONError(w, http.StatusUnauthorized, "unauthorized: missing or invalid token")
+			return
 		}
 		next(w, r)
 	}

@@ -9,7 +9,7 @@ import (
 	"raglex/internal/model"
 )
 
-// buildTagContextMenu populates an Eagle-inspired rich right-click menu shared
+// buildTagContextMenu populates a rich right-click menu shared
 // by both sidebar tags and the Tag Manager popup.
 func (a *App) buildTagContextMenu(m *gui.Menu, tg model.Tag, services gui.Services) {
 	tagID := tg.ID

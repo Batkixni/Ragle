@@ -4,7 +4,7 @@ import (
 	gui "github.com/egoist/mygo/ui"
 )
 
-// popoverMenuOpts returns our curated Raycast/Linear-inspired menu styling:
+// popoverMenuOpts returns our curated dark/light popover menu styling:
 // crisp floating panel, soft shadow, 1px hairline border, tight elegant row
 // spacing, and subtle neutral hover fill instead of an overpowering solid pill.
 func (a *App) popoverMenuOpts() gui.PopoverMenuOptions {

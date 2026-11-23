@@ -17,22 +17,39 @@ import (
 )
 
 const (
-	dcLabel       = "raglex-share"
-	dcChunkSize   = 32 << 10  // 32 KiB per SCTP message
-	dcLowWater    = 256 << 10 // 256 KiB
-	dcHighWater   = 1 << 20   // 1 MiB
-	maxMetaBytes  = 32 << 20  // 32 MiB
-	defaultSTUN   = "stun:stun.l.google.com:19302"
-	dcFlushGrace  = 150 * time.Millisecond
+	dcLabel              = "raglex-share"
+	dcChunkSize          = 32 << 10  // 32 KiB per SCTP/relay message
+	dcLowWater           = 256 << 10 // 256 KiB
+	dcHighWater          = 1 << 20   // 1 MiB
+	maxMetaBytes         = 32 << 20  // 32 MiB
+	defaultSTUN          = "stun:stun.l.google.com:19302"
+	defaultDirectTimeout = 8 * time.Second
+	dcFlushGrace         = 150 * time.Millisecond
 )
 
-// PairOptions configures a WebRTC pairing-code transfer.
+// PairOptions configures a WebRTC pairing-code transfer with automatic
+// X25519 + AES-256-GCM zero-storage E2E blind relay fallback.
 type PairOptions struct {
 	SignalingURL string
 	Name         string
 	// ICEServers overrides the default STUN server when non-nil.
 	// Pass an empty slice []webrtc.ICEServer{} for offline / local-only tests.
 	ICEServers []webrtc.ICEServer
+	// DirectTimeout controls how long to wait for direct WebRTC P2P ICE before
+	// automatically falling back to the X25519+AES-256-GCM blind E2E relay.
+	DirectTimeout time.Duration
+	// ForceRelay skips direct WebRTC ICE and uses the E2E blind relay directly
+	// (useful behind strict symmetric corporate firewalls or in tests).
+	ForceRelay bool
+	// OnTransport optionally reports which encrypted transport won ("p2p" or "e2e-relay").
+	OnTransport func(mode string)
+}
+
+func (o PairOptions) directTimeout() time.Duration {
+	if o.DirectTimeout > 0 {
+		return o.DirectTimeout
+	}
+	return defaultDirectTimeout
 }
 
 func (o PairOptions) webrtcConfig() webrtc.Configuration {
@@ -199,9 +216,10 @@ func watchPCFailure(pc *webrtc.PeerConnection) <-chan struct{} {
 	return failCh
 }
 
-// PairSend registers a short pairing code with the signaling server, establishes
-// an E2E-encrypted WebRTC DataChannel when the receiver connects, and transfers
-// the project bundle and optional files.
+// PairSend registers a short pairing code with the signaling server, attempts a
+// direct DTLS-encrypted WebRTC DataChannel P2P connection first, and automatically
+// falls back to an X25519 + AES-256-GCM zero-storage E2E blind relay if strict
+// NAT/CGNAT blocks direct hole-punching.
 func PairSend(ctx context.Context, opt PairOptions, bundle Bundle, files map[string]string, onCode func(code string)) error {
 	client := NewSignalingClient(opt.SignalingURL)
 	if client.baseURL == "" {
@@ -211,73 +229,108 @@ func PairSend(ctx context.Context, opt PairOptions, bundle Bundle, files map[str
 	if senderName == "" {
 		senderName = "Raglex"
 	}
-
-	pc, err := webrtc.NewPeerConnection(opt.webrtcConfig())
+	kp, err := newE2EKeyPair()
 	if err != nil {
 		return err
 	}
-	defer pc.Close()
-	failCh := watchPCFailure(pc)
 
-	ordered := true
-	dc, err := pc.CreateDataChannel(dcLabel, &webrtc.DataChannelInit{Ordered: &ordered})
-	if err != nil {
-		return err
-	}
-	pipe := newDCPipe(dc)
+	var pc *webrtc.PeerConnection
+	var dcP *dcPipe
+	var failCh <-chan struct{}
+	offerSDP := "e2e-relay-only"
 
-	offer, err := pc.CreateOffer(nil)
-	if err != nil {
-		return err
-	}
-	gatherDone := webrtc.GatheringCompletePromise(pc)
-	if err := pc.SetLocalDescription(offer); err != nil {
-		return err
-	}
-	select {
-	case <-gatherDone:
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-
-	localDesc := pc.LocalDescription()
-	if localDesc == nil {
-		return errors.New("raglex: missing local description")
-	}
-	code, token, err := client.CreateRoom(ctx, localDesc.SDP, senderName)
-	if err != nil {
-		return err
-	}
-	answered := false
-	defer func() {
-		if !answered {
-			cleanCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-			defer cancel()
-			_ = client.DeleteRoom(cleanCtx, code, token)
+	if !opt.ForceRelay {
+		pc, err = webrtc.NewPeerConnection(opt.webrtcConfig())
+		if err != nil {
+			return err
 		}
+		defer pc.Close()
+		failCh = watchPCFailure(pc)
+
+		ordered := true
+		dc, err := pc.CreateDataChannel(dcLabel, &webrtc.DataChannelInit{Ordered: &ordered})
+		if err != nil {
+			return err
+		}
+		dcP = newDCPipe(dc)
+
+		offer, err := pc.CreateOffer(nil)
+		if err != nil {
+			return err
+		}
+		gatherDone := webrtc.GatheringCompletePromise(pc)
+		if err := pc.SetLocalDescription(offer); err != nil {
+			return err
+		}
+		select {
+		case <-gatherDone:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+		localDesc := pc.LocalDescription()
+		if localDesc == nil {
+			return errors.New("raglex: missing local description")
+		}
+		offerSDP = localDesc.SDP
+	}
+
+	code, token, err := client.CreateRoomWithKey(ctx, offerSDP, senderName, kp.pub)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		cleanCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		_ = client.DeleteRoom(cleanCtx, code, token)
 	}()
 	if onCode != nil {
 		onCode(code)
 	}
 
-	answerSDP, err := client.WaitAnswer(ctx, code, token)
+	answerSDP, peerPub, err := client.WaitAnswerWithKey(ctx, code, token)
 	if err != nil {
 		return err
 	}
-	answered = true
 
-	if err := pc.SetRemoteDescription(webrtc.SessionDescription{
-		Type: webrtc.SDPTypeAnswer,
-		SDP:  answerSDP,
-	}); err != nil {
-		return err
+	var pipe msgPipe
+	usedRelay := opt.ForceRelay || answerSDP == "e2e-relay-only" || pc == nil
+	if !usedRelay {
+		if err := pc.SetRemoteDescription(webrtc.SessionDescription{
+			Type: webrtc.SDPTypeAnswer,
+			SDP:  answerSDP,
+		}); err != nil {
+			usedRelay = true
+		} else {
+			directCtx, cancel := context.WithTimeout(ctx, opt.directTimeout())
+			waitErr := dcP.waitOpen(directCtx, failCh)
+			cancel()
+			if waitErr == nil {
+				pipe = dcP
+			} else if ctx.Err() != nil {
+				return ctx.Err()
+			} else {
+				usedRelay = true
+			}
+		}
 	}
 
-	if err := pipe.waitOpen(ctx, failCh); err != nil {
-		return err
+	if usedRelay {
+		if peerPub == "" {
+			return ErrInterrupted
+		}
+		ciph, err := newE2ECipher(kp.priv, peerPub, code, true)
+		if err != nil {
+			return err
+		}
+		pipe = newRelayPipe(client, code, "sender", token, ciph)
+		if opt.OnTransport != nil {
+			opt.OnTransport("e2e-relay")
+		}
+	} else if opt.OnTransport != nil {
+		opt.OnTransport("p2p")
 	}
 
-	// 1. Hello + metadata frames (chunked to respect SCTP message limits).
+	// 1. Hello + metadata frames (chunked to respect SCTP/relay message limits).
 	if err := pipe.send(ctx, dcMsg{Type: dcHello, Name: senderName}); err != nil {
 		return err
 	}
@@ -350,7 +403,7 @@ func PairSend(ctx context.Context, opt PairOptions, bundle Bundle, files map[str
 	return nil
 }
 
-func sendPairFile(ctx context.Context, pipe *dcPipe, file FileSnap, path string) error {
+func sendPairFile(ctx context.Context, pipe msgPipe, file FileSnap, path string) error {
 	f, err := os.Open(path)
 	if err != nil {
 		return err
@@ -398,7 +451,9 @@ func sendPairFile(ctx context.Context, pipe *dcPipe, file FileSnap, path string)
 	})
 }
 
-// PairReceive connects to a sender using a short pairing code, asks decide
+// PairReceive connects to a sender using a short pairing code, tries direct
+// DTLS-encrypted WebRTC P2P first, automatically falls back to X25519 + AES-256-GCM
+// zero-storage E2E blind relay when direct NAT traversal is blocked, asks decide
 // before accepting files, verifies file hashes, and commits the project bundle.
 func PairReceive(
 	ctx context.Context,
@@ -412,67 +467,115 @@ func PairReceive(
 	if client.baseURL == "" {
 		return "", ErrNoSignaling
 	}
-	offerSDP, senderName, err := client.GetOffer(ctx, code)
+	offerSDP, senderName, peerPub, err := client.GetOfferWithKey(ctx, code)
+	if err != nil {
+		return "", err
+	}
+	kp, err := newE2EKeyPair()
 	if err != nil {
 		return "", err
 	}
 
-	pc, err := webrtc.NewPeerConnection(opt.webrtcConfig())
-	if err != nil {
-		return "", err
-	}
-	defer pc.Close()
-	failCh := watchPCFailure(pc)
+	var pc *webrtc.PeerConnection
+	var failCh <-chan struct{}
+	var pipeCh chan *dcPipe
+	answerSDP := "e2e-relay-only"
 
-	pipeCh := make(chan *dcPipe, 1)
-	pc.OnDataChannel(func(dc *webrtc.DataChannel) {
-		if dc.Label() != dcLabel {
-			return
+	useRelay := opt.ForceRelay || offerSDP == "e2e-relay-only"
+	if !useRelay {
+		pc, err = webrtc.NewPeerConnection(opt.webrtcConfig())
+		if err != nil {
+			return "", err
 		}
+		defer pc.Close()
+		failCh = watchPCFailure(pc)
+
+		pipeCh = make(chan *dcPipe, 1)
+		pc.OnDataChannel(func(dc *webrtc.DataChannel) {
+			if dc.Label() != dcLabel {
+				return
+			}
+			select {
+			case pipeCh <- newDCPipe(dc):
+			default:
+			}
+		})
+
+		if err := pc.SetRemoteDescription(webrtc.SessionDescription{
+			Type: webrtc.SDPTypeOffer,
+			SDP:  offerSDP,
+		}); err != nil {
+			useRelay = true
+		} else {
+			answer, err := pc.CreateAnswer(nil)
+			if err != nil {
+				return "", err
+			}
+			gatherDone := webrtc.GatheringCompletePromise(pc)
+			if err := pc.SetLocalDescription(answer); err != nil {
+				return "", err
+			}
+			select {
+			case <-gatherDone:
+			case <-ctx.Done():
+				return "", ctx.Err()
+			}
+			localDesc := pc.LocalDescription()
+			if localDesc == nil {
+				return "", errors.New("raglex: missing local answer")
+			}
+			answerSDP = localDesc.SDP
+		}
+	}
+
+	recvToken, err := client.SubmitAnswerWithKey(ctx, code, answerSDP, kp.pub)
+	if err != nil {
+		return "", err
+	}
+
+	var pipe msgPipe
+	if !useRelay {
+		directCtx, cancel := context.WithTimeout(ctx, opt.directTimeout())
+		var dcP *dcPipe
 		select {
-		case pipeCh <- newDCPipe(dc):
-		default:
+		case dcP = <-pipeCh:
+		case <-failCh:
+			useRelay = true
+		case <-directCtx.Done():
+			if ctx.Err() != nil {
+				cancel()
+				return "", ctx.Err()
+			}
+			useRelay = true
 		}
-	})
-
-	if err := pc.SetRemoteDescription(webrtc.SessionDescription{
-		Type: webrtc.SDPTypeOffer,
-		SDP:  offerSDP,
-	}); err != nil {
-		return "", err
-	}
-	answer, err := pc.CreateAnswer(nil)
-	if err != nil {
-		return "", err
-	}
-	gatherDone := webrtc.GatheringCompletePromise(pc)
-	if err := pc.SetLocalDescription(answer); err != nil {
-		return "", err
-	}
-	select {
-	case <-gatherDone:
-	case <-ctx.Done():
-		return "", ctx.Err()
+		if !useRelay && dcP != nil {
+			if err := dcP.waitOpen(directCtx, failCh); err != nil {
+				if ctx.Err() != nil {
+					cancel()
+					return "", ctx.Err()
+				}
+				useRelay = true
+			} else {
+				pipe = dcP
+			}
+		}
+		cancel()
 	}
 
-	localDesc := pc.LocalDescription()
-	if localDesc == nil {
-		return "", errors.New("raglex: missing local answer")
-	}
-	if err := client.SubmitAnswer(ctx, code, localDesc.SDP); err != nil {
-		return "", err
-	}
-
-	var pipe *dcPipe
-	select {
-	case pipe = <-pipeCh:
-	case <-failCh:
-		return "", ErrInterrupted
-	case <-ctx.Done():
-		return "", ctx.Err()
-	}
-	if err := pipe.waitOpen(ctx, failCh); err != nil {
-		return "", err
+	if useRelay {
+		if peerPub == "" {
+			return "", ErrInterrupted
+		}
+		ciph, err := newE2ECipher(kp.priv, peerPub, code, false)
+		if err != nil {
+			return "", err
+		}
+		pipe = newRelayPipe(client, code, "receiver", recvToken, ciph)
+		if opt.OnTransport != nil {
+			opt.OnTransport("e2e-relay")
+		}
+	} else if opt.OnTransport != nil {
+		opt.OnTransport("p2p")
 	}
 
 	// 1. Receive hello and chunked metadata.

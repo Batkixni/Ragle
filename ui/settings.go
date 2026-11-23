@@ -12,6 +12,7 @@ import (
 	gui "github.com/egoist/mygo/ui"
 
 	"raglex/internal/model"
+	"raglex/internal/plugin"
 	"raglex/internal/updater"
 )
 
@@ -267,25 +268,27 @@ func (a *App) settingsModal(c *gui.Context) {
 		}
 
 		gui.Row(c).Fill().Children(func() {
-			// Left category sidebar with Arc gliding pill highlight.
+			// Left category sidebar separated by a crisp 1px hairline.
 			navBg := a.pal.surface
 			if a.glassActive {
 				if a.dark {
-					navBg = gui.Hex("#131317")
+					navBg = gui.Hex("#141417")
 				} else {
-					navBg = gui.Hex("#F4F4F6")
+					navBg = gui.Hex("#F5F5F7")
 				}
 			}
 			gui.Column(c).
-				Width(198).
+				Width(188).
 				FillHeight().
 				Background(navBg).
-				Padding(18, 12, 16, 12).
-				Gap(14).
+				BorderWidth(0, 1, 0, 0).
+				BorderColor(a.chromeHairline()).
+				Padding(18, 10, 14, 10).
+				Gap(12).
 				Children(func() {
-					gui.Text(c, a.t("settings.title")).FontSize(15).Bold().Padding(0, 10)
+					gui.Text(c, a.t("settings.title")).FontSize(14).Bold().Padding(0, 10)
 
-					navTrack := gui.Column(c.Key("settings-nav-track")).FillWidth().Gap(3)
+					navTrack := gui.Column(c.Key("settings-nav-track")).FillWidth().Gap(2)
 					var activeBtn gui.Element
 					var hasActive bool
 					navTrack.Children(func() {
@@ -294,9 +297,9 @@ func (a *App) settingsModal(c *gui.Context) {
 							active := a.settingsTab == tb.id
 							btn := gui.ButtonBase(c.Key(fmt.Sprintf("stab-%d", tb.id))).
 								FillWidth().
-								Padding(9, 12).
+								Padding(8, 10).
 								Gap(10).
-								Radius(radiusControl).
+								Radius(8).
 								AlignItems(gui.Center).
 								OnClick(func() {
 									a.setSettingsTab(tb.id)
@@ -309,13 +312,13 @@ func (a *App) settingsModal(c *gui.Context) {
 							if !active {
 								hbg := gui.Transparent
 								if btn.Hovered() {
-									hbg = a.pal.surfaceMuted
+									hbg = a.settingsRowHoverBg()
 								}
 								btn.Background(btn.AnimateColor("hbg", hbg, animFast))
 							}
 							btn.Children(func() {
 								gui.Icon(c, tb.icon).Size(15, 15).TextColor(fg)
-								gui.Text(c, tb.label).FontSize(13).Bold().TextColor(fg).Grow(1).SingleLine()
+								gui.Text(c, tb.label).FontSize(13).TextColor(fg).Grow(1).SingleLine()
 							})
 							if active {
 								activeBtn = btn
@@ -323,7 +326,7 @@ func (a *App) settingsModal(c *gui.Context) {
 							}
 						}
 					})
-					attachGlidingPill(navTrack, activeBtn, hasActive, radiusControl, a.pal.pillActive, a.pal.shadowResting)
+					attachGlidingPill(navTrack, activeBtn, hasActive, 8, a.pal.pillActive, a.pal.shadowResting)
 
 					gui.Spacer(c)
 
@@ -338,13 +341,9 @@ func (a *App) settingsModal(c *gui.Context) {
 					})
 				})
 
-			// Right content area: header + directional animated scrollable cards + footer.
-			rightBg := a.pal.canvas
-			if a.glassActive {
-				rightBg = a.popoverSurface()
-			}
+			// Right content area: unified flat list layout matching our context menu aesthetic.
+			rightBg := a.popoverSurface()
 			gui.Column(c).Grow(1).FillHeight().Background(rightBg).Children(func() {
-				// Top header with clear title + human-friendly 1-line subtitle.
 				activeTitle := tabs[0].label
 				activeSub := a.t("settings.sub.general")
 				subKeys := map[int]string{
@@ -365,31 +364,31 @@ func (a *App) settingsModal(c *gui.Context) {
 					activeSub = a.t(sk)
 				}
 				gui.Row(c).
-					Padding(16, 22, 12, 22).
+					Padding(16, 20, 12, 20).
 					Gap(12).
 					AlignItems(gui.Center).
 					BorderWidth(0, 0, 1, 0).
 					BorderColor(a.chromeHairline()).
 					Children(func() {
 						gui.Column(c).Grow(1).Gap(2).Children(func() {
-							gui.Text(c, activeTitle).FontSize(16).Bold()
-							gui.Text(c, activeSub).FontSize(11.5).TextColor(a.pal.inkSecondary).SingleLine()
+							gui.Text(c, activeTitle).FontSize(15).Bold()
+							gui.Text(c, activeSub).FontSize(11.5).TextColor(a.pal.inkMuted).SingleLine()
 						})
 						a.iconButton(c, "settings-close-x", iconX, a.t("common.close"), false).OnClick(func() {
 							a.settingsOpen = false
 						})
 					})
 
-				// Scrollable grouped cards with directional Arc panel transition.
+				// Scrollable flat divider-separated list (zero boxed module cards).
 				gui.Scroll(c.Key("settings-scroll")).Grow(1).FillWidth().Children(func() {
-					dirY := float32(10)
+					dirY := float32(8)
 					if a.settingsTab < a.settingsPrevTab {
-						dirY = -10
+						dirY = -8
 					}
 					body := gui.Column(c.Key(fmt.Sprintf("settings-body-%d", a.settingsTab))).
 						FillWidth().
-						Padding(14, 22, 20, 22).
-						Gap(14)
+						Padding(10, 14, 18, 14).
+						Gap(2)
 					applyPanelSwitch(body, a.settingsTab, 0, dirY)
 					body.Children(func() {
 						switch a.settingsTab {
@@ -411,7 +410,7 @@ func (a *App) settingsModal(c *gui.Context) {
 
 				// Footer bar.
 				gui.Row(c).
-					Padding(12, 22).
+					Padding(10, 20).
 					Gap(10).
 					AlignItems(gui.Center).
 					BorderWidth(1, 0, 0, 0).
@@ -432,52 +431,93 @@ func (a *App) settingsModal(c *gui.Context) {
 	})
 }
 
-func (a *App) settingsGroup(c *gui.Context, title string, content func()) {
-	cardBg := a.pal.surface
-	if a.glassActive {
-		if a.dark {
-			cardBg = gui.RGBA(255, 255, 255, 0.04)
-		} else {
-			cardBg = gui.RGBA(0, 0, 0, 0.03)
-		}
+func (a *App) settingsRowHoverBg() gui.Color {
+	if a.dark {
+		return gui.RGBA(255, 255, 255, 0.045)
 	}
-	gui.Column(c).
-		FillWidth().
-		Padding(14, 16).
-		Gap(11).
-		Radius(radiusPanel).
-		Background(cardBg).
-		Border(1, a.chromeHairline()).
+	return gui.RGBA(0, 0, 0, 0.035)
+}
+
+func (a *App) settingsDivider(c *gui.Context) {
+	gui.Box(c).FillWidth().Height(1).Margin(8, 10).Background(a.chromeHairline())
+}
+
+func (a *App) helpTip(c *gui.Context, tip string) {
+	if strings.TrimSpace(tip) == "" {
+		return
+	}
+	gui.Box(c).
+		Size(15, 15).
+		Radius(radiusPill).
+		Background(a.pal.surfaceMuted).
+		Center().
+		Tooltip(tip).
 		Children(func() {
-			a.sectionLabel(c, title)
-			content()
+			gui.Text(c, "?").FontSize(9.5).Bold().TextColor(a.pal.inkMuted).SingleLine()
 		})
 }
 
-func (a *App) settingsSwitchRow(c *gui.Context, key, label string, val *bool, onChange func()) {
-	gui.Row(c).FillWidth().Gap(12).AlignItems(gui.Center).Children(func() {
-		gui.Text(c, label).FontSize(13).TextColor(a.pal.ink).Grow(1).LineHeight(1.35)
-		a.arcSwitch(c, key, val, onChange)
+// settingsSection renders a flat, borderless section separated by crisp 1px
+// hairlines (matching the clean list grammar of our right-click context menu).
+func (a *App) settingsSection(c *gui.Context, title, tip string, topDivider bool, content func()) {
+	if topDivider {
+		a.settingsDivider(c)
+	}
+	gui.Row(c).FillWidth().Padding(4, 10, 4, 10).Gap(6).AlignItems(gui.Center).Children(func() {
+		gui.Text(c, title).FontSize(11).Bold().TextColor(a.pal.inkMuted).SingleLine()
+		a.helpTip(c, tip)
+	})
+	content()
+}
+
+// settingsItemRow renders a single flat, subtly hoverable setting row:
+// [15px icon]  [<=8-char label] [?]        [right-aligned control / value]
+func (a *App) settingsItemRow(c *gui.Context, key string, ic *gui.SVG, label, tip string, right func()) {
+	row := gui.Row(c.Key("srow-"+key)).
+		FillWidth().
+		Padding(7, 10).
+		Gap(10).
+		Radius(8).
+		AlignItems(gui.Center)
+	if row.Hovered() {
+		row.Background(a.settingsRowHoverBg())
+	}
+	row.Children(func() {
+		gui.Row(c).Grow(1).Gap(10).AlignItems(gui.Center).Children(func() {
+			if ic != nil {
+				gui.Icon(c, ic).Size(15, 15).TextColor(a.pal.inkSecondary)
+			}
+			gui.Text(c, label).FontSize(13).TextColor(a.pal.ink).SingleLine()
+			a.helpTip(c, tip)
+		})
+		if right != nil {
+			right()
+		}
 	})
 }
 
-func (a *App) settingsSwitchRowDesc(c *gui.Context, key, label, desc string, val *bool, onChange func()) {
-	gui.Row(c).FillWidth().Gap(12).AlignItems(gui.Center).Children(func() {
-		gui.Column(c).Grow(1).Gap(2).Children(func() {
-			gui.Text(c, label).FontSize(13).TextColor(a.pal.ink).LineHeight(1.3)
-			if desc != "" {
-				gui.Text(c, desc).FontSize(11).TextColor(a.pal.inkMuted).LineHeight(1.35)
-			}
-		})
+func (a *App) settingsGroup(c *gui.Context, title string, content func()) {
+	a.settingsSection(c, title, "", false, content)
+}
+
+func (a *App) settingsSwitchRow(c *gui.Context, key, label string, val *bool, onChange func()) {
+	a.settingsSwitchRowTip(c, key, nil, label, "", val, onChange)
+}
+
+func (a *App) settingsIconSwitchRow(c *gui.Context, key string, ic *gui.SVG, label string, val *bool, onChange func()) {
+	a.settingsSwitchRowTip(c, key, ic, label, "", val, onChange)
+}
+
+func (a *App) settingsSwitchRowTip(c *gui.Context, key string, ic *gui.SVG, label, tip string, val *bool, onChange func()) {
+	a.settingsItemRow(c, key, ic, label, tip, func() {
 		a.arcSwitch(c, key, val, onChange)
 	})
 }
 
 func (a *App) settingsGeneralTab(c *gui.Context) {
-	// Appearance & Frosted Glass group.
-	a.settingsGroup(c, a.t("settings.appearance"), func() {
-		gui.Row(c).FillWidth().Gap(12).AlignItems(gui.Center).Children(func() {
-			gui.Text(c, a.t("shell.theme")).FontSize(13).Grow(1)
+	// 1. 外觀風格
+	a.settingsSection(c, a.t("pref.grpLook"), "", false, func() {
+		a.settingsItemRow(c, "theme", iconMoon, a.t("pref.theme"), "", func() {
 			sel := 0
 			switch a.themeMode {
 			case "light":
@@ -503,13 +543,12 @@ func (a *App) settingsGeneralTab(c *gui.Context) {
 				break
 			}
 		}
-		gui.Column(c).FillWidth().Gap(8).Children(func() {
-			gui.Row(c).FillWidth().AlignItems(gui.Center).Children(func() {
-				gui.Text(c, a.t("settings.themePreset")).FontSize(13).Grow(1)
-				a.toolButton(c, "pref-theme-reset", iconRefresh, a.t("settings.resetTheme"), false).OnClick(func() {
-					a.resetCustomTheme()
-				})
+		a.settingsItemRow(c, "preset-head", iconPalette, a.t("pref.preset"), "", func() {
+			a.toolButton(c, "pref-theme-reset", iconRefresh, a.t("settings.resetTheme"), false).OnClick(func() {
+				a.resetCustomTheme()
 			})
+		})
+		gui.Row(c).FillWidth().Padding(0, 10, 4, 35).Children(func() {
 			a.arcPillTabs(c, "pref-theme-preset", presetSel, []string{
 				a.t("settings.preset.default"),
 				a.t("settings.preset.graphite"),
@@ -539,34 +578,31 @@ func (a *App) settingsGeneralTab(c *gui.Context) {
 			})
 		})
 
-		a.settingsSwitchRowDesc(c, "pref-glass-mode", a.t("settings.glassMode"), a.t("settings.glassDesc"), &a.glassMode, func() {
+		a.settingsSwitchRowTip(c, "pref-glass-mode", iconLayers, a.t("pref.glass"), a.t("settings.glassDesc"), &a.glassMode, func() {
 			a.syncWindowVibrancy()
 			a.syncConfigFromState()
 		})
 		if a.glassMode {
-			gui.Row(c).FillWidth().Gap(12).AlignItems(gui.Center).Children(func() {
-				gui.Text(c, a.t("settings.glassOpacity")).FontSize(13).Grow(1)
-				gui.Text(c, fmt.Sprintf("%d%%", int(a.glassOpacity*100+0.5))).FontSize(12).Bold().TextColor(a.pal.inkSecondary)
-				gui.Slider(c.Key("pref-glass-opacity"), &a.glassOpacity, 0.30, 0.96).Width(160).OnChange(func() {
-					a.syncConfigFromState()
+			a.settingsItemRow(c, "glass-density", iconContrast, a.t("pref.glassDensity"), "", func() {
+				gui.Row(c).Gap(10).AlignItems(gui.Center).Children(func() {
+					gui.Text(c, fmt.Sprintf("%d%%", int(a.glassOpacity*100+0.5))).FontSize(12).TextColor(a.pal.inkMuted)
+					gui.Slider(c.Key("pref-glass-opacity"), &a.glassOpacity, 0.30, 0.96).Width(156).OnChange(func() {
+						a.syncConfigFromState()
+					})
 				})
 			})
 		}
 
-		// Only expand hex color pickers when user explicitly chooses Custom preset.
 		if a.themePreset == "custom" {
-			gui.Box(c).FillWidth().Height(1).Background(a.chromeHairline())
-			a.themeColorRow(c, "pref-col-canvas", a.t("settings.colorCanvas"), &a.customCanvas, a.pal.canvas, []string{"#111111", "#18191C", "#090A0D", "#FFFFFF", "#F6F3EE"})
-			a.themeColorRow(c, "pref-col-surface", a.t("settings.colorSurface"), &a.customSurface, a.pal.surface, []string{"#18181B", "#222428", "#12141A", "#F4F4F5", "#EDE8DF"})
-			a.themeColorRow(c, "pref-col-accent", a.t("settings.colorAccent"), &a.customAccent, a.pal.controlOn, []string{"#EDEDED", "#18181B", "#FF5C33", "#E11D48", "#10B981"})
-			a.themeColorRow(c, "pref-col-text", a.t("settings.colorText"), &a.customText, a.pal.ink, []string{"#FAFAFA", "#E4E4E7", "#18181B", "#1F1B17"})
-		} else {
-			gui.Text(c, a.t("settings.customColorsToggle")).FontSize(11).TextColor(a.pal.inkMuted)
+			gui.Column(c).FillWidth().Padding(4, 10, 4, 35).Gap(6).Children(func() {
+				a.themeColorRow(c, "pref-col-canvas", a.t("settings.colorCanvas"), &a.customCanvas, a.pal.canvas, []string{"#111111", "#18191C", "#090A0D", "#FFFFFF", "#F6F3EE"})
+				a.themeColorRow(c, "pref-col-surface", a.t("settings.colorSurface"), &a.customSurface, a.pal.surface, []string{"#18181B", "#222428", "#12141A", "#F4F4F5", "#EDE8DF"})
+				a.themeColorRow(c, "pref-col-accent", a.t("settings.colorAccent"), &a.customAccent, a.pal.controlOn, []string{"#EDEDED", "#18181B", "#FF5C33", "#E11D48", "#10B981"})
+				a.themeColorRow(c, "pref-col-text", a.t("settings.colorText"), &a.customText, a.pal.ink, []string{"#FAFAFA", "#E4E4E7", "#18181B", "#1F1B17"})
+			})
 		}
 
-		gui.Box(c).FillWidth().Height(1).Background(a.chromeHairline())
-		gui.Row(c).FillWidth().Gap(12).AlignItems(gui.Center).Children(func() {
-			gui.Text(c, a.t("shell.language")).FontSize(13).Grow(1)
+		a.settingsItemRow(c, "lang", iconGlobe, a.t("pref.lang"), "", func() {
 			sel := 0
 			if a.lang == i18nEn {
 				sel = 1
@@ -581,10 +617,9 @@ func (a *App) settingsGeneralTab(c *gui.Context) {
 		})
 	})
 
-	// Workspace display group.
-	a.settingsGroup(c, a.t("settings.workspace"), func() {
-		gui.Row(c).FillWidth().Gap(12).AlignItems(gui.Center).Children(func() {
-			gui.Text(c, a.t("settings.defaultLayout")).FontSize(13).Grow(1)
+	// 2. 畫廊顯示
+	a.settingsSection(c, a.t("pref.grpGrid"), "", true, func() {
+		a.settingsItemRow(c, "layout", iconLibrary, a.t("pref.layout"), "", func() {
 			sel := 0
 			switch a.layoutMode {
 			case layoutMasonry:
@@ -602,8 +637,7 @@ func (a *App) settingsGeneralTab(c *gui.Context) {
 			})
 		})
 
-		gui.Column(c).FillWidth().Gap(6).Children(func() {
-			gui.Text(c, a.t("settings.defaultSort")).FontSize(13)
+		a.settingsItemRow(c, "sort", iconSort, a.t("pref.sort"), "", func() {
 			a.arcPillTabs(c, "pref-sort", a.sortBy, []string{
 				a.t("library.sortNewest"),
 				a.t("library.sortOldest"),
@@ -616,91 +650,75 @@ func (a *App) settingsGeneralTab(c *gui.Context) {
 			})
 		})
 
-		gui.Row(c).FillWidth().Gap(12).AlignItems(gui.Center).Children(func() {
-			gui.Text(c, a.t("settings.cardSize")).FontSize(13).Grow(1)
-			gui.Text(c, fmt.Sprintf("%d px", int(a.cardSize))).FontSize(12).TextColor(a.pal.inkSecondary)
-			gui.Slider(c.Key("pref-card-size"), &a.cardSize, 128, 300).Width(160).OnChange(func() {
-				a.syncConfigFromState()
+		a.settingsItemRow(c, "card-size", iconMaximize, a.t("pref.cardSize"), "", func() {
+			gui.Row(c).Gap(10).AlignItems(gui.Center).Children(func() {
+				gui.Text(c, fmt.Sprintf("%d px", int(a.cardSize))).FontSize(12).TextColor(a.pal.inkMuted)
+				gui.Slider(c.Key("pref-card-size"), &a.cardSize, 128, 300).Width(156).OnChange(func() {
+					a.syncConfigFromState()
+				})
 			})
 		})
 
-		gui.Box(c).FillWidth().Height(1).Background(a.chromeHairline())
-		a.settingsSwitchRow(c, "pref-sb-counts", a.t("settings.sidebarCounts"), &a.showSidebarCounts, func() {
+		a.settingsIconSwitchRow(c, "pref-sb-counts", iconPanelLeft, a.t("pref.sbCounts"), &a.showSidebarCounts, func() {
 			a.syncConfigFromState()
 		})
-		a.settingsSwitchRow(c, "pref-tag-colors", a.t("settings.tagColors"), &a.showTagColors, func() {
+		a.settingsIconSwitchRow(c, "pref-tag-colors", iconTag, a.t("pref.tagColors"), &a.showTagColors, func() {
 			a.syncConfigFromState()
 		})
-		a.settingsSwitchRow(c, "pref-card-caption", a.t("settings.cardCaption"), &a.showCardCaption, func() {
+		a.settingsIconSwitchRow(c, "pref-card-caption", iconType, a.t("pref.cardTitle"), &a.showCardCaption, func() {
 			a.syncConfigFromState()
 		})
+	})
 
-		gui.Box(c).FillWidth().Height(1).Background(a.chromeHairline())
-		gui.Row(c).FillWidth().AlignItems(gui.Center).Children(func() {
-			gui.Text(c, a.t("onboarding.open")).FontSize(13).Grow(1)
-			a.toolButton(c, "pref-reopen-ob", iconHelp, a.t("onboarding.reopen"), false).OnClick(func() {
+	// 3. 引導與更新
+	services := c.Services()
+	a.settingsSection(c, a.t("pref.grpUpdate"), "", true, func() {
+		a.settingsItemRow(c, "tour", iconHelp, a.t("pref.tour"), "", func() {
+			a.toolButton(c, "pref-reopen-ob", iconExternal, a.t("onboarding.reopen"), false).OnClick(func() {
 				a.settingsOpen = false
 				a.openOnboarding()
 			})
 		})
-	})
-
-	// Software updates (GitHub Releases Auto-Updater).
-	services := c.Services()
-	a.settingsGroup(c, a.t("update.section"), func() {
-		gui.Row(c).FillWidth().Gap(10).AlignItems(gui.Center).Children(func() {
-			gui.Text(c, a.t("update.current")).FontSize(13).Grow(1)
-			a.pillBadge(c, "v"+updater.Version, a.pal.ink, a.pal.surfaceMuted)
+		a.settingsItemRow(c, "upd-ver", iconClock, a.t("update.current"), "", func() {
+			gui.Row(c).Gap(8).AlignItems(gui.Center).Children(func() {
+				gui.Text(c, "v"+updater.Version).FontSize(12).TextColor(a.pal.inkMuted)
+				if a.updateInstalled {
+					a.arcButton(c, "pref-upd-restart", a.t("update.restartBtn"), true).OnClick(func() {
+						a.restartToApplyUpdate()
+					})
+				} else if a.updateAvailable && a.updateRelease != nil && a.updateRelease.DownloadURL != "" {
+					a.arcButton(c, "pref-upd-install", a.t("update.updateAndRestart"), true).
+						Disabled(a.updateApplying).
+						OnClick(func() {
+							a.updateAutoRestart = true
+							a.updatePromptOpen = true
+							a.applyUpdateNow()
+						})
+				} else {
+					a.toolButton(c, "pref-upd-check", iconRefresh, a.t("update.checkBtn"), false).
+						Disabled(a.updateChecking || a.updateApplying).
+						OnClick(func() { a.checkForUpdatesNow() })
+				}
+				if a.updateRelease != nil && a.updateRelease.HTMLURL != "" {
+					relURL := a.updateRelease.HTMLURL
+					a.iconButton(c, "pref-upd-notes", iconExternal, a.t("update.openRelease"), false).OnClick(func() {
+						services.OpenURL(relURL)
+					})
+				}
+			})
 		})
-		a.settingsSwitchRow(c, "pref-upd-auto", a.t("update.autoCheck"), &a.autoCheckUpdates, func() {
-			a.syncConfigFromState()
-		})
-		a.settingsSwitchRow(c, "pref-upd-beta", a.t("update.betaChannel"), &a.updateBetaChannel, func() {
-			a.syncConfigFromState()
-		})
-
 		if a.updateMsg != "" {
-			msgCol := a.pal.inkSecondary
-			if a.updateInstalled || a.updateAvailable {
-				msgCol = a.pal.ink
-			}
+			msgCol := a.pal.inkMuted
 			if a.updateErr != "" {
 				msgCol = a.pal.danger
 			}
-			gui.Text(c, a.updateMsg).FontSize(12).Bold().TextColor(msgCol).LineHeight(1.4)
+			gui.Text(c, a.updateMsg).FontSize(11.5).TextColor(msgCol).Padding(0, 10, 4, 35)
 		}
-
-		if a.updateApplying {
-			pct := float32(a.updatePct)
-			if pct < 4 {
-				pct = 4
-			} else if pct > 100 {
-				pct = 100
-			}
-			gui.Box(c).FillWidth().Height(6).Radius(radiusPill).Clip().Background(a.pal.surfaceMuted).Children(func() {
-				gui.Box(c).WidthPercent(pct).FillHeight().Radius(radiusPill).Background(a.pal.controlOn)
-			})
-		}
-
-		gui.Row(c).FillWidth().Gap(8).AlignItems(gui.Center).Wrap().Children(func() {
-			if a.updateInstalled {
-				a.arcButton(c, "pref-upd-restart", a.t("update.restartBtn"), true).OnClick(func() {
-					a.restartToApplyUpdate()
-				})
-			} else if a.updateAvailable && a.updateRelease != nil && a.updateRelease.DownloadURL != "" {
-				a.arcButton(c, "pref-upd-install", a.t("update.installBtn"), true).
-					Disabled(a.updateApplying).
-					OnClick(func() { a.applyUpdateNow() })
-			}
-			a.arcButton(c, "pref-upd-check", a.t("update.checkBtn"), !a.updateAvailable && !a.updateInstalled).
-				Disabled(a.updateChecking || a.updateApplying).
-				OnClick(func() { a.checkForUpdatesNow() })
-			if a.updateRelease != nil && a.updateRelease.HTMLURL != "" {
-				relURL := a.updateRelease.HTMLURL
-				a.toolButton(c, "pref-upd-notes", iconExternal, a.t("update.openRelease"), false).OnClick(func() {
-					services.OpenURL(relURL)
-				})
-			}
+		a.settingsSwitchRowTip(c, "pref-upd-auto", iconRefresh, a.t("pref.autoUpd"), a.t("pref.autoUpdTip"), &a.autoCheckUpdates, func() {
+			a.syncConfigFromState()
+		})
+		a.settingsSwitchRowTip(c, "pref-upd-beta", iconSparkle, a.t("pref.betaUpd"), a.t("pref.betaUpdTip"), &a.updateBetaChannel, func() {
+			a.syncConfigFromState()
 		})
 	})
 }
@@ -708,59 +726,51 @@ func (a *App) settingsGeneralTab(c *gui.Context) {
 func (a *App) settingsAITab(c *gui.Context) {
 	services := c.Services()
 
-	// 1. Prominent MCP AI Agent Integration card (17 tools).
-	a.settingsGroup(c, a.t("mcp.section"), func() {
-		gui.Text(c, a.t("mcp.desc")).FontSize(12).TextColor(a.pal.inkSecondary).LineHeight(1.45)
-
+	// 1. AI 助手連線 (MCP)
+	a.settingsSection(c, a.t("pref.grpMCP"), a.t("pref.mcpTip"), false, func() {
 		dotCol := a.pal.inkFaint
-		statusText := a.t("mcp.stopped")
+		statusText := a.t("pref.mcpOff")
 		if a.localSrv != nil && a.localSrv.Running() {
 			dotCol = gui.Hex("#10B981")
-			statusText = fmt.Sprintf(a.t("mcp.running"), a.localSrv.LocalURL())
+			statusText = a.t("pref.mcpReady")
 		}
-		gui.Row(c).FillWidth().Padding(9, 12).Gap(8).Radius(radiusControl).Background(a.pal.surfaceMuted).AlignItems(gui.Center).Children(func() {
-			gui.Box(c).Size(8, 8).Radius(radiusPill).Background(dotCol)
-			gui.Text(c, statusText).FontSize(12).Bold().TextColor(a.pal.ink).Grow(1).SingleLine()
-			a.arcSwitch(c, "pref-mcp-srv-run", &a.serverRunning, func() {
-				a.toggleBuiltInServer()
+		a.settingsItemRow(c, "mcp-run", iconLink, statusText, "", func() {
+			gui.Row(c).Gap(10).AlignItems(gui.Center).Children(func() {
+				gui.Box(c).Size(7, 7).Radius(radiusPill).Background(dotCol)
+				a.arcSwitch(c, "pref-mcp-srv-run", &a.serverRunning, func() {
+					a.toggleBuiltInServer()
+				})
 			})
 		})
-
-		gui.Text(c, a.t("mcp.toolsSummary")).FontSize(11).TextColor(a.pal.inkMuted).LineHeight(1.45)
-
-		gui.Row(c).FillWidth().Gap(8).Wrap().AlignItems(gui.Center).Children(func() {
-			a.arcButton(c, "pref-ai-copy-mcp", a.t("server.copyMCP"), true).OnClick(func() {
-				services.WriteClipboard(a.buildMCPConfigJSON())
-				a.notify(a.t("server.mcpCopied"))
-			})
-			a.toolButton(c, "pref-ai-copy-tok", iconCopy, a.t("server.copyToken"), false).OnClick(func() {
-				services.WriteClipboard(a.ensureServerToken())
-				a.notify(a.t("common.copied"))
+		a.settingsItemRow(c, "mcp-cfg", iconCopy, a.t("pref.grpMCP"), "", func() {
+			gui.Row(c).Gap(6).AlignItems(gui.Center).Children(func() {
+				a.arcButton(c, "pref-ai-copy-mcp", a.t("pref.copyCfg"), true).OnClick(func() {
+					services.WriteClipboard(a.buildMCPConfigJSON())
+					a.notify(a.t("server.mcpCopied"))
+				})
+				a.toolButton(c, "pref-ai-copy-tok", iconLock, a.t("pref.advToken"), false).OnClick(func() {
+					services.WriteClipboard(a.ensureServerToken())
+					a.notify(a.t("common.copied"))
+				})
 			})
 		})
-		gui.Text(c, a.t("mcp.stepHint")).FontSize(11).TextColor(a.pal.inkMuted).LineHeight(1.4)
 	})
 
-	// 2. Built-in Visual Embedding Model card.
-	a.settingsGroup(c, a.t("ai.embedSection"), func() {
-		a.settingsSwitchRowDesc(c, "pref-ai-embed-en", a.t("ai.embedEnable"), a.t("ai.embedDesc"), &a.embedEnabled, func() {
+	// 2. 以圖搜圖
+	a.settingsSection(c, a.t("pref.grpSimilar"), a.t("ai.embedDesc"), true, func() {
+		a.settingsIconSwitchRow(c, "pref-ai-embed-en", iconEye, a.t("pref.simEnable"), &a.embedEnabled, func() {
 			a.syncConfigFromState()
 		})
-		gui.Row(c).FillWidth().Gap(10).AlignItems(gui.Center).Children(func() {
-			gui.Text(c, fmt.Sprintf(a.t("ai.embedStatus"), a.aiIndexedCount, a.allAssetsCount)).
-				FontSize(12).
-				Bold().
-				TextColor(a.pal.ink).
-				Grow(1)
-			a.arcButton(c, "pref-ai-reindex", a.t("ai.reindex"), false).
+		a.settingsItemRow(c, "embed-idx", iconRefresh, fmt.Sprintf(a.t("ai.embedStatus"), a.aiIndexedCount, a.allAssetsCount), "", func() {
+			a.toolButton(c, "pref-ai-reindex", iconRefresh, a.t("ai.reindex"), false).
 				Disabled(a.aiIndexBusy || !a.embedEnabled).
 				OnClick(func() { a.reindexVisualEmbeddings() })
 		})
 	})
 
-	// 3. Built-in Laya Decision Engine with one-click in-app deployment & runtime management.
-	a.settingsGroup(c, a.t("laya.section"), func() {
-		a.settingsSwitchRowDesc(c, "pref-ai-laya-en", a.t("ai.layaEnable"), a.t("ai.layaBuiltInDesc"), &a.layaEnabled, func() {
+	// 3. AI 自動標籤
+	a.settingsSection(c, a.t("pref.grpAutoTag"), a.t("ai.layaBuiltInDesc"), true, func() {
+		a.settingsIconSwitchRow(c, "pref-ai-laya-en", iconSparkle, a.t("pref.layaEnable"), &a.layaEnabled, func() {
 			a.syncConfigFromState()
 		})
 
@@ -774,38 +784,29 @@ func (a *App) settingsAITab(c *gui.Context) {
 				stateLbl = a.t("ai.layaStateInstalled")
 				dotCol = a.pal.inkSecondary
 			}
-			gui.Row(c).FillWidth().Gap(8).AlignItems(gui.Center).Children(func() {
-				gui.Box(c).Size(8, 8).Radius(radiusPill).Background(dotCol)
-				gui.Text(c, stateLbl).FontSize(12).Bold().TextColor(a.pal.ink).Grow(1)
-				a.iconButton(c, "pref-laya-refresh", iconRefresh, a.t("settings.recalc"), false).OnClick(func() {
-					a.refreshLayaStatus()
-				})
-			})
-			if len(a.layaStatus.InstalledModels) > 0 {
-				gui.Text(c, fmt.Sprintf(a.t("ai.layaModelsInstalled"), strings.Join(a.layaStatus.InstalledModels, ", "))).
-					FontSize(11).
-					TextColor(a.pal.inkMuted)
-			}
-
-			models := []string{"laya:multilingual", "laya", "winnow:e4b"}
-			selMod := 0
-			for i, m := range models {
-				if strings.EqualFold(a.layaModel, m) {
-					selMod = i
-					break
-				}
-			}
-			gui.Column(c).FillWidth().Gap(6).Children(func() {
-				gui.Text(c, a.t("ai.layaModelPreset")).FontSize(12).TextColor(a.pal.inkSecondary)
-				a.arcPillTabs(c, "pref-laya-preset", selMod, []string{"Laya 多語系 (CPU)", "Laya EN", "Winnow 4B"}, func(idx int) {
-					a.layaModel = models[idx]
-					a.syncConfigFromState()
+			a.settingsItemRow(c, "laya-state", iconCheck, stateLbl, "", func() {
+				gui.Row(c).Gap(6).AlignItems(gui.Center).Children(func() {
+					gui.Box(c).Size(7, 7).Radius(radiusPill).Background(dotCol)
+					a.arcButton(c, "pref-laya-deploy", a.t("ai.layaDeploy"), true).
+						Disabled(a.layaDeployBusy).
+						OnClick(func() { a.deployLayaInApp() })
+					if a.layaStatus.Running {
+						a.toolButton(c, "pref-laya-stop", nil, a.t("ai.layaStop"), false).
+							OnClick(func() { a.stopLayaInApp() })
+					} else if a.layaStatus.BinaryInstalled {
+						a.toolButton(c, "pref-laya-start", nil, a.t("ai.layaStart"), false).
+							Disabled(a.layaDeployBusy).
+							OnClick(func() { a.startLayaInApp() })
+					}
+					a.iconButton(c, "pref-laya-refresh", iconRefresh, a.t("settings.recalc"), false).OnClick(func() {
+						a.refreshLayaStatus()
+					})
 				})
 			})
 
 			if a.layaDeployBusy || a.layaDeployText != "" {
-				gui.Column(c).FillWidth().Padding(10, 12).Gap(6).Radius(radiusControl).Background(a.pal.surfaceRaised).Children(func() {
-					gui.Text(c, a.layaDeployText).FontSize(12).TextColor(a.pal.ink)
+				gui.Column(c).FillWidth().Padding(4, 10, 6, 35).Gap(6).Children(func() {
+					gui.Text(c, a.layaDeployText).FontSize(11.5).TextColor(a.pal.inkSecondary)
 					if a.layaDeployBusy {
 						pct := a.layaDeployPct
 						if pct < 0.04 {
@@ -813,38 +814,63 @@ func (a *App) settingsAITab(c *gui.Context) {
 						} else if pct > 1 {
 							pct = 1
 						}
-						gui.Box(c).FillWidth().Height(4).Radius(radiusPill).Background(a.pal.surfaceMuted).Children(func() {
+						gui.Box(c).FillWidth().Height(3).Radius(radiusPill).Background(a.pal.surfaceActive).Children(func() {
 							gui.Box(c).FillHeight().WidthPercent(float32(pct * 100)).Radius(radiusPill).Background(a.pal.controlOn)
 						})
 					}
 				})
 			}
 
-			gui.Row(c).FillWidth().Gap(8).Wrap().AlignItems(gui.Center).Children(func() {
-				a.arcButton(c, "pref-laya-deploy", a.t("ai.layaDeploy"), true).
-					Disabled(a.layaDeployBusy).
-					OnClick(func() { a.deployLayaInApp() })
-				if a.layaStatus.Running {
-					a.arcButton(c, "pref-laya-stop", a.t("ai.layaStop"), false).
-						OnClick(func() { a.stopLayaInApp() })
-				} else if a.layaStatus.BinaryInstalled {
-					a.arcButton(c, "pref-laya-start", a.t("ai.layaStart"), false).
-						Disabled(a.layaDeployBusy).
-						OnClick(func() { a.startLayaInApp() })
-				}
-				a.toolButton(c, "pref-laya-test", iconSparkle, a.t("laya.test"), false).OnClick(func() {
-					a.syncConfigFromState()
-					a.testLayaConnection()
+			advBtn := gui.ButtonBase(c.Key("pref-laya-adv")).
+				FillWidth().
+				Padding(7, 10).
+				Gap(10).
+				Radius(8).
+				AlignItems(gui.Center).
+				OnClick(func() {
+					a.settingsAdvAIOpen = !a.settingsAdvAIOpen
 				})
+			if advBtn.Hovered() {
+				advBtn.Background(a.settingsRowHoverBg())
+			}
+			advBtn.Children(func() {
+				gui.Icon(c, iconSliders).Size(15, 15).TextColor(a.pal.inkSecondary)
+				gui.Text(c, a.t("pref.advModel")).FontSize(13).TextColor(a.pal.ink).Grow(1).SingleLine()
+				chev := iconChevronRgt
+				if a.settingsAdvAIOpen {
+					chev = iconChevronDown
+				}
+				gui.Icon(c, chev).Size(14, 14).TextColor(a.pal.inkMuted)
 			})
 
-			gui.Row(c).FillWidth().Gap(8).AlignItems(gui.Center).Children(func() {
-				gui.Text(c, a.t("laya.url")).FontSize(12).TextColor(a.pal.inkSecondary).Width(130)
-				gui.TextInput(c.Key("pref-laya-url"), &a.layaURL).
-					Placeholder("http://127.0.0.1:11435").
-					Grow(1).
-					OnSubmit(func() { a.syncConfigFromState() })
-			})
+			if a.settingsAdvAIOpen {
+				models := []string{"laya:multilingual", "laya", "winnow:e4b"}
+				selMod := 0
+				for i, m := range models {
+					if strings.EqualFold(a.layaModel, m) {
+						selMod = i
+						break
+					}
+				}
+				gui.Row(c).FillWidth().Padding(2, 10, 4, 35).Children(func() {
+					a.arcPillTabs(c, "pref-laya-preset", selMod, []string{"Laya 多語系", "Laya EN", "Winnow 4B"}, func(idx int) {
+						a.layaModel = models[idx]
+						a.syncConfigFromState()
+					})
+				})
+				a.settingsItemRow(c, "laya-url", iconGlobe, a.t("laya.url"), "", func() {
+					gui.Row(c).Gap(6).AlignItems(gui.Center).Children(func() {
+						gui.TextInput(c.Key("pref-laya-url"), &a.layaURL).
+							Placeholder("http://127.0.0.1:11435").
+							Width(220).
+							OnSubmit(func() { a.syncConfigFromState() })
+						a.toolButton(c, "pref-laya-test", iconSparkle, a.t("laya.test"), false).OnClick(func() {
+							a.syncConfigFromState()
+							a.testLayaConnection()
+						})
+					})
+				})
+			}
 		}
 	})
 }
@@ -856,112 +882,93 @@ func (a *App) settingsDatabaseTab(c *gui.Context) {
 		rootPath = a.lib.DB.Root()
 	}
 
-	// Clean compact 4-tile KPI summary row so library scale is obvious at a glance.
 	st := a.dbStats
 	totalBoards := st.TotalBoards + len(a.standaloneBoards)
-	gui.Row(c).FillWidth().Gap(8).Children(func() {
-		kpiTile := func(label string, count int) {
-			tileBg := a.pal.surface
-			if a.glassActive {
-				if a.dark {
-					tileBg = gui.RGBA(255, 255, 255, 0.04)
-				} else {
-					tileBg = gui.RGBA(0, 0, 0, 0.03)
-				}
-			}
-			gui.Row(c).
-				Grow(1).
-				Padding(9, 12).
-				Gap(6).
-				Radius(radiusControl).
-				Background(tileBg).
-				Border(1, a.chromeHairline()).
-				AlignItems(gui.Center).
-				Children(func() {
-					gui.Text(c, fmt.Sprintf("%d", count)).FontSize(15).Bold().TextColor(a.pal.ink)
-					gui.Text(c, label).FontSize(11).TextColor(a.pal.inkMuted).SingleLine()
-				})
+
+	// Flat inline overview strip (zero boxy tiles).
+	gui.Row(c).FillWidth().Padding(4, 10, 6, 10).Gap(16).AlignItems(gui.Center).Children(func() {
+		statItem := func(ic *gui.SVG, label string, count int) {
+			gui.Row(c).Gap(6).AlignItems(gui.Center).Children(func() {
+				gui.Icon(c, ic).Size(13, 13).TextColor(a.pal.inkMuted)
+				gui.Text(c, fmt.Sprintf("%d", count)).FontSize(13).Bold().TextColor(a.pal.ink)
+				gui.Text(c, label).FontSize(11.5).TextColor(a.pal.inkMuted).SingleLine()
+			})
 		}
-		kpiTile(a.t("settings.kpiAssets"), a.allAssetsCount)
-		kpiTile(a.t("settings.kpiTags"), len(a.tags))
-		kpiTile(a.t("settings.kpiProjects"), len(a.projectList))
-		kpiTile(a.t("settings.kpiBoards"), totalBoards)
+		statItem(iconLibrary, a.t("settings.kpiAssets"), a.allAssetsCount)
+		statItem(iconTag, a.t("settings.kpiTags"), len(a.tags))
+		statItem(iconFolder, a.t("settings.kpiProjects"), len(a.projectList))
+		statItem(iconBoard, a.t("settings.kpiBoards"), totalBoards)
 	})
 
-	// Library Location card.
-	a.settingsGroup(c, a.t("settings.dbLocation"), func() {
-		gui.Box(c).FillWidth().Padding(8, 12).Radius(radiusControl).Background(a.pal.surfaceMuted).Children(func() {
-			gui.Text(c, rootPath).FontSize(12).TextColor(a.pal.ink).LineHeight(1.35)
-		})
-		gui.Row(c).Gap(8).Wrap().Children(func() {
-			if rootPath != "" {
-				a.arcButton(c, "pref-db-open", a.t("settings.openFolder"), false).OnClick(func() {
-					_ = openLocalFile(rootPath)
+	// 1. 資料庫位置
+	a.settingsSection(c, a.t("pref.grpDbLoc"), "", true, func() {
+		a.settingsItemRow(c, "db-loc", iconFolder, rootPath, "", func() {
+			gui.Row(c).Gap(6).AlignItems(gui.Center).Children(func() {
+				if rootPath != "" {
+					a.iconButton(c, "pref-db-open", iconExternal, a.t("settings.openFolder"), false).OnClick(func() {
+						_ = openLocalFile(rootPath)
+					})
+					a.iconButton(c, "pref-db-copy", iconCopy, a.t("common.copyPath"), false).OnClick(func() {
+						services.WriteClipboard(rootPath)
+						a.status = a.t("common.copied")
+					})
+				}
+				a.toolButton(c, "pref-db-switch", iconFolder, a.t("shell.switchLib"), false).OnClick(func() {
+					a.settingsOpen = false
+					a.chooseLibrary()
 				})
-				a.arcButton(c, "pref-db-copy", a.t("common.copyPath"), false).OnClick(func() {
-					services.WriteClipboard(rootPath)
-					a.status = a.t("common.copied")
-				})
-			}
-			a.arcButton(c, "pref-db-switch", a.t("shell.switchLib"), true).OnClick(func() {
-				a.settingsOpen = false
-				a.chooseLibrary()
 			})
 		})
 	})
 
-	// Backup & Safety card (above the fold for instant access).
-	a.settingsGroup(c, a.t("settings.dbBackup"), func() {
+	// 2. 備份與還原
+	a.settingsSection(c, a.t("pref.grpBackup"), "", true, func() {
 		bakLabel := a.t("settings.backupNone")
 		if a.dbStats.HasBackup {
 			bakLabel = fmt.Sprintf("%s · %s", formatBytes(a.dbStats.BackupBytes), a.dbStats.BackupTime.Local().Format("2006-01-02 15:04"))
 		}
-		a.settingsKVRow(c, a.t("settings.backupStatus"), bakLabel)
-		a.settingsSwitchRow(c, "pref-bak-del", a.t("settings.backupBeforeDel"), &a.backupBeforeDelete, func() {
+		a.settingsKVRow(c, "bak-status", iconClock, a.t("settings.backupStatus"), bakLabel)
+		a.settingsSwitchRowTip(c, "pref-bak-del", iconLock, a.t("pref.bakDel"), a.t("pref.bakDelTip"), &a.backupBeforeDelete, func() {
 			a.syncConfigFromState()
 		})
-		gui.Row(c).Gap(8).Wrap().Children(func() {
-			a.arcButton(c, "pref-db-bak-now", a.t("settings.backupNow"), true).OnClick(func() {
-				a.backupDatabaseNow()
-			})
-			a.arcButton(c, "pref-db-export-bak", a.t("settings.exportBackup"), false).OnClick(func() {
-				a.exportDatabaseBackup()
-			})
-		})
-	})
-
-	// Storage & Statistics card.
-	a.settingsGroup(c, a.t("settings.dbStorage"), func() {
-		a.settingsKVRow(c, a.t("settings.dbFile"), fmt.Sprintf("%s  (raglex.db · v%s)", formatBytes(st.DBBytes), model.SchemaVersion))
-		a.settingsKVRow(c, a.t("settings.dbFilesDir"), fmt.Sprintf("%s  (%d)", formatBytes(st.FilesBytes), st.FilesCount))
-		a.settingsKVRow(c, a.t("settings.dbThumbsDir"), fmt.Sprintf("%s  (%d)", formatBytes(st.ThumbsBytes), st.ThumbsCount))
-		gui.Row(c).Justify(gui.End).Children(func() {
-			a.toolButton(c, "pref-db-recalc", iconRefresh, a.t("settings.recalc"), false).OnClick(func() {
-				a.refreshDBStats()
+		a.settingsItemRow(c, "bak-actions", iconDatabase, a.t("pref.grpBackup"), "", func() {
+			gui.Row(c).Gap(8).AlignItems(gui.Center).Children(func() {
+				a.arcButton(c, "pref-db-bak-now", a.t("settings.backupNow"), true).OnClick(func() {
+					a.backupDatabaseNow()
+				})
+				a.toolButton(c, "pref-db-export-bak", iconExport, a.t("settings.exportBackup"), false).OnClick(func() {
+					a.exportDatabaseBackup()
+				})
 			})
 		})
 	})
 
-	// Maintenance & Repair card.
-	a.settingsGroup(c, a.t("settings.dbMaint"), func() {
+	// 3. 容量與維護
+	a.settingsSection(c, a.t("pref.grpMaint"), "", true, func() {
+		a.settingsKVRow(c, "db-file", iconDatabase, a.t("pref.dbFile"), fmt.Sprintf("%s  (v%s)", formatBytes(st.DBBytes), model.SchemaVersion))
+		a.settingsKVRow(c, "db-files", iconFolder, a.t("pref.dbFiles"), fmt.Sprintf("%s  (%d)", formatBytes(st.FilesBytes), st.FilesCount))
+		a.settingsKVRow(c, "db-thumbs", iconLibrary, a.t("pref.dbThumbs"), fmt.Sprintf("%s  (%d)", formatBytes(st.ThumbsBytes), st.ThumbsCount))
 		ffText := a.t("settings.ffmpegMissing")
 		if a.ffmpeg {
 			ffText = a.t("settings.ffmpegOK")
 		}
-		a.settingsKVRow(c, a.t("settings.ffmpegStatus"), ffText)
-		gui.Row(c).Gap(8).Wrap().Children(func() {
+		a.settingsKVRow(c, "db-ff", iconSliders, a.t("pref.ffmpeg"), ffText)
+		gui.Row(c).FillWidth().Padding(6, 10).Gap(8).Wrap().Children(func() {
 			relinkLbl := a.t("settings.relinkMissing")
 			if a.missingCount > 0 {
 				relinkLbl = fmt.Sprintf("%s (%d)", relinkLbl, a.missingCount)
 			}
-			a.arcButton(c, "pref-db-relink", relinkLbl, false).OnClick(func() {
+			a.toolButton(c, "pref-db-relink", iconLink, relinkLbl, false).OnClick(func() {
 				a.relinkMissing(true)
 			})
-			a.arcButton(c, "pref-db-thumbs", a.t("settings.rebuildThumbs"), false).OnClick(func() {
+			a.toolButton(c, "pref-db-thumbs", iconRefresh, a.t("settings.rebuildThumbs"), false).OnClick(func() {
 				a.rebuildAllThumbnails()
 			})
-			a.arcButton(c, "pref-db-clean-thumbs", a.t("settings.cleanThumbs"), false).OnClick(func() {
+			a.toolButton(c, "pref-db-clean-thumbs", iconTrash, a.t("settings.cleanThumbs"), false).OnClick(func() {
 				a.cleanOrphanThumbs()
+			})
+			a.toolButton(c, "pref-db-recalc", iconRefresh, a.t("settings.recalc"), false).OnClick(func() {
+				a.refreshDBStats()
 			})
 		})
 	})
@@ -981,82 +988,51 @@ func (a *App) settingsImportTab(c *gui.Context) {
 		a.t("settings.modeDesc.copy"),
 	}
 
-	// Default storage mode card with highlighted plain-language explanation box.
-	a.settingsGroup(c, a.t("settings.importMode"), func() {
-		a.arcPillTabs(c, "pref-storage-mode", a.storageMode, modes, func(idx int) {
-			a.setStorageMode(idx)
+	// 1. 檔案存放方式
+	a.settingsSection(c, a.t("pref.grpImpMode"), a.t("pref.impModeTip"), false, func() {
+		a.settingsItemRow(c, "imp-mode", iconImport, a.t("pref.grpImpMode"), "", func() {
+			a.arcPillTabs(c, "pref-storage-mode", a.storageMode, modes, func(idx int) {
+				a.setStorageMode(idx)
+			})
 		})
 		desc := modeDescs[0]
 		if a.storageMode >= 0 && a.storageMode < len(modeDescs) {
 			desc = modeDescs[a.storageMode]
 		}
-		gui.Box(c).FillWidth().Padding(10, 12).Radius(radiusControl).Background(a.pal.surfaceMuted).Children(func() {
-			gui.Text(c, desc).FontSize(12).TextColor(a.pal.ink).LineHeight(1.45)
-		})
+		gui.Text(c, desc).FontSize(11.5).TextColor(a.pal.inkMuted).LineHeight(1.45).Padding(0, 10, 4, 35)
 	})
 
-	// Import behavior switches with clear helper descriptions.
-	a.settingsGroup(c, a.t("settings.importBehavior"), func() {
-		a.settingsSwitchRowDesc(c, "pref-imp-autoselect", a.t("settings.autoSelect"), a.t("settings.impAutoSelectDesc"), &a.autoSelectImported, func() {
+	// 2. 匯入行為
+	a.settingsSection(c, a.t("pref.grpImpRules"), "", true, func() {
+		a.settingsSwitchRowTip(c, "pref-imp-autoselect", iconCheck, a.t("pref.impSel"), a.t("settings.impAutoSelectDesc"), &a.autoSelectImported, func() {
 			a.syncConfigFromState()
 		})
-		a.settingsSwitchRowDesc(c, "pref-imp-autotag", a.t("settings.autoTag"), a.t("settings.impAutoTagDesc"), &a.autoTagOnImport, func() {
+		a.settingsSwitchRowTip(c, "pref-imp-autotag", iconTag, a.t("pref.impTag"), a.t("settings.impAutoTagDesc"), &a.autoTagOnImport, func() {
 			a.syncConfigFromState()
 		})
-		a.settingsSwitchRowDesc(c, "pref-imp-hidden", a.t("settings.ignoreHidden"), a.t("settings.impHiddenDesc"), &a.ignoreHiddenOnImport, func() {
+		a.settingsSwitchRowTip(c, "pref-imp-hidden", iconEye, a.t("pref.impHidden"), a.t("settings.impHiddenDesc"), &a.ignoreHiddenOnImport, func() {
 			a.syncConfigFromState()
 		})
-		a.settingsSwitchRowDesc(c, "pref-imp-recursive", a.t("settings.importRecursive"), a.t("settings.impRecursiveDesc"), &a.importRecursive, func() {
+		a.settingsSwitchRowTip(c, "pref-imp-recursive", iconFolder, a.t("pref.impSub"), a.t("settings.impRecursiveDesc"), &a.importRecursive, func() {
 			a.syncConfigFromState()
 		})
-		a.settingsSwitchRowDesc(c, "pref-imp-dup", a.t("settings.notifyDup"), a.t("settings.impDupDesc"), &a.notifyDuplicates, func() {
+		a.settingsSwitchRowTip(c, "pref-imp-dup", iconCopy, a.t("pref.impDup"), a.t("settings.impDupDesc"), &a.notifyDuplicates, func() {
 			a.syncConfigFromState()
 		})
-	})
-
-	// Formats & deduplication info card.
-	a.settingsGroup(c, a.t("settings.importFormats"), func() {
-		gui.Text(c, a.t("settings.importFormatsDesc")).FontSize(12).TextColor(a.pal.inkSecondary).LineHeight(1.5)
 	})
 }
 
 func (a *App) settingsSharingTab(c *gui.Context) {
 	services := c.Services()
 
-	// Device & defaults card.
-	a.settingsGroup(c, a.t("settings.shareDevice"), func() {
-		gui.Column(c).FillWidth().Gap(6).Children(func() {
-			gui.Text(c, a.t("settings.deviceName")).FontSize(13)
-			gui.TextInput(c.Key("pref-device-name"), &a.deviceName).
-				Placeholder(a.t("settings.deviceNameHint")).
-				FillWidth().
-				OnChange(func() { a.syncConfigFromState() })
-			gui.Text(c, a.t("settings.deviceNameHint")).FontSize(11).TextColor(a.pal.inkMuted)
-		})
-		a.settingsSwitchRow(c, "pref-share-files", a.t("settings.shareFilesDefault"), &a.shareFiles, func() {
-			a.syncConfigFromState()
-		})
-	})
-
-	// Signaling server & LAN status card.
-	a.settingsGroup(c, a.t("settings.shareSignal"), func() {
+	// 1. 接收朋友專案
+	a.settingsSection(c, a.t("pref.grpRecv"), a.t("pref.recvTip"), false, func() {
 		lanText := a.t("settings.lanOff")
 		if node := a.shareNode(); node != nil && node.DiscoveryOK() {
 			lanText = a.t("settings.lanOK")
 		}
-		a.settingsKVRow(c, a.t("settings.lanStatus"), lanText)
-		gui.Column(c).FillWidth().Gap(6).Children(func() {
-			gui.Text(c, a.t("share.signalURL")).FontSize(13)
-			gui.TextInput(c.Key("pref-signal-url"), &a.signalURL).
-				Placeholder("http://127.0.0.1:8787").
-				FillWidth().
-				OnChange(func() {
-					a.signalURL = strings.TrimSpace(a.signalURL)
-					a.syncConfigFromState()
-				})
-		})
-		gui.Text(c, a.t("settings.shareSignalDesc")).FontSize(12).TextColor(a.pal.inkSecondary).LineHeight(1.45)
-		gui.Row(c).Padding(4, 0, 0, 0).Children(func() {
+		a.settingsKVRow(c, "lan-state", iconGlobe, a.t("pref.lanState"), lanText)
+		a.settingsItemRow(c, "recv-code", iconLink, a.t("pref.grpRecv"), "", func() {
 			a.arcButton(c, "pref-recv-code", a.t("settings.receiveByCodeBtn"), true).OnClick(func() {
 				a.settingsOpen = false
 				a.pairRecvOpen = true
@@ -1064,114 +1040,298 @@ func (a *App) settingsSharingTab(c *gui.Context) {
 		})
 	})
 
-	// Stage 15 & 16: Built-in Server (Web Gallery, Companion API, MCP, Signaling).
-	a.settingsGroup(c, a.t("server.section"), func() {
-		a.settingsSwitchRow(c, "pref-srv-run", a.t("server.enable"), &a.serverRunning, func() {
-			a.toggleBuiltInServer()
-		})
-		gui.Row(c).FillWidth().Gap(8).AlignItems(gui.Center).Children(func() {
-			gui.Text(c, a.t("server.port")).FontSize(12).TextColor(a.pal.inkSecondary).Width(130)
-			gui.TextInput(c.Key("pref-srv-port"), &a.serverPortStr).
-				Placeholder("41595").
-				Width(96).
-				OnSubmit(func() { a.syncConfigFromState() })
-			gui.Spacer(c)
-			a.toolButton(c, "pref-srv-mcp", iconCopy, a.t("server.copyMCP"), false).OnClick(func() {
-				services.WriteClipboard(a.buildMCPConfigJSON())
-				a.notify(a.t("server.mcpCopied"))
-			})
-		})
-		a.settingsSwitchRow(c, "pref-srv-lan", a.t("server.bindAll"), &a.serverBindAll, func() {
-			a.syncConfigFromState()
-			if a.localSrv != nil && a.localSrv.Running() {
-				a.stopBuiltInServer()
-				a.startBuiltInServer()
+	// 2. 雲端與手機同步
+	a.settingsSection(c, a.t("pref.grpSync"), a.t("pref.syncTip"), true, func() {
+		gui.Row(c).FillWidth().Padding(4, 10).Gap(8).AlignItems(gui.Center).Children(func() {
+			gui.Icon(c, iconRefresh).Size(15, 15).TextColor(a.pal.inkSecondary)
+			gui.TextInput(c.Key("pref-sync-url"), &a.syncServerURL).
+				Placeholder("http://127.0.0.1:41595").
+				Grow(1).
+				OnChange(func() { a.syncConfigFromState() })
+			gui.TextInput(c.Key("pref-sync-tok"), &a.syncToken).
+				Placeholder(a.t("pref.advToken")).
+				Width(128).
+				OnChange(func() { a.syncConfigFromState() })
+			btnLbl := a.t("sync.now")
+			if a.syncBusy {
+				btnLbl = a.t("sync.syncing")
 			}
+			a.arcButton(c, "pref-sync-now", btnLbl, true).
+				Disabled(a.syncBusy || strings.TrimSpace(a.syncServerURL) == "").
+				OnClick(func() { a.runCloudSyncNow() })
 		})
-		a.settingsSwitchRow(c, "pref-srv-auto", a.t("server.autoStart"), &a.serverAutoStart, func() {
+		if a.syncStatusMsg != "" {
+			gui.Text(c, a.syncStatusMsg).FontSize(11.5).TextColor(a.pal.inkMuted).Padding(0, 10, 4, 35)
+		}
+	})
+
+	// 3. 本機分享設定 (+ collapsible 進階連線設定)
+	a.settingsSection(c, a.t("pref.grpShareLocal"), "", true, func() {
+		a.settingsItemRow(c, "dev-name", iconType, a.t("pref.devName"), a.t("pref.devNameTip"), func() {
+			gui.TextInput(c.Key("pref-device-name"), &a.deviceName).
+				Placeholder("My Studio PC").
+				Width(210).
+				OnChange(func() { a.syncConfigFromState() })
+		})
+		a.settingsSwitchRowTip(c, "pref-share-files", iconFolder, a.t("pref.sendFiles"), a.t("pref.sendFilesTip"), &a.shareFiles, func() {
 			a.syncConfigFromState()
 		})
-		gui.Row(c).FillWidth().Gap(8).AlignItems(gui.Center).Children(func() {
-			gui.Text(c, a.t("server.token")).FontSize(12).TextColor(a.pal.inkSecondary).Width(130)
-			gui.Text(c, a.ensureServerToken()).FontSize(11).TextColor(a.pal.inkMuted).Grow(1).SingleLine()
-			a.toolButton(c, "pref-srv-tok", iconCopy, a.t("server.copyToken"), false).OnClick(func() {
-				services.WriteClipboard(a.ensureServerToken())
-				a.notify(a.t("common.copied"))
-			})
+		a.settingsSwitchRowTip(c, "pref-srv-run", iconGlobe, a.t("pref.webSrv"), a.t("pref.webSrvTip"), &a.serverRunning, func() {
+			a.toggleBuiltInServer()
 		})
 		if a.localSrv != nil && a.localSrv.Running() {
 			localURL := a.localSrv.LocalURL()
 			lanURL := a.localSrv.LANURL()
-			gui.Row(c).FillWidth().Gap(8).Wrap().AlignItems(gui.Center).Children(func() {
-				a.arcButton(c, "pref-srv-open", a.t("server.openWeb"), true).OnClick(func() {
+			gui.Row(c).FillWidth().Padding(2, 10, 4, 35).Gap(8).Wrap().AlignItems(gui.Center).Children(func() {
+				a.toolButton(c, "pref-srv-open", iconExternal, a.t("server.openWeb"), false).OnClick(func() {
 					services.OpenURL(localURL)
 				})
+				a.toolButton(c, "pref-srv-mobile", iconExternal, a.t("sync.openMobile"), false).OnClick(func() {
+					services.OpenURL(localURL + "/mobile")
+				})
 				if lanURL != "" && a.serverBindAll {
-					a.toolButton(c, "pref-srv-lan-copy", iconLink, a.t("server.copyLAN")+" ("+lanURL+")", false).OnClick(func() {
+					a.toolButton(c, "pref-srv-lan-copy", iconLink, a.t("server.copyLAN"), false).OnClick(func() {
 						services.WriteClipboard(lanURL)
 						a.notify(a.t("common.copied"))
 					})
 				}
 			})
 		}
+
+		// Collapsible Advanced Network settings (menu-style chevron row).
+		advBtn := gui.ButtonBase(c.Key("pref-adv-conn-toggle")).
+			FillWidth().
+			Padding(7, 10).
+			Gap(10).
+			Radius(8).
+			AlignItems(gui.Center).
+			OnClick(func() {
+				a.settingsAdvShareOpen = !a.settingsAdvShareOpen
+			})
+		if advBtn.Hovered() {
+			advBtn.Background(a.settingsRowHoverBg())
+		}
+		advBtn.Children(func() {
+			gui.Icon(c, iconSliders).Size(15, 15).TextColor(a.pal.inkSecondary)
+			gui.Text(c, a.t("pref.advConn")).FontSize(13).TextColor(a.pal.ink).Grow(1).SingleLine()
+			chev := iconChevronRgt
+			if a.settingsAdvShareOpen {
+				chev = iconChevronDown
+			}
+			gui.Icon(c, chev).Size(14, 14).TextColor(a.pal.inkMuted)
+		})
+		if a.settingsAdvShareOpen {
+			a.settingsItemRow(c, "adv-relay", iconLink, a.t("pref.advRelay"), a.t("pref.advRelayTip"), func() {
+				gui.TextInput(c.Key("pref-signal-url"), &a.signalURL).
+					Placeholder("http://127.0.0.1:41595").
+					Width(240).
+					OnChange(func() {
+						a.signalURL = strings.TrimSpace(a.signalURL)
+						a.syncConfigFromState()
+					})
+			})
+			a.settingsItemRow(c, "adv-port", iconSliders, a.t("pref.advPort"), "", func() {
+				gui.TextInput(c.Key("pref-srv-port"), &a.serverPortStr).
+					Placeholder("41595").
+					Width(96).
+					OnSubmit(func() { a.syncConfigFromState() })
+			})
+			a.settingsIconSwitchRow(c, "pref-srv-lan", iconGlobe, a.t("pref.advLAN"), &a.serverBindAll, func() {
+				a.syncConfigFromState()
+				if a.localSrv != nil && a.localSrv.Running() {
+					a.stopBuiltInServer()
+					a.startBuiltInServer()
+				}
+			})
+			a.settingsIconSwitchRow(c, "pref-srv-auto", iconClock, a.t("pref.advAuto"), &a.serverAutoStart, func() {
+				a.syncConfigFromState()
+			})
+			a.settingsItemRow(c, "adv-token", iconLock, a.t("pref.advToken"), "", func() {
+				gui.Row(c).Gap(8).AlignItems(gui.Center).Children(func() {
+					gui.Text(c, a.ensureServerToken()).FontSize(11).TextColor(a.pal.inkMuted).MaxWidth(180).SingleLine()
+					a.toolButton(c, "pref-srv-tok", iconCopy, a.t("server.copyToken"), false).OnClick(func() {
+						services.WriteClipboard(a.ensureServerToken())
+						a.notify(a.t("common.copied"))
+					})
+				})
+			})
+		}
 	})
 }
 
 func (a *App) settingsPluginsTab(c *gui.Context) {
-	a.settingsGroup(c, a.t("plugins.section"), func() {
-		gui.Row(c).FillWidth().Gap(8).AlignItems(gui.Center).Children(func() {
+	services := c.Services()
+	if !a.pluginMarketLoaded && !a.pluginMarketLoading {
+		a.pluginMarket = plugin.BuiltinStarterCatalog()
+		a.refreshPluginMarketplace()
+	}
+
+	installedList := []plugin.Installed(nil)
+	if a.plugins != nil {
+		installedList = a.plugins.List()
+	}
+
+	// Top flat switcher bar.
+	gui.Row(c).FillWidth().Padding(4, 10, 6, 10).Gap(8).AlignItems(gui.Center).Children(func() {
+		a.arcPillTabs(c, "plug-subtabs", a.pluginSubTab, []string{
+			fmt.Sprintf("%s (%d)", a.t("plugins.tabInstalled"), len(installedList)),
+			fmt.Sprintf("%s (%d)", a.t("plugins.tabMarket"), len(a.pluginMarket)),
+		}, func(idx int) {
+			a.pluginSubTab = idx
+		})
+		gui.Spacer(c)
+		a.toolButton(c, "plug-sdk-guide", iconExternal, a.t("plugins.marketGuide"), false).OnClick(func() {
+			services.OpenURL("https://github.com/Batkixni/Raglex/blob/main/docs/PLUGIN_SDK.md")
+		})
+	})
+
+	if a.pluginSubTab == 0 {
+		a.settingsSection(c, a.t("plugins.section"), "", true, func() {
 			if a.plugins != nil {
-				gui.Text(c, a.plugins.Dir()).FontSize(11).TextColor(a.pal.inkMuted).Grow(1).SingleLine()
-				a.toolButton(c, "plug-open-dir", iconFolder, a.t("plugins.openDir"), false).OnClick(func() {
-					_ = openLocalFile(a.plugins.Dir())
-				})
-				a.toolButton(c, "plug-reload", iconRefresh, a.t("plugins.reload"), false).OnClick(func() {
-					_ = a.plugins.Reload()
-					a.notify(fmt.Sprintf(a.t("plugins.reloaded"), len(a.plugins.List())))
+				a.settingsItemRow(c, "plug-dir", iconFolder, a.plugins.Dir(), "", func() {
+					gui.Row(c).Gap(6).AlignItems(gui.Center).Children(func() {
+						a.iconButton(c, "plug-open-dir", iconExternal, a.t("plugins.openDir"), false).OnClick(func() {
+							_ = openLocalFile(a.plugins.Dir())
+						})
+						a.iconButton(c, "plug-reload", iconRefresh, a.t("plugins.reload"), false).OnClick(func() {
+							_ = a.plugins.Reload()
+							a.notify(fmt.Sprintf(a.t("plugins.reloaded"), len(a.plugins.List())))
+						})
+					})
 				})
 			}
-		})
-		if a.plugins == nil || len(a.plugins.List()) == 0 {
-			gui.Text(c, a.t("plugins.empty")).FontSize(12).TextColor(a.pal.inkSecondary).LineHeight(1.55)
-			return
-		}
-		for _, inst := range a.plugins.List() {
-			p := inst
-			enabled := p.Enabled
-			gui.Row(c.Key("plug-row-"+p.Manifest.ID)).
-				FillWidth().
-				Padding(10, 12).
-				Gap(10).
-				Radius(radiusControl).
-				Background(a.pal.surfaceRaised).
-				AlignItems(gui.Center).
-				Children(func() {
-					gui.Column(c).Grow(1).Gap(3).Children(func() {
+			if len(installedList) == 0 {
+				gui.Column(c).FillWidth().Padding(8, 10).Gap(10).Children(func() {
+					gui.Text(c, a.t("plugins.empty")).FontSize(12).TextColor(a.pal.inkMuted).LineHeight(1.5)
+					gui.Row(c).Children(func() {
+						a.arcButton(c, "plug-go-market", a.t("plugins.tabMarket"), true).OnClick(func() {
+							a.pluginSubTab = 1
+						})
+					})
+				})
+				return
+			}
+			for i, inst := range installedList {
+				p := inst
+				enabled := p.Enabled
+				if i > 0 {
+					gui.Box(c).FillWidth().Height(1).Margin(2, 10).Background(a.chromeHairline())
+				}
+				row := gui.Row(c.Key("plug-row-"+p.Manifest.ID)).
+					FillWidth().
+					Padding(8, 10).
+					Gap(10).
+					Radius(8).
+					AlignItems(gui.Center)
+				if row.Hovered() {
+					row.Background(a.settingsRowHoverBg())
+				}
+				row.Children(func() {
+					gui.Icon(c, iconLayers).Size(15, 15).TextColor(a.pal.inkSecondary)
+					gui.Column(c).Grow(1).Gap(2).Children(func() {
 						gui.Row(c).Gap(6).AlignItems(gui.Center).Children(func() {
 							gui.Text(c, p.Manifest.Name).FontSize(13).Bold().TextColor(a.pal.ink)
 							if p.Manifest.Version != "" {
-								gui.Text(c, "v"+p.Manifest.Version).FontSize(10).TextColor(a.pal.inkMuted)
+								gui.Text(c, "v"+p.Manifest.Version).FontSize(10.5).TextColor(a.pal.inkMuted)
 							}
 						})
 						if p.Manifest.Description != "" {
-							gui.Text(c, p.Manifest.Description).FontSize(11).TextColor(a.pal.inkSecondary).LineHeight(1.4)
-						}
-						if len(p.Manifest.Hooks) > 0 {
-							gui.Text(c, strings.Join(p.Manifest.Hooks, " · ")).FontSize(10).TextColor(a.pal.inkMuted)
+							gui.Text(c, p.Manifest.Description).FontSize(11.5).TextColor(a.pal.inkMuted).LineHeight(1.4)
 						}
 					})
 					a.arcSwitch(c, "plug-en-"+p.Manifest.ID, &enabled, func() {
 						a.plugins.SetEnabled(p.Manifest.ID, enabled)
 					})
+					a.iconButton(c, "plug-del-"+p.Manifest.ID, iconTrash, a.t("plugins.uninstall"), false).OnClick(func() {
+						a.uninstallPlugin(p.Manifest.ID, p.Manifest.Name)
+					})
 				})
+			}
+		})
+		return
+	}
+
+	// Community & Official Plugin Marketplace (flat divider-separated list).
+	a.settingsSection(c, a.t("plugins.tabMarket"), a.t("plugins.submitHint"), true, func() {
+		gui.Row(c).FillWidth().Padding(4, 10, 8, 10).Gap(8).AlignItems(gui.Center).Children(func() {
+			gui.SearchField(c.Key("plug-market-search"), &a.pluginMarketSearch).
+				Placeholder(a.t("plugins.marketSearch")).
+				Grow(1)
+			a.toolButton(c, "plug-market-sync", iconRefresh, a.t("plugins.marketRefresh"), false).
+				Disabled(a.pluginMarketLoading).
+				OnClick(func() { a.refreshPluginMarketplace() })
+		})
+
+		if a.pluginMarketErr != "" {
+			gui.Text(c, a.t("plugins.marketOfflineHint")).FontSize(11).TextColor(a.pal.inkMuted).Padding(0, 10, 6, 10)
+		}
+
+		q := strings.ToLower(strings.TrimSpace(a.pluginMarketSearch))
+		shown := 0
+		for _, item := range a.pluginMarket {
+			entry := item
+			if q != "" && !strings.Contains(strings.ToLower(entry.Name+" "+entry.Description+" "+entry.Author+" "+entry.ID+" "+entry.Category), q) {
+				continue
+			}
+			if shown > 0 {
+				gui.Box(c).FillWidth().Height(1).Margin(2, 10).Background(a.chromeHairline())
+			}
+			shown++
+			instVer, installed := a.plugins.IsInstalled(entry.ID)
+			needsUpdate := installed && entry.Version != "" && instVer != entry.Version
+			busy := a.pluginMarketBusyID == entry.ID
+
+			row := gui.Row(c.Key("mkt-row-"+entry.ID)).
+				FillWidth().
+				Padding(9, 10).
+				Gap(10).
+				Radius(8).
+				AlignItems(gui.Center)
+			if row.Hovered() {
+				row.Background(a.settingsRowHoverBg())
+			}
+			row.Children(func() {
+				gui.Icon(c, iconSparkle).Size(15, 15).TextColor(a.pal.inkSecondary)
+				gui.Column(c).Grow(1).Gap(2).Children(func() {
+					gui.Row(c).Gap(6).AlignItems(gui.Center).Wrap().Children(func() {
+						gui.Text(c, entry.Name).FontSize(13).Bold().TextColor(a.pal.ink)
+						if entry.Official {
+							a.pillBadge(c, a.t("plugins.officialBadge"), gui.Hex("#10B981"), gui.RGBA(16, 185, 129, 0.14))
+						}
+						gui.Text(c, "v"+entry.Version).FontSize(10.5).TextColor(a.pal.inkMuted)
+					})
+					gui.Text(c, entry.Description).FontSize(11.5).TextColor(a.pal.inkMuted).LineHeight(1.4)
+				})
+
+				if busy {
+					a.pillBadge(c, a.t("plugins.installing"), a.pal.inkSecondary, a.pal.surfaceRaised)
+				} else if installed && !needsUpdate {
+					gui.Row(c).Gap(6).AlignItems(gui.Center).Children(func() {
+						a.pillBadge(c, "✓ "+a.t("plugins.installedBadge"), gui.Hex("#10B981"), gui.RGBA(16, 185, 129, 0.14))
+						a.iconButton(c, "mkt-del-"+entry.ID, iconTrash, a.t("plugins.uninstall"), false).OnClick(func() {
+							a.uninstallPlugin(entry.ID, entry.Name)
+						})
+					})
+				} else {
+					btnLbl := a.t("plugins.install")
+					if needsUpdate {
+						btnLbl = a.t("plugins.update")
+					}
+					a.arcButton(c, "mkt-inst-"+entry.ID, btnLbl, true).
+						Disabled(a.pluginMarketBusyID != "").
+						OnClick(func() { a.installMarketplacePlugin(entry) })
+				}
+			})
+		}
+		if shown == 0 {
+			gui.Text(c, a.t("plugins.marketEmpty")).FontSize(12).TextColor(a.pal.inkMuted).Padding(8, 10)
 		}
 	})
 }
 
-func (a *App) settingsKVRow(c *gui.Context, label, value string) {
-	gui.Row(c).FillWidth().Gap(12).AlignItems(gui.Center).Children(func() {
-		gui.Text(c, label).Width(156).FontSize(12).TextColor(a.pal.inkSecondary).SingleLine()
-		gui.Text(c, value).Grow(1).FontSize(12).Bold().TextColor(a.pal.ink).SingleLine()
+func (a *App) settingsKVRow(c *gui.Context, key string, ic *gui.SVG, label, value string) {
+	a.settingsItemRow(c, key, ic, label, "", func() {
+		gui.Text(c, value).FontSize(12).TextColor(a.pal.inkMuted).SingleLine()
 	})
 }
 

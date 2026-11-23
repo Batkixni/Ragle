@@ -244,7 +244,7 @@ func previewBaseRect(r gui.Rect, imgW, imgH float32) gui.Rect {
 }
 
 // renderZoomableImageStage renders an interactive mouse-wheel zoomable,
-// click-and-drag pannable image viewer with an Eagle-style bottom-right
+// click-and-drag pannable image viewer with a bottom-right
 // Navigator Minimap whenever zoomed > 100%.
 func (a *App) renderZoomableImageStage(c *gui.Context, asset model.Asset, bm *gui.Bitmap) {
 	imgW, imgH := gui.ImageSize(bm)
@@ -382,7 +382,7 @@ func (a *App) renderZoomableImageStage(c *gui.Context, asset model.Asset, bm *gu
 			})
 		})
 
-		// Interactive Eagle-style Bottom-Right Navigator Minimap when zoomed in.
+		// Interactive Bottom-Right Navigator Minimap when zoomed in.
 		if a.previewZoom > 1.02 && a.previewStageW > 0 && a.previewStageH > 0 {
 			const maxMini float32 = 132
 			miniW, miniH := maxMini, maxMini

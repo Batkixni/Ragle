@@ -1,10 +1,10 @@
 # Raglex Roadmap & Open-Core Ecosystem Plan
 
-> **The Raglex Pledge (Ghost / WordPress Model)**
+> **The Raglex Open-Source Pledge**
 >
 > **Forever Open Source. Forever Free Features.**
 >
-> Just like Ghost and WordPress, Raglex's desktop app, every core feature, the plugin SDK, and the self-hosted sync server are 100% open source and free—with zero artificial feature paywalls for self-hosters. Your creative library and files always belong to you in open local formats.
+> Raglex's desktop app, every core feature, the plugin SDK, and the self-hosted sync server are 100% open source and free—with identical capabilities for self-hosters. Your creative library and files always belong to you in open local formats.
 >
 > **Raglex Cloud** (planned) will purely offer **managed cloud storage, zero-config multi-device sync, and hosted share links** for creators who prefer not to run their own servers—directly funding ongoing open-source development.
 
@@ -83,11 +83,11 @@ Keep Raglex's core fast and focused (~21 MB single binary) by moving secondary w
 ### Planned Plugin SDK Hooks & Official Reference Plugins
 - **Expanded Hooks**: `preview_renderer` (custom file previews), `inspector_card` (extra metadata cards), `importer` (external library/format importers), alongside existing `context_menu` and `batch_action`.
 - **Official Starter Plugins**:
-  - `raglex-markdown` — `.md` note import, preview rendering, and quick editing.
-  - `raglex-eagle-importer` — 1-click migration from `.library` packages (folders, tags, notes, URLs).
-  - `raglex-palette-export` — Export color palettes to CSS Variables, Tailwind, Figma JSON, and Adobe ASE.
-  - `raglex-exif-inspector` — Camera EXIF metadata card in the right inspector.
-  - `raglex-bg-remove` — Local/API background removal stacked automatically with the original image.
+  - `raglex.markdown-notes` — `.md` note import, preview rendering, and quick editing.
+  - `raglex.library-importer` — 1-click migration from external `.library` folder packages (folders, tags, notes, URLs).
+  - `raglex.palette-export` — Export color palettes to CSS Variables, JSON tokens, and standard swatch formats.
+  - `raglex.exif-inspector` — Camera EXIF metadata card in the right inspector.
+  - `raglex.bg-remove` — Local/API background removal stacked automatically with the original image.
 
 ---
 
@@ -95,11 +95,11 @@ Keep Raglex's core fast and focused (~21 MB single binary) by moving secondary w
 
 Once Pillar 1's open sync protocol is live, Mobile works seamlessly with **both Self-Hosted servers and Raglex Cloud**:
 
-- **Phase 1 — Mobile-First PWA (Instant Launch, Zero Gatekeeping)**
+- **Phase 1 — Mobile-First PWA (Instant Launch)**
   - Served directly from `raglex-server` / Raglex Cloud with "Add to Home Screen" support.
   - Fast thumbnail waterfall browsing, search/color/tag filtering, instant camera capture to library, and quick web URL bookmarking.
 - **Phase 2 — Native iOS & Android Apps**
-  - **OS Share Sheet Extension**: Clip references directly from Instagram, X, Pinterest, Safari, or Chrome straight into Raglex with tags.
+  - **OS Share Sheet Extension**: Clip visual references directly from mobile browsers and apps straight into Raglex with tags.
   - **Offline Thumbnail Cache & Home Screen Inspiration Widget**.
 
 ---
@@ -108,8 +108,8 @@ Once Pillar 1's open sync protocol is live, Mobile works seamlessly with **both 
 
 - **Apple Developer Program (\$99/yr)**: Official macOS Developer ID **Codesigning & Notarization** (eliminates Gatekeeper warnings) + future iOS TestFlight / App Store distribution.
 - **Windows Open-Source Code Signing**: Apply for **SignPath Foundation** free open-source signing to eliminate Windows SmartScreen warnings.
-- **Website Homepage Redesign**: Interactive hero preview, 100% Open-Source Pledge, Ghost-style Self-Host vs. Raglex Cloud clarity, OS auto-detect download, and live plugin directory.
-- **60–90s Launch Promo Video**: High-framerate showcase of Frosted Acrylic Glass, 100k-asset speed, Excalidraw Whiteboard, transparent PureRef window, clickable web bookmarks, and 17-tool MCP AI integration.
+- **Website Homepage Redesign**: Interactive hero preview, 100% Open-Source Pledge, clear Self-Host vs. Raglex Cloud overview, OS auto-detect download, and live plugin directory.
+- **60–90s Launch Promo Video**: High-framerate showcase of Frosted Acrylic Glass, 100k-asset speed, Infinite Whiteboard, transparent Floating Reference window, clickable web bookmarks, and 17-tool MCP AI integration.
 
 ---
 
@@ -117,8 +117,8 @@ Once Pillar 1's open sync protocol is live, Mobile works seamlessly with **both 
 
 | Release | Focus |
 | :--- | :--- |
-| **`v0.2.1`** *(Current)* | Translucent glass inputs, auto-hide inspector, pixel-fitted preview, minimal viewer topbar, redesigned context menus, 17-tool MCP server, redesigned Preferences, interactive guided tour. |
-| **`v0.3.0`** | **Plugin Ecosystem**: `Batkixni/raglex-plugins` PR registry, in-app 1-click plugin marketplace, `preview_renderer` / `inspector_card` / `importer` hooks, and official starter plugins (Markdown, Eagle importer, Palette export). |
-| **`v0.4.0`** | **Open Sync & Mobile PWA**: `Raglex Sync API v1` (Oplog + SHA-256 Presigned R2/S3 blobs), Docker Compose self-hosting kit, public shareable projects/whiteboards, and mobile-first PWA. |
+| **`v0.2.1`** *(Published)* | Translucent glass inputs, auto-hide inspector, pixel-fitted preview, minimal viewer topbar, redesigned context menus, 17-tool MCP server, redesigned Preferences, interactive guided tour. |
+| **`v0.3.0`** *(Current)* | **Plugin Ecosystem, Open Sync API v1, E2E Blind Relay & Mobile PWA**: `Batkixni/raglex-plugins` PR registry, in-app 1-click plugin marketplace, `preview_renderer` hook, official starter plugins, `Raglex Sync API v1` (Oplog + SHA-256 Presigned R2/S3 blobs), Docker self-hosting kit, public share links, mobile-first PWA, flat menu-style Preferences, and 1-click auto-update popup. |
+| **`v0.4.0`** | **Sync Polish & Cloud Readiness**: Selective thumbnail-first sync, client-side E2EE vault sync, web board feedback pins, and extended plugin hooks (`inspector_card`, `importer`). |
 | **`v0.5.0`** | **Raglex Cloud Beta & Launch**: Managed cloud hosting beta, redesigned homepage, promo video, macOS notarization & Windows code signing. |
 | **`v1.0.0`** | **Native Mobile Apps**: iOS & Android native apps with OS Share Sheet clipping and offline cache. |

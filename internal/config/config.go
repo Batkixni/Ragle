@@ -36,7 +36,7 @@ type Config struct {
 	ShowCardRating    *bool    `json:"show_card_rating,omitempty"`
 	ThumbBg           string   `json:"thumb_bg,omitempty"` // "", "black", "gray", "white", "checker"
 	GrayscalePreview  bool     `json:"grayscale_preview,omitempty"`
-	PureRefBgOpacity  *float64 `json:"pureref_bg_opacity,omitempty"`
+	RefWinBgOpacity   *float64 `json:"refwin_bg_opacity,omitempty"`
 	DefaultSort       int      `json:"default_sort,omitempty"`
 	LayoutMode        string   `json:"layout_mode,omitempty"` // "bento", "masonry", "grid"
 
@@ -67,6 +67,11 @@ type Config struct {
 	ServerBindAll   bool   `json:"server_bind_all,omitempty"`
 	ServerAutoStart bool   `json:"server_auto_start,omitempty"`
 	ServerToken     string `json:"server_token,omitempty"`
+
+	// Open Sync API v1 (Self-Hosted Docker or Raglex Cloud) & E2E Relay.
+	SyncServerURL  string `json:"sync_server_url,omitempty"`
+	SyncToken      string `json:"sync_token,omitempty"`
+	PairForceRelay bool   `json:"pair_force_relay,omitempty"`
 
 	// Auto-updater preferences (GitHub Releases).
 	AutoCheckUpdates  *bool `json:"auto_check_updates,omitempty"`

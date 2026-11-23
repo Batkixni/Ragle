@@ -47,14 +47,14 @@ Raglex 的概念層級為五個正交模組：
 
 ### 2. 分享基礎（`internal/share`, `cmd/raglex-signal`）
 - **區域網分享**：UDP 廣播（port `47321`，`RGL1`）自動發現 ＋ TCP 傳送專案副本與素材實體（接收確認 ＋ SHA-256 去重）。
-- **跨網配對碼 E2E 分享**：基於 `pion/webrtc/v4` DTLS 加密 DataChannel 與輕量 HTTP 長輪詢信令（6 碼 `XXX-XXX` 配對碼，32 KiB 分塊與背壓）。
+- **跨網配對碼 E2E 分享**：基於 `pion/webrtc/v4` DTLS 加密 DataChannel 與輕量 HTTP 長輪詢配對中繼（6 碼 `XXX-XXX` 配對碼，32 KiB 分塊與背壓）。
 
 ### 3. 介面與體驗（`ui/`，目前 MyGo `v0.7.4`）
 - **無邊框整合標題列**：自訂 `— □ ×`（支援 Windows 11 Snap Layouts）與可拖曳標題區，零系統原生白條。
-- **視覺主題**：Arc UI 沉穩黑灰無邊框表層（深色 `#111111` / `#18181B`、淺色 `#FFFFFF` / `#F4F4F5`），預設品牌強調色 **`#FF5C33`**；支援設定頁自訂主題預設與四色覆寫。
+- **視覺主題**：沉穩黑灰無邊框表層（深色 `#111111` / `#18181B`、淺色 `#FFFFFF` / `#F4F4F5`），預設品牌強調色 **`#FF5C33`**；支援設定頁自訂主題預設與四色覆寫。
 - **品牌識別**：Windows 執行檔與歡迎頁使用深黑灰底＋`#FF5C33` 中央圖騰的圓角方形 Icon（[Logo.png](./Logo.png) / [ui/app_icon.png](./ui/app_icon.png)）；App 左上角使用原版滿版純色黑白標誌（[ui/logo.png](./ui/logo.png)）。
 - **多排版與高效操作**：支援 **Bento / 瀑布流（Masonry）/ 網格（Grid）** 切換、滑鼠左鍵拖拉圈選（Marquee Selection）、`Ctrl`/`Shift` 多選與批次工具列、全域快捷鍵（`Ctrl+A` / `Ctrl+B` / `Ctrl+F` / `Ctrl+I` / `Ctrl+,` / `Space` / `Delete` / `0-5` / 方向鍵）。
-- **側邊欄與專案頁**：可收合側邊欄（`Ctrl+B` 與防擠壓寬度下限 `204–340px`）、窄視窗自適應頂部工具列、明確的向量展開箭頭與連續白色樹狀導引線、彈窗式標籤管理器、Arc Editorial 風格專案 Hero、白板即時縮圖預覽卡片、底部自動消失懸浮 Toast、五步驟首次啟動互動教學。
+- **側邊欄與專案頁**：可收合側邊欄（`Ctrl+B` 與防擠壓寬度下限 `204–340px`）、窄視窗自適應頂部工具列、明確的向量展開箭頭與連續白色樹狀導引線、彈窗式標籤管理器、雙層式專案 Hero、白板即時縮圖預覽卡片、底部自動消失懸浮 Toast、五步驟首次啟動互動教學。
 
 ---
 
@@ -78,22 +78,22 @@ Raglex 的概念層級為五個正交模組：
    - 支援圖片批次轉出為 `PNG` / `JPEG` / `WebP`（品質滑條、長邊限制、是否保留 EXIF），影片透過 `ffmpeg` 支援裁切/壓縮匯出。
 3. **剪貼簿貼圖入庫 & 跨軟體拖出**
    - `Ctrl+V` 直接將系統剪貼簿圖片 / 截圖落地存檔入庫（或直接貼上當前白板）。
-   - 支援把選中的一或多個素材複製為實體檔案清單至系統剪貼簿，並支援直接拖曳至外部創作軟體（Photoshop / Figma / Blender / Premiere / Discord）。
+   - 支援把選中的一或多個素材複製為實體檔案清單至系統剪貼簿，並支援直接拖曳至各類外部創作與剪輯軟體。
 4. **自動監控資料夾（Watch Folders）**
-   - 每個母庫可設定多個外部監控資料夾（指定預設存放策略與自動套用標籤），透過 `fsnotify` 即時同步新增、搬移與遺失重連。
+   - 每個資料庫可設定多個外部監控資料夾（指定預設存放策略與自動套用標籤），透過 `fsnotify` 即時同步新增、搬移與遺失重連。
 
-### 階段 13：獨立白板（Standalone Boards）與白板增強
+### 階段 13：白板與置頂參考浮窗
 1. **資料模型擴充（向後相容）**
    - `Board.ProjectID == ""` 視為獨立白板；新增索引 bucket `boards_standalone`（key: `boardID`）。
    - 側邊欄新增「**白板**」專屬區塊（支援 `+` 快速建立、右鍵改名 / 複製 / 移入專案 / 轉為新專案 / 刪除）。
 2. **跨畫面無縫串聯**
-   - 母庫多選素材 → 右鍵「加入至白板（新建或現有）」。
+   - 資料庫多選素材 → 右鍵「加入至白板（新建或現有）」。
    - 獨立白板頁眉提供一鍵「歸類到專案」或「升級成專案」。
 3. **進階白板生產力**
    - 區域分組框（Section / Frame）、自動對齊與等距排版、高解析 PNG / PDF 匯出。
-   - **PureRef 參考模式（選配）**：視窗置頂（Always-on-Top）與極簡無工具列浮動模式，方便繪圖與 3D 製作時對照參考。
+   - **置頂參考浮窗模式（選配）**：視窗置頂（Always-on-Top）與極簡可調透明浮動模式，方便繪圖與 3D 製作時對照參考。
 
-### 階段 14：以圖搜圖、主色提取與智慧篩選（Eagle 核心能力）
+### 階段 14：以圖搜圖、主色提取與智慧篩選
 採 **三層漸進架構**，第 1 層 100% 內建免 AI 零延遲，第 2–3 層可選開啟：
 
 #### 第 1 層：純 Go 內建即時視覺搜尋（零外部依賴、零顯卡需求）
@@ -128,19 +128,19 @@ Raglex 的概念層級為五個正交模組：
   - 預設對接本機 **Ollaya**（`http://127.0.0.1:11435` 或使用者自訂位址，完全離線私密），同時相容任何 `/v1/decisions` / `/v1/systemone` 決策端點；使用者可在偏好設定頁一鍵測試連線、設定模型名稱與信心門檻。
 
 ### 階段 15：統一內建伺服器＋獨立 CLI（`internal/server` + `cmd/raglex-server`）
-將原本分散的分享、信令、瀏覽器串接與插件通訊收斂到同一套伺服器核心：
+將原本分散的分享、配對中繼、瀏覽器串接與插件通訊收斂到同一套伺服器核心：
 
 1. **雙形態部署（100% 共用 `internal/server`）**
    - **App 內建伺服器**：在 Raglex 視窗內一鍵啟動/關閉、自訂監聽位址（預設 `127.0.0.1:41595` 供本機插件/瀏覽器使用；可額外開啟 `0.0.0.0:<port>` 供區網/外網分享），內建 QR Code 與存取狀態監控。
    - **獨立 Headless CLI（`cmd/raglex-server`）**：無 GUI 單一執行檔（Linux / Windows / macOS / Docker），可直接部署至 VPS（配合 Caddy / Nginx 自動 HTTPS）。
 2. **伺服器四大能力**
    - **Web 分享檢視器（免安裝瀏覽器直開）**：將單一專案、標籤集或白板產生唯讀 / 密碼保護 / 限時連結（`/s/<token>`），網頁端提供響應式圖庫、大圖檢視、互動縮放白板與原檔下載（可選開啟「外部上傳收集箱」與「白板審圖批註」）。
-   - **內嵌信令與中繼服務**：吸收原有 `cmd/raglex-signal`，App 內建即具備配對碼信令能力，VPS 版同時作為跨網穩定信令/中繼節點。
+   - **內嵌配對與盲轉發中繼服務**：吸收原有 `cmd/raglex-signal`，App 內建即具備跨網配對與 E2E 盲轉發能力，VPS 版同時作為跨網穩定中繼節點。
    - **Push-to-VPS 同步**：桌面版可將指定專案或白板一鍵發佈到自己架設的 `raglex-server` VPS，即時更新公開作品集或客戶審圖頁。
    - **Local Companion REST / WebSocket API（`/api/v1/...`）**：提供給瀏覽器擴充、外部插件與自動化腳本使用（具一次性配對 Token 與權限控管）。
 
 ### 階段 16：Raglex MCP Server（`internal/mcp` + `cmd/raglex-mcp`）
-讓 Claude、Antigravity、Cursor 等 AI Coding / Creative Agent 直接操作你的本地 Raglex 母庫：
+讓任何支援 MCP 協定的 AI 助手直接操作你的本地 Raglex 資料庫：
 - **雙傳輸模式**：
   - **Stdio 模式（`cmd/raglex-mcp --library <path>`）**：零網路開銷，直接給桌面 AI 用戶端掛載；若 Raglex 主程式正開啟同一母庫，自動轉發至 Local API 避免 `bbolt` 鎖檔衝突。
   - **Streamable HTTP / SSE 模式**：直接掛載於 `internal/server` 的 `/mcp` 端點（需 Bearer Token 驗證）。
@@ -166,8 +166,8 @@ Raglex 的概念層級為五個正交模組：
 - **插件清單（`manifest.json`）**：宣告 ID、版本、權限（讀圖庫 / 寫標籤 / 存取磁碟 / 網路）、觸發掛載點（`context_menu`、`batch_action`、`importer`、`exporter`、`format_preview`、`ai_provider`、`toolbar`）。
 - **兩種執行環境**：
   1. **WASM 沙盒插件（`wazero`）**：純 Go 零外部依賴、毫秒啟動、跨平台一致，適合命名規則、濾鏡、格式解析器。
-  2. **外部行程插件（JSON-RPC over stdio / Local HTTP）**：不限開發語言（Python / Node / Go / Rust），適合串接重型工具（FFmpeg 特效、AI 去背、超解析放大、Blender/PSD 轉圖、本地 Laya / Ollaya / CLIP 推論服務）。
-- **宣告式 UI 與管理介面**：插件透過 JSON Schema 宣告設定欄位與操作表單，由 MyGo 原生元件渲染（維持 Arc UI 風格一致）；偏好設定內建插件管理頁（安裝 / 啟用停用 / 權限檢視 / 日誌除錯）。
+  2. **外部行程插件（JSON-RPC over stdio / Local HTTP）**：不限開發語言（Python / Node / Go / Rust），適合串接重型工具（FFmpeg 特效、AI 去背、超解析放大、格式轉圖、本地推論服務）。
+- **宣告式 UI 與管理介面**：插件透過 JSON Schema 宣告設定欄位與操作表單，由 MyGo 原生元件渲染；偏好設定內建插件管理頁（安裝 / 啟用停用 / 權限檢視 / 日誌除錯）。
 
 ---
 
@@ -203,7 +203,7 @@ raglex/
 │   ├── raglex/               # 桌面原生主程式（MyGo GUI）
 │   ├── raglex-server/        # [v2] 獨立無頭伺服器 CLI（VPS Host / Web Viewer / Signal）
 │   ├── raglex-mcp/           # [v2] 獨立 Stdio MCP Server 入口
-│   └── raglex-signal/        # [現有] 輕量信令（後續併入 internal/server 並保留相容）
+│   └── raglex-signal/        # [現有] 輕量配對中繼（後續併入 internal/server 並保留相容）
 ├── internal/
 │   ├── db/                  # bbolt 開啟、自動遷移、備份與交易輔助
 │   ├── model/               # 核心資料結構與 msgpack 序列化
@@ -213,7 +213,7 @@ raglex/
 │   ├── thumbnail/           # 縮圖、影片抽幀、主色盤提取、pHash/dHash 計算
 │   ├── watcher/             # fsnotify 檔案遺失追蹤與監控資料夾同步
 │   ├── share/               # 區域網發現與 WebRTC 配對碼 E2E
-│   ├── server/              # [v2] 內建伺服器、Local API、Web Viewer、信令與 Push 同步
+│   ├── server/              # [v2] 內建伺服器、Local API、Web Viewer、配對中繼與 Push 同步
 │   ├── mcp/                 # [v2] MCP Server（Tools / Resources，共用 Stdio 與 HTTP）
 │   ├── plugin/              # [v2] 插件管理器（manifest / wazero WASM / JSON-RPC）
 │   ├── ai/                  # [v2] Embedding 檢索引擎與 Laya / Ollaya 開源決策分類器

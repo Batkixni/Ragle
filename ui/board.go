@@ -95,7 +95,7 @@ func (a *App) boardToolbar(c *gui.Context) {
 			}
 			a.toolButton(c, "board-leave", iconArrowLeft, leaveLbl, false).OnClick(func() {
 				a.flushBoard(true)
-				a.closePureRefWindow()
+				a.closeRefWindow()
 				if a.boardAlwaysOnTop {
 					a.toggleMainAlwaysOnTop()
 				}
@@ -170,14 +170,14 @@ func (a *App) boardToolbar(c *gui.Context) {
 				})
 			})
 
-			a.toolButton(c, "board-pureref-btn", iconPin, a.t("pureref.open"), a.pureRefWin != nil).OnClick(func() {
-				if a.pureRefWin != nil {
-					a.closePureRefWindow()
+			a.toolButton(c, "board-refwin-btn", iconPin, a.t("refwin.open"), a.refWin != nil).OnClick(func() {
+				if a.refWin != nil {
+					a.closeRefWindow()
 				} else {
-					a.openPureRefWindow()
+					a.openRefWindow()
 				}
 			})
-			a.iconButton(c, "board-pin-main", iconPin, a.t("pureref.pinWindow"), a.boardAlwaysOnTop).OnClick(func() {
+			a.iconButton(c, "board-pin-main", iconPin, a.t("refwin.pinWindow"), a.boardAlwaysOnTop).OnClick(func() {
 				a.toggleMainAlwaysOnTop()
 			})
 			a.iconButton(c, "board-toggle-map", iconMap, a.t("board.minimap"), a.boardShowMinimap).OnClick(func() {
@@ -225,7 +225,7 @@ func (a *App) boardSurface(c *gui.Context) {
 
 // boardFloatingDock renders the studio floating bottom tool dock (Select, Hand,
 // Pen, Highlighter, Eraser, Text, Rectangle, Arrow, Section Frame, Stroke Width,
-// and Color Palette) inspired by Kosmik / PureRef / Figma.
+// and Color Palette).
 func (a *App) boardFloatingDock(c *gui.Context) {
 	if a.boardStrokeColor == "" {
 		a.boardStrokeColor = "#FF5C33"
@@ -1199,7 +1199,7 @@ func (a *App) pointerDown(ev gui.InputEvent) bool {
 		a.focusBody = true
 		return true
 	}
-	// Excalidraw / Figma Frame behavior: moving a Section Frame moves all items inside it together!
+	// Section Frame behavior: moving a Section Frame moves all items inside it together.
 	moveIDs := s.SelectedIDs()
 	seenMove := map[string]bool{}
 	for _, mid := range moveIDs {
@@ -1633,7 +1633,7 @@ func (a *App) paintBoardClipped(p *gui.Painter, r gui.Rect) {
 }
 
 // paintArrowVec draws a true 360-degree vector arrow using gui.Path (never
-// Painter.Line, which is axis-aligned only!) with an Excalidraw-style open
+// Painter.Line, which is axis-aligned only!) with an open
 // rounded chevron arrowhead and optional dashed shaft.
 func paintArrowVec(p *gui.Painter, x0, y0, x1, y1, width float32, col gui.Color, dashed bool) {
 	dx := float64(x1 - x0)
@@ -1788,7 +1788,7 @@ func (a *App) paintItem(p *gui.Painter, origin gui.Rect, id string) {
 		if !s.Selected[id] {
 			return
 		}
-		// Excalidraw-style Arrow selection: crisp circular draggable endpoint handles only!
+		// Vector Arrow selection: crisp circular draggable endpoint handles only.
 		if item.Kind == model.KindArrow && len(item.Points) >= 4 {
 			if len(s.Selected) == 1 {
 				for _, pt := range [][2]float64{{item.Points[0], item.Points[1]}, {item.Points[2], item.Points[3]}} {
@@ -1801,7 +1801,7 @@ func (a *App) paintItem(p *gui.Painter, origin gui.Rect, id string) {
 			}
 			return
 		}
-		// Delicate Excalidraw selection outline (crisp 1.5px, never loud solid white cover).
+		// Delicate selection outline (crisp 1.5px, never loud solid white cover).
 		selColor := gui.Hex("#38BDF8")
 		if item.Kind == model.KindImage || item.Kind == model.KindGroup {
 			selColor = a.accent

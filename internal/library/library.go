@@ -637,7 +637,7 @@ func (l *Library) LoadCatalogSnapshot() (CatalogSnapshot, error) {
 	return snap, err
 }
 
-// PurgeAuxiliarySidecars removes any already-imported Eagle/system auxiliary files
+// PurgeAuxiliarySidecars removes any already-imported third-party or OS auxiliary files
 // (such as metadata.json and *_thumbnail.png) from the catalog in one batch transaction.
 func (l *Library) PurgeAuxiliarySidecars() (int, error) {
 	var toDelete []model.Asset

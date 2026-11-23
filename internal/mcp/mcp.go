@@ -1115,7 +1115,7 @@ func toolSchemas() []map[string]any {
 		},
 		{
 			"name":        "add_board_elements",
-			"description": "Create Excalidraw-style elements on a Raglex whiteboard: section frames (kind='frame'), transparent text ('text'), sticky notes ('note'), rectangles ('rect'), or vector arrows ('arrow' with x,y,x2,y2,dashed).",
+			"description": "Create elements on a Raglex whiteboard: section frames (kind='frame'), transparent text ('text'), sticky notes ('note'), rectangles ('rect'), or vector arrows ('arrow' with x,y,x2,y2,dashed).",
 			"inputSchema": map[string]any{
 				"type":     "object",
 				"required": []string{"board_id", "elements"},

@@ -32,7 +32,7 @@
 
 ## Why Raglex?
 
-**Raglex** brings together the speed of a native desktop app, the visual clarity of Eagle, and the floating reference ergonomics of PureRef — with **zero Electron bloat**, **zero cloud lock-in**, and a **single local database** (`bbolt`) that stays 100% yours on disk.
+**Raglex** is a fast, native desktop visual asset manager and infinite moodboard studio — built **100% local-first** with a **single local database** (`bbolt`) that stays completely yours on disk.
 
 Built with **Go** and **[MyGo Native UI](https://github.com/egoist/mygo)** (`CGO_ENABLED=0`), Raglex starts instantaneously, runs smoothly across **macOS (Apple Silicon & Intel)**, **Windows (x64 & ARM64)**, and **Linux (x64 & ARM64)**, and ships as a compact portable binary.
 
@@ -53,9 +53,9 @@ Inspect creative assets inline without leaving Raglex:
 - **Multi-Page PDF (`.pdf`)**: Crisp page-by-page navigation (`Prev / Next`, zoom) with automatic cover thumbnails.
 - **Images & Video**: Full-stage inline viewer with zoom, animated GIF & video playback, and an **Info / Similar** Inspector sidebar.
 
-### Moodboards & PureRef Floating Reference Window
-- **Standalone & Project Boards**: Create freeform infinite moodboards right from the sidebar or inside any project — drag assets, arrange groups, add sticky notes, pan, zoom, and rotate.
-- **PureRef Always-on-Top Floating Window**: Pop out any board into a frameless, always-on-top reference window with an auto-hiding HUD, adjustable **opacity (35%–100%)**, and independent pan/zoom/fit (`F`) — ideal while illustrating, modeling in 3D, or editing video.
+### Moodboards & Always-on-Top Floating Reference Window
+- **Standalone & Project Boards**: Create freeform infinite moodboards right from the sidebar or inside any project — drag assets, arrange groups, add sticky notes, vector arrows, section frames, pan, zoom, and rotate.
+- **Always-on-Top Floating Reference Window**: Pop out any board into a frameless, always-on-top reference window with an auto-hiding HUD, adjustable **background & image opacity**, and independent pan/zoom/fit (`F`) — ideal while illustrating, modeling in 3D, or editing video.
 
 ### Batch File Manager & Productivity
 - **Batch Rename (`F2`) & Undo (`Ctrl+Z`)**: Pattern-based renaming (`{name}`, `{n}`, `{date}`, `{ext}`, find/replace) with live collision-safe preview and full reversible history.
@@ -97,8 +97,8 @@ Inspect creative assets inline without leaving Raglex:
 | :--- | :--- | :--- |
 | **macOS** | Apple Silicon (`darwin/arm64`) | `Raglex-darwin-arm64.zip` (`.app` bundle) |
 | **macOS** | Intel x86_64 (`darwin/amd64`) | `Raglex-darwin-amd64.zip` (`.app` bundle) |
-| **Windows** | x64 (`windows/amd64`) | `raglex-setup-0.1.1-amd64.exe` (Installer) / `Raglex-windows-amd64.zip` |
-| **Windows** | ARM64 (`windows/arm64`) | `raglex-setup-0.1.1-arm64.exe` (Installer) / `Raglex-windows-arm64.zip` |
+| **Windows** | x64 (`windows/amd64`) | `raglex-setup-0.3.0-amd64.exe` (Installer) / `Raglex-windows-amd64.zip` |
+| **Windows** | ARM64 (`windows/arm64`) | `raglex-setup-0.3.0-arm64.exe` (Installer) / `Raglex-windows-arm64.zip` |
 | **Linux** | x64 (`linux/amd64`) | `.tar.gz`, `.deb`, `.rpm`, `PKGBUILD` |
 | **Linux** | ARM64 (`linux/arm64`) | `.tar.gz`, `.deb`, `.rpm`, `PKGBUILD` |
 

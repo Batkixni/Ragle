@@ -33,6 +33,7 @@ func (a *App) View(c *gui.Context) {
 		a.webImportModal(c)
 		a.shareModal(c)
 		a.receivePairModal(c)
+		a.updatePromptModal(c)
 		a.confirm(c)
 		a.importProgressPopup(c)
 		a.toastOverlay(c)

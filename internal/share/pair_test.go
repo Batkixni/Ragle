@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -312,5 +313,167 @@ func TestPairSendCancelCleansRoom(t *testing.T) {
 	client := NewSignalingClient(srv.URL)
 	if _, _, err := client.GetOffer(context.Background(), code); !errors.Is(err, ErrRoomNotFound) {
 		t.Fatalf("expected ErrRoomNotFound after cancel, got %v", err)
+	}
+}
+
+func TestPairE2EBlindRelayFallbackAndCiphertextPrivacy(t *testing.T) {
+	sig, srv := newTestSignaling(t, time.Minute)
+	src := openLib(t)
+	dst := openLib(t)
+
+	const secretProject = "TopSecret_Campaign_2026"
+	const secretPayload = "ULTRA_CONFIDENTIAL_ARTWORK_PAYLOAD_BYTES_99887766"
+
+	tag, err := src.CreateTag("ClientWork")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := project.New(src.DB)
+	proj, err := store.Create(secretProject, "Private brief", []string{tag.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	art, _, err := src.ImportBytes("confidential_poster.txt", []byte(secretPayload), []string{tag.ID}, "", "")
+	if err != nil {
+		t.Fatalf("import failed: %v", err)
+	}
+	if err := store.Reference(proj.ID, art.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	bundle, files, err := Export(src.DB, proj.ID, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Observe every single byte passing through the relay server to prove zero plaintext leaks.
+	var relayMu sync.Mutex
+	var relayedFrames [][]byte
+	sig.onRelay = func(_ string, _ string, ciphertext []byte) {
+		cp := make([]byte, len(ciphertext))
+		copy(cp, ciphertext)
+		relayMu.Lock()
+		relayedFrames = append(relayedFrames, cp)
+		relayMu.Unlock()
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	var sendMode, recvMode string
+	sendOpt := PairOptions{
+		SignalingURL: srv.URL,
+		Name:         "Studio-A",
+		ForceRelay:   true,
+		OnTransport:  func(m string) { sendMode = m },
+	}
+	recvOpt := PairOptions{
+		SignalingURL: srv.URL,
+		Name:         "Studio-B",
+		ForceRelay:   true,
+		OnTransport:  func(m string) { recvMode = m },
+	}
+
+	codeCh := make(chan string, 1)
+	sendErrCh := make(chan error, 1)
+	go func() {
+		sendErrCh <- PairSend(ctx, sendOpt, bundle, files, func(code string) {
+			codeCh <- code
+		})
+	}()
+
+	code := <-codeCh
+	projID, recvErr := PairReceive(ctx, recvOpt, code,
+		func(_ context.Context, from string, b Bundle) bool {
+			return from == "Studio-A" && b.Project.Name == secretProject
+		},
+		func(_, name string, r io.Reader) (string, error) {
+			return SaveFile(dst.DB.FilesDir(), name, r)
+		},
+		func(b Bundle, paths map[string]string) (string, error) {
+			return Apply(dst.DB, b, paths)
+		},
+	)
+	if recvErr != nil {
+		t.Fatalf("PairReceive via E2E relay failed: %v", recvErr)
+	}
+	if err := <-sendErrCh; err != nil {
+		t.Fatalf("PairSend via E2E relay failed: %v", err)
+	}
+	if sendMode != "e2e-relay" || recvMode != "e2e-relay" {
+		t.Fatalf("expected e2e-relay transport on both peers, got send=%q recv=%q", sendMode, recvMode)
+	}
+
+	// Verify destination received exact decrypted project and file bytes.
+	dstStore := project.New(dst.DB)
+	assets, err := dstStore.Assets(projID)
+	if err != nil || len(assets) != 1 {
+		t.Fatalf("expected 1 received asset, got %d err=%v", len(assets), err)
+	}
+	gotBytes, err := os.ReadFile(assets[0].Path)
+	if err != nil || string(gotBytes) != secretPayload {
+		t.Fatalf("decrypted file mismatch: got %q err=%v", string(gotBytes), err)
+	}
+
+	// Prove ZERO plaintext strings ever appeared in any relayed ciphertext frame!
+	relayMu.Lock()
+	defer relayMu.Unlock()
+	if len(relayedFrames) < 5 {
+		t.Fatalf("expected relayed frames, got %d", len(relayedFrames))
+	}
+	for i, frame := range relayedFrames {
+		if bytes.Contains(frame, []byte(secretProject)) ||
+			bytes.Contains(frame, []byte(secretPayload)) ||
+			bytes.Contains(frame, []byte("confidential_poster")) {
+			t.Fatalf("plaintext leaked in relayed frame %d!", i)
+		}
+	}
+}
+
+func TestE2ECipherTamperAndReplayRejected(t *testing.T) {
+	kA, err := newE2EKeyPair()
+	if err != nil {
+		t.Fatal(err)
+	}
+	kB, err := newE2EKeyPair()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cA, err := newE2ECipher(kA.priv, kB.pub, "ABC-123", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cB, err := newE2ECipher(kB.priv, kA.pub, "ABC-123", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	f0 := cA.Seal([]byte("hello"))
+	f1 := cA.Seal([]byte("world"))
+
+	// Out-of-order replay rejected.
+	if _, err := cB.Open(f1); err == nil {
+		t.Fatal("expected out-of-order frame to be rejected")
+	}
+
+	// Tampered ciphertext rejected.
+	bad := append([]byte(nil), f0...)
+	bad[len(bad)-1] ^= 0xFF
+	if _, err := cB.Open(bad); err == nil {
+		t.Fatal("expected tampered frame to fail GCM auth")
+	}
+
+	// Valid ordered frames decrypt cleanly.
+	p0, err := cB.Open(f0)
+	if err != nil || string(p0) != "hello" {
+		t.Fatalf("expected hello, got %q err=%v", string(p0), err)
+	}
+	// Replay of f0 must fail.
+	if _, err := cB.Open(f0); err == nil {
+		t.Fatal("expected replayed frame to fail")
+	}
+	p1, err := cB.Open(f1)
+	if err != nil || string(p1) != "world" {
+		t.Fatalf("expected world, got %q err=%v", string(p1), err)
 	}
 }

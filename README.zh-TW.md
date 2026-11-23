@@ -25,7 +25,7 @@
 
 ## 為什麼選擇 Raglex？
 
-**Raglex** 結合了原生桌面軟體的極致速度、Eagle 等級的視覺素材管理體驗，以及 PureRef 風格的置頂參考白板——**零 Electron 負擔**、**完全離線可用**，所有索引與標籤都儲存在你本機的單一 `bbolt` 資料庫中，檔案主權 100% 歸你所有。
+**Raglex** 是一款原生桌面視覺素材管理與無限靈感白板工具——**原生極速啟動**、**完全離線可用**，所有索引、標籤與白板都儲存在你本機的單一 `bbolt` 資料庫中，檔案主權 100% 歸你所有。
 
 採用 **Go** 與 **[MyGo Native UI](https://github.com/egoist/mygo)**（`CGO_ENABLED=0`）打造，跨平台支援 **macOS（Apple Silicon & Intel）**、**Windows（x64 & ARM64）** 與 **Linux（x64 & ARM64）**。
 
@@ -46,9 +46,9 @@
 - **PDF 多頁翻閱（`.pdf`）**：支援多頁翻閱、頁碼顯示、縮放與首頁縮圖生成。
 - **圖片與影片**：無彈窗內嵌全舞台檢視、動圖 GIF 與影片循環播放，右側同步提供 **資訊 / 相似素材** 檢視面板。
 
-### 無限白板與 PureRef 置頂參考浮窗
-- **獨立白板與專案白板**：除了專案內白板，也可在側邊欄直接建立白板，自由拖放素材、分組、加上便利貼、縮放與旋轉。
-- **PureRef 風格置頂參考浮窗（Always on Top）**：一鍵將目前白板彈出成無邊框置頂浮窗，懸浮於 Photoshop、Blender、Clip Studio Paint、Premiere 等創作軟體上方；支援自動隱藏控制列、**透明度調整（35%～100%）**、獨立拖曳平移縮放與按 `F` 置中符合畫面。
+### 無限白板與置頂參考浮窗
+- **獨立白板與專案白板**：除了專案內白板，也可在側邊欄直接建立白板，自由拖放素材、分組框、向量箭頭、便利貼、縮放與旋轉。
+- **置頂參考浮窗（Always on Top）**：一鍵將目前白板彈出成無邊框置頂浮窗，懸浮於各類繪圖、3D 與影音創作軟體上方；支援自動隱藏控制列、**獨立調整背景與圖片透明度**、獨立拖曳平移縮放與按 `F` 置中符合畫面。
 
 ### 批次檔案管理與高效率操作
 - **批次重新命名（`F2`）與復原（`Ctrl+Z`）**：支援範本變數（`{name}`、`{n}`、`{date}`、`{ext}`、尋找取代）、衝突檢查、即時預覽與完整批次還原紀錄。
@@ -90,8 +90,8 @@
 | :--- | :--- | :--- |
 | **macOS** | Apple Silicon (`darwin/arm64`) | `Raglex-darwin-arm64.zip`（`.app` 應用程式包） |
 | **macOS** | Intel x86_64 (`darwin/amd64`) | `Raglex-darwin-amd64.zip`（`.app` 應用程式包） |
-| **Windows** | x64 (`windows/amd64`) | `raglex-setup-0.1.1-amd64.exe`（安裝版） / `Raglex-windows-amd64.zip` |
-| **Windows** | ARM64 (`windows/arm64`) | `raglex-setup-0.1.1-arm64.exe`（安裝版） / `Raglex-windows-arm64.zip` |
+| **Windows** | x64 (`windows/amd64`) | `raglex-setup-0.3.0-amd64.exe`（安裝版） / `Raglex-windows-amd64.zip` |
+| **Windows** | ARM64 (`windows/arm64`) | `raglex-setup-0.3.0-arm64.exe`（安裝版） / `Raglex-windows-arm64.zip` |
 | **Linux** | x64 (`linux/amd64`) | `.tar.gz`、`.deb`、`.rpm`、`PKGBUILD` |
 | **Linux** | ARM64 (`linux/arm64`) | `.tar.gz`、`.deb`、`.rpm`、`PKGBUILD` |
 

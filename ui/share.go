@@ -72,27 +72,29 @@ func (a *App) shareModal(c *gui.Context) {
 	t := c.Theme()
 	services := c.Services()
 	a.styledDialog(c, "share-modal", &a.shareOpen, 520, 0, func(_ gui.Element) {
-		gui.Column(c).Padding(22, 24).Gap(16).Children(func() {
-			gui.Row(c).Gap(10).AlignItems(gui.Center).Children(func() {
-				gui.Icon(c, iconShare).Size(18, 18).TextColor(a.pal.ink)
-				gui.Text(c, a.t("share.send")+" · "+a.project.Name).FontSize(16).Bold().Grow(1).SingleLine()
+		gui.Column(c).Padding(18, 18).Gap(4).Children(func() {
+			gui.Row(c).Padding(0, 6, 8, 6).Gap(10).AlignItems(gui.Center).Children(func() {
+				gui.Icon(c, iconShare).Size(17, 17).TextColor(a.pal.ink)
+				gui.Text(c, a.t("share.send")+" · "+a.project.Name).FontSize(15).Bold().Grow(1).SingleLine()
 				a.iconButton(c, "share-close", iconX, a.t("common.close"), false).OnClick(func() {
 					a.shareOpen = false
 				})
 			})
 
-			gui.Checkbox(c.Key("share-files"), &a.shareFiles, a.t("share.files"))
+			gui.Box(c).FillWidth().Height(1).Background(a.chromeHairline())
+			gui.Row(c).FillWidth().Padding(8, 6).AlignItems(gui.Center).Children(func() {
+				gui.Checkbox(c.Key("share-files"), &a.shareFiles, a.t("share.files"))
+			})
 
-			// LAN section.
-			gui.Column(c).Padding(16).Gap(10).Radius(radiusPanel).Background(a.pal.surface).Children(func() {
-				a.sectionLabel(c, a.t("share.title"))
+			// 1. Same Wi-Fi transfer (auto discovery, zero setup).
+			a.settingsSection(c, a.t("share.lanCard"), "", true, func() {
 				node := a.shareNode()
 				if node == nil || !node.DiscoveryOK() {
-					gui.Text(c, a.t("share.unavailable")).FontSize(12).TextColor(t.TextMuted)
+					gui.Text(c, a.t("share.unavailable")).FontSize(12).TextColor(t.TextMuted).Padding(4, 10)
 				} else {
 					peers := node.Peers()
 					if len(peers) == 0 {
-						gui.Text(c, a.t("share.none")).FontSize(12).TextColor(t.TextMuted)
+						gui.Text(c, a.t("share.none")).FontSize(12).TextColor(t.TextMuted).Padding(4, 10)
 					}
 					for _, peer := range peers {
 						item := peer
@@ -100,24 +102,22 @@ func (a *App) shareModal(c *gui.Context) {
 						if label == "" {
 							label = item.Addr
 						}
-						gui.Row(c.Key("share-row-" + item.ID)).Gap(8).AlignItems(gui.Center).Children(func() {
-							gui.Text(c, label).Bold().FontSize(13).Grow(1).SingleLine()
-							gui.Text(c, item.Addr).FontSize(11).TextColor(t.TextMuted)
-							gui.PrimaryButton(c, a.t("share.sendTo")).Disabled(a.shareSending).OnClick(func() {
-								a.sendProject(item.Addr)
+						a.settingsItemRow(c, "share-row-"+item.ID, iconGlobe, label, "", func() {
+							gui.Row(c).Gap(8).AlignItems(gui.Center).Children(func() {
+								gui.Text(c, item.Addr).FontSize(11).TextColor(t.TextMuted)
+								gui.PrimaryButton(c, a.t("share.sendTo")).Disabled(a.shareSending).OnClick(func() {
+									a.sendProject(item.Addr)
+								})
 							})
 						})
 					}
 				}
 			})
 
-			// Pairing code E2E section.
-			gui.Column(c).Padding(16).Gap(10).Radius(radiusPanel).Background(a.pal.surface).Children(func() {
-				a.sectionLabel(c, a.t("share.pairTitle"))
-				gui.Row(c).Gap(8).AlignItems(gui.Center).Children(func() {
-					gui.TextInput(c.Key("signal-url"), &a.signalURL).
-						Placeholder(a.t("share.signalURL")).
-						Grow(1)
+			// 2. Cross-network pairing code transfer (Direct DTLS P2P + E2E encrypted blind relay fallback).
+			a.settingsSection(c, a.t("share.codeCard"), a.t("share.codeCardTip"), true, func() {
+				gui.Row(c).FillWidth().Padding(6, 10).Gap(8).AlignItems(gui.Center).Children(func() {
+					gui.Icon(c, iconLink).Size(15, 15).TextColor(a.pal.inkSecondary)
 					if a.pairCode == "" {
 						gui.PrimaryButton(c.Key("pair-create"), a.t("share.createCode")).
 							Disabled(a.shareSending).
@@ -127,18 +127,39 @@ func (a *App) shareModal(c *gui.Context) {
 							a.cancelPair()
 						})
 					}
+					if a.pairTransport == "p2p" {
+						a.pillBadge(c, a.t("share.modeP2P"), gui.Hex("#10B981"), gui.RGBA(16, 185, 129, 0.14))
+					} else if a.pairTransport == "e2e-relay" {
+						a.pillBadge(c, a.t("share.modeRelay"), gui.Hex("#38BDF8"), gui.RGBA(56, 189, 248, 0.14))
+					}
+					gui.Spacer(c)
+					a.toolButton(c, "pair-adv-toggle", iconSliders, a.t("pref.advConn"), a.pairAdvRelayOpen).OnClick(func() {
+						a.pairAdvRelayOpen = !a.pairAdvRelayOpen
+					})
 				})
+				if a.pairAdvRelayOpen {
+					a.settingsItemRow(c, "pair-relay", iconGlobe, a.t("pref.advRelay"), a.t("pref.advRelayTip"), func() {
+						gui.TextInput(c.Key("signal-url"), &a.signalURL).
+							Placeholder("http://127.0.0.1:41595").
+							Width(240)
+					})
+					gui.Row(c).FillWidth().Padding(2, 10, 6, 35).Children(func() {
+						gui.Checkbox(c.Key("pair-force-relay"), &a.pairForceRelay, a.t("share.forceRelay")).OnChange(func() {
+							a.syncConfigFromState()
+						})
+					})
+				}
 				if a.pairCode != "" {
 					code := a.pairCode
 					gui.Row(c).
-						Padding(12, 14).
+						Padding(8, 10).
 						Gap(10).
-						Radius(radiusControl).
+						Radius(8).
 						AlignItems(gui.Center).
-						Background(a.pal.surfaceMuted).
+						Background(a.settingsRowHoverBg()).
 						Children(func() {
 							gui.Text(c, fmt.Sprintf(a.t("share.codeWaiting"), code)).
-								FontSize(14).
+								FontSize(13.5).
 								Bold().
 								TextColor(a.pal.ink).
 								Grow(1)
@@ -150,8 +171,30 @@ func (a *App) shareModal(c *gui.Context) {
 				}
 			})
 
+			// 3. Public Web Share Link (powered by built-in Raglex server /s/<id>).
+			a.settingsSection(c, a.t("share.webCard"), a.t("share.webCardTip"), true, func() {
+				gui.Row(c).FillWidth().Padding(6, 10).Gap(8).AlignItems(gui.Center).Children(func() {
+					gui.Icon(c, iconExternal).Size(15, 15).TextColor(a.pal.inkSecondary)
+					gui.TextInput(c.Key("pub-share-pass"), &a.pubSharePass).
+						Placeholder(a.t("share.publicPass")).
+						Grow(1)
+					a.arcButton(c, "pub-share-create", a.t("share.publicCreate"), false).OnClick(func() {
+						if u, err := a.createPublicShareLink("project", a.projectID, a.project.Name, a.pubSharePass, a.shareFiles); err == nil {
+							a.pubShareURL = u
+							services.WriteClipboard(u)
+							a.notify(fmt.Sprintf(a.t("share.publicCopied"), u))
+						} else {
+							a.notify(err.Error())
+						}
+					})
+				})
+				if a.pubShareURL != "" {
+					gui.Text(c, a.pubShareURL).FontSize(11).TextColor(a.pal.inkMuted).Padding(0, 10, 4, 35).SingleLine()
+				}
+			})
+
 			if a.status != "" {
-				gui.Text(c, a.status).FontSize(12).TextColor(t.TextMuted)
+				gui.Text(c, a.status).FontSize(11.5).TextColor(t.TextMuted).Padding(6, 10, 0, 10)
 			}
 		})
 	})
@@ -166,18 +209,13 @@ func (a *App) receivePairModal(c *gui.Context) {
 		gui.Column(c).Padding(22, 24).Gap(14).Children(func() {
 			gui.Row(c).Gap(8).AlignItems(gui.Center).Children(func() {
 				gui.Icon(c, iconLink).Size(17, 17).TextColor(a.pal.ink)
-				gui.Text(c, a.t("share.pairTitle")).FontSize(15).Bold().Grow(1)
+				gui.Text(c, a.t("pref.grpRecv")).FontSize(15).Bold().SingleLine()
+				a.helpTip(c, a.t("pref.recvTip"))
+				gui.Spacer(c)
 				a.iconButton(c, "recv-pair-x", iconX, a.t("common.close"), false).OnClick(func() {
 					a.cancelPair()
 					a.pairRecvOpen = false
 				})
-			})
-
-			gui.Column(c).Gap(6).Children(func() {
-				a.sectionLabel(c, a.t("share.signalURL"))
-				gui.TextInput(c.Key("recv-signal-url"), &a.signalURL).
-					Placeholder("http://127.0.0.1:8787").
-					FillWidth()
 			})
 
 			gui.Column(c).Gap(6).Children(func() {
@@ -187,6 +225,16 @@ func (a *App) receivePairModal(c *gui.Context) {
 					AutoFocus().
 					FillWidth().
 					OnSubmit(func() { a.startPairReceive() })
+			})
+
+			gui.Column(c).Gap(6).Children(func() {
+				gui.Row(c).Gap(6).AlignItems(gui.Center).Children(func() {
+					a.sectionLabel(c, a.t("pref.advRelay"))
+					a.helpTip(c, a.t("pref.advRelayTip"))
+				})
+				gui.TextInput(c.Key("recv-signal-url"), &a.signalURL).
+					Placeholder("http://127.0.0.1:41595").
+					FillWidth()
 			})
 
 			if a.status != "" {
@@ -209,6 +257,10 @@ func (a *App) receivePairModal(c *gui.Context) {
 
 func (a *App) saveSignalURL() string {
 	url := trim(a.signalURL)
+	if url == "" && trim(a.syncServerURL) != "" {
+		url = trim(a.syncServerURL)
+		a.signalURL = url
+	}
 	if url != a.cfg.SignalingURL {
 		a.cfg.SignalingURL = url
 		if a.win != nil {
@@ -238,6 +290,7 @@ func (a *App) startPairSend() {
 	}
 	sigURL := a.saveSignalURL()
 	if sigURL == "" {
+		a.pairAdvRelayOpen = true
 		a.status = a.t("share.needSignal")
 		return
 	}
@@ -255,8 +308,10 @@ func (a *App) startPairSend() {
 
 	a.shareSending = true
 	a.pairCode = ""
+	a.pairTransport = ""
 	a.status = a.t("share.sending")
 	include := a.shareFiles
+	forceRelay := a.pairForceRelay
 	projectID := a.projectID
 	win := a.win
 	go func() {
@@ -266,6 +321,14 @@ func (a *App) startPairSend() {
 			err = share.PairSend(ctx, share.PairOptions{
 				SignalingURL: sigURL,
 				Name:         name,
+				ForceRelay:   forceRelay,
+				OnTransport: func(mode string) {
+					win.Update(func() {
+						if !a.isClosed() {
+							a.pairTransport = mode
+						}
+					})
+				},
 			}, bundle, files, func(code string) {
 				win.Update(func() {
 					if a.isClosed() {
@@ -322,12 +385,22 @@ func (a *App) startPairReceive() {
 	a.mu.Unlock()
 
 	a.pairReceiving = true
+	a.pairTransport = ""
 	a.status = a.t("share.connecting")
+	forceRelay := a.pairForceRelay
 	win := a.win
 	go func() {
 		defer cancel()
 		_, recvErr := share.PairReceive(ctx, share.PairOptions{
 			SignalingURL: sigURL,
+			ForceRelay:   forceRelay,
+			OnTransport: func(mode string) {
+				win.Update(func() {
+					if !a.isClosed() {
+						a.pairTransport = mode
+					}
+				})
+			},
 		}, code, a.decide, a.shareTake, a.shareCommit)
 		win.Update(func() {
 			a.mu.Lock()

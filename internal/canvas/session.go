@@ -316,7 +316,7 @@ func hitHandle(items map[string]model.Placement, id string, wx, wy, reach, zoom 
 	if zoom == 0 {
 		zoom = 1
 	}
-	// Excalidraw-style Arrow: two draggable endpoint handles (start & tip).
+	// Vector Arrow: two draggable endpoint handles (start & tip).
 	if p.Kind == model.KindArrow && len(p.Points) >= 4 {
 		x0, y0 := localToWorld(items, id, p.Points[0], p.Points[1])
 		if dist(x0, y0, wx, wy) <= reach*1.25 {

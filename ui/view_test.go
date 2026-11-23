@@ -403,7 +403,7 @@ func TestRenderScreenshots(t *testing.T) {
 	save("onboarding_step5_dark.png", 1360, 860)
 	a.onboardingOpen = false
 
-	// 3. Project view dark (Arc UI Editorial Hero + live visual Moodboard previews).
+	// 3. Project view dark (Editorial Hero + live visual Moodboard previews).
 	a.themeMode = "dark"
 	a.screen = screenProject
 	a.projectID = proj.ID
