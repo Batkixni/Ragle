@@ -50,7 +50,8 @@ func (a *App) inlinePreviewView(c *gui.Context) {
 		prevRootBg = gui.Transparent
 	}
 	gui.Column(c.Key("inline-preview-root")).Fill().Background(prevRootBg).Children(func() {
-		// Flush edge-to-edge Viewer Top Bar fused cleanly into the window top edge.
+		// Minimal, serene edge-to-edge Viewer Top Bar:
+		// Back + Prev/Next on left, centered title, Zoom (- / 100% / +) + window controls on right.
 		gui.Row(c.Key("viewer-topbar")).
 			Height(48).
 			FillWidth().
@@ -64,7 +65,16 @@ func (a *App) inlinePreviewView(c *gui.Context) {
 				a.iconButton(c, "viewer-back", iconArrowLeft, a.t("viewer.back")+" (Esc)", false).OnClick(func() {
 					a.closePreview()
 				})
-				gui.Row(c).Gap(8).FillHeight().Grow(1).AlignItems(gui.Center).DragWindow().Children(func() {
+				if len(a.assets) > 1 {
+					a.iconButton(c, "viewer-prev", iconChevronLeft, a.t("preview.prev"), false).OnClick(func() {
+						a.stepPreview(-1)
+					})
+					a.iconButton(c, "viewer-next", iconChevronRgt, a.t("preview.next"), false).OnClick(func() {
+						a.stepPreview(1)
+					})
+				}
+
+				gui.Row(c).Gap(8).FillHeight().Grow(1).Justify(gui.Center).AlignItems(gui.Center).DragWindow().Children(func() {
 					gui.Text(c, a.assetName(asset)).FontSize(13).Bold().TextColor(a.pal.ink).SingleLine().MaxWidth(360)
 					if asset.Width > 0 && asset.Height > 0 {
 						gui.Text(c, fmt.Sprintf("%d × %d", asset.Width, asset.Height)).FontSize(11).TextColor(a.pal.inkMuted).SingleLine()
@@ -86,53 +96,7 @@ func (a *App) inlinePreviewView(c *gui.Context) {
 					a.iconButton(c, "viewer-zin", iconZoomIn, "+", false).OnClick(func() {
 						a.setPreviewZoom(a.previewZoom * 1.25)
 					})
-					a.iconButton(c, "viewer-thumbbg", iconChecker, a.t("view.thumbBg"), a.thumbBg != "").OnClick(func() {
-						order := []string{"", "checker", "black", "gray", "white"}
-						next := "checker"
-						for i, m := range order {
-							if m == a.thumbBg {
-								next = order[(i+1)%len(order)]
-								break
-							}
-						}
-						a.setThumbBg(next)
-					})
-					a.iconButton(c, "viewer-gray", iconContrast, a.t("view.grayscale")+" (Ctrl+Alt+G)", a.grayscalePreview).OnClick(func() {
-						a.grayscalePreview = !a.grayscalePreview
-						a.syncConfigFromState()
-					})
 				}
-
-				if len(a.assets) > 1 {
-					a.iconButton(c, "viewer-prev", iconChevronLeft, a.t("preview.prev"), false).OnClick(func() {
-						a.stepPreview(-1)
-					})
-					a.iconButton(c, "viewer-next", iconChevronRgt, a.t("preview.next"), false).OnClick(func() {
-						a.stepPreview(1)
-					})
-				}
-
-				if !asset.Missing && asset.Path != "" {
-					a.iconButton(c, "viewer-open", iconExternal, a.t("common.openFile"), false).OnClick(func() {
-						_ = openLocalFile(asset.Path)
-					})
-					a.iconButton(c, "viewer-reveal", iconFolder, a.t("common.revealFile"), false).OnClick(func() {
-						_ = revealLocalFile(asset.Path)
-					})
-				}
-				a.iconButton(c, "viewer-copy", iconCopy, a.t("clipboard.copyFiles"), false).OnClick(func() {
-					a.copySelectedFilesToClipboard([]string{asset.ID})
-				})
-				if !asset.Missing && asset.Path != "" && !isVideo {
-					a.iconButton(c, "viewer-sim", iconPalette, a.t("inspector.tabSimilar"), a.inspectorOpen && a.inspectorTab == 1).OnClick(func() {
-						a.inspectorOpen = true
-						a.inspectorTab = 1
-						a.ensureInspectorSimilar(asset)
-					})
-				}
-				a.iconButton(c, "viewer-close", iconX, a.t("common.close"), false).OnClick(func() {
-					a.closePreview()
-				})
 
 				gui.Box(c).Size(1, 18).Background(a.pal.surfaceMuted)
 				a.windowControls(c)

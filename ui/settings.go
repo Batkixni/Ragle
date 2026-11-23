@@ -339,21 +339,46 @@ func (a *App) settingsModal(c *gui.Context) {
 				})
 
 			// Right content area: header + directional animated scrollable cards + footer.
-			gui.Column(c).Grow(1).FillHeight().Background(a.pal.canvas).Children(func() {
-				// Top header.
+			rightBg := a.pal.canvas
+			if a.glassActive {
+				rightBg = a.popoverSurface()
+			}
+			gui.Column(c).Grow(1).FillHeight().Background(rightBg).Children(func() {
+				// Top header with clear title + human-friendly 1-line subtitle.
 				activeTitle := tabs[0].label
+				activeSub := a.t("settings.sub.general")
+				subKeys := map[int]string{
+					settingsTabGeneral:  "settings.sub.general",
+					settingsTabDatabase: "settings.sub.database",
+					settingsTabImport:   "settings.sub.import",
+					settingsTabSharing:  "settings.sub.sharing",
+					settingsTabAI:       "settings.sub.ai",
+					settingsTabPlugins:  "settings.sub.plugins",
+				}
 				for _, tb := range tabs {
 					if tb.id == a.settingsTab {
 						activeTitle = tb.label
 						break
 					}
 				}
-				gui.Row(c).Height(54).Padding(0, 22).AlignItems(gui.Center).Children(func() {
-					gui.Text(c, activeTitle).FontSize(16).Bold().Grow(1)
-					a.iconButton(c, "settings-close-x", iconX, a.t("common.close"), false).OnClick(func() {
-						a.settingsOpen = false
+				if sk, ok := subKeys[a.settingsTab]; ok {
+					activeSub = a.t(sk)
+				}
+				gui.Row(c).
+					Padding(16, 22, 12, 22).
+					Gap(12).
+					AlignItems(gui.Center).
+					BorderWidth(0, 0, 1, 0).
+					BorderColor(a.chromeHairline()).
+					Children(func() {
+						gui.Column(c).Grow(1).Gap(2).Children(func() {
+							gui.Text(c, activeTitle).FontSize(16).Bold()
+							gui.Text(c, activeSub).FontSize(11.5).TextColor(a.pal.inkSecondary).SingleLine()
+						})
+						a.iconButton(c, "settings-close-x", iconX, a.t("common.close"), false).OnClick(func() {
+							a.settingsOpen = false
+						})
 					})
-				})
 
 				// Scrollable grouped cards with directional Arc panel transition.
 				gui.Scroll(c.Key("settings-scroll")).Grow(1).FillWidth().Children(func() {
@@ -363,7 +388,7 @@ func (a *App) settingsModal(c *gui.Context) {
 					}
 					body := gui.Column(c.Key(fmt.Sprintf("settings-body-%d", a.settingsTab))).
 						FillWidth().
-						Padding(4, 22, 20, 22).
+						Padding(14, 22, 20, 22).
 						Gap(14)
 					applyPanelSwitch(body, a.settingsTab, 0, dirY)
 					body.Children(func() {
@@ -385,29 +410,44 @@ func (a *App) settingsModal(c *gui.Context) {
 				})
 
 				// Footer bar.
-				gui.Row(c).Padding(12, 22).Gap(10).AlignItems(gui.Center).Children(func() {
-					if a.status != "" {
-						gui.Text(c, a.status).FontSize(11).TextColor(a.pal.inkSecondary).Grow(1).SingleLine()
-					} else {
-						gui.Spacer(c)
-					}
-					a.arcButton(c, "settings-done", a.t("common.done"), true).OnClick(func() {
-						a.syncConfigFromState()
-						a.settingsOpen = false
+				gui.Row(c).
+					Padding(12, 22).
+					Gap(10).
+					AlignItems(gui.Center).
+					BorderWidth(1, 0, 0, 0).
+					BorderColor(a.chromeHairline()).
+					Children(func() {
+						if a.status != "" {
+							gui.Text(c, a.status).FontSize(11).TextColor(a.pal.inkSecondary).Grow(1).SingleLine()
+						} else {
+							gui.Spacer(c)
+						}
+						a.arcButton(c, "settings-done", a.t("common.done"), true).OnClick(func() {
+							a.syncConfigFromState()
+							a.settingsOpen = false
+						})
 					})
-				})
 			})
 		})
 	})
 }
 
 func (a *App) settingsGroup(c *gui.Context, title string, content func()) {
+	cardBg := a.pal.surface
+	if a.glassActive {
+		if a.dark {
+			cardBg = gui.RGBA(255, 255, 255, 0.04)
+		} else {
+			cardBg = gui.RGBA(0, 0, 0, 0.03)
+		}
+	}
 	gui.Column(c).
 		FillWidth().
 		Padding(14, 16).
-		Gap(10).
+		Gap(11).
 		Radius(radiusPanel).
-		Background(a.pal.surface).
+		Background(cardBg).
+		Border(1, a.chromeHairline()).
 		Children(func() {
 			a.sectionLabel(c, title)
 			content()
@@ -421,8 +461,20 @@ func (a *App) settingsSwitchRow(c *gui.Context, key, label string, val *bool, on
 	})
 }
 
+func (a *App) settingsSwitchRowDesc(c *gui.Context, key, label, desc string, val *bool, onChange func()) {
+	gui.Row(c).FillWidth().Gap(12).AlignItems(gui.Center).Children(func() {
+		gui.Column(c).Grow(1).Gap(2).Children(func() {
+			gui.Text(c, label).FontSize(13).TextColor(a.pal.ink).LineHeight(1.3)
+			if desc != "" {
+				gui.Text(c, desc).FontSize(11).TextColor(a.pal.inkMuted).LineHeight(1.35)
+			}
+		})
+		a.arcSwitch(c, key, val, onChange)
+	})
+}
+
 func (a *App) settingsGeneralTab(c *gui.Context) {
-	// Appearance group.
+	// Appearance & Frosted Glass group.
 	a.settingsGroup(c, a.t("settings.appearance"), func() {
 		gui.Row(c).FillWidth().Gap(12).AlignItems(gui.Center).Children(func() {
 			gui.Text(c, a.t("shell.theme")).FontSize(13).Grow(1)
@@ -443,24 +495,6 @@ func (a *App) settingsGeneralTab(c *gui.Context) {
 			})
 		})
 
-		gui.Row(c).FillWidth().Gap(12).AlignItems(gui.Center).Children(func() {
-			gui.Text(c, a.t("shell.language")).FontSize(13).Grow(1)
-			sel := 0
-			if a.lang == i18nEn {
-				sel = 1
-			}
-			a.arcPillTabs(c, "pref-lang", sel, []string{"繁體中文", "English"}, func(idx int) {
-				if idx == 0 {
-					a.setLang(i18nZh)
-				} else {
-					a.setLang(i18nEn)
-				}
-			})
-		})
-	})
-
-	// Custom theme colors & Zeron Frosted Glass group.
-	a.settingsGroup(c, a.t("settings.customTheme"), func() {
 		presetIDs := []string{"", "graphite", "warm", "midnight", "glass", "custom"}
 		presetSel := 0
 		for i, id := range presetIDs {
@@ -505,46 +539,50 @@ func (a *App) settingsGeneralTab(c *gui.Context) {
 			})
 		})
 
-		a.settingsSwitchRow(c, "pref-glass-mode", a.t("settings.glassMode"), &a.glassMode, func() {
+		a.settingsSwitchRowDesc(c, "pref-glass-mode", a.t("settings.glassMode"), a.t("settings.glassDesc"), &a.glassMode, func() {
 			a.syncWindowVibrancy()
 			a.syncConfigFromState()
 		})
 		if a.glassMode {
 			gui.Row(c).FillWidth().Gap(12).AlignItems(gui.Center).Children(func() {
 				gui.Text(c, a.t("settings.glassOpacity")).FontSize(13).Grow(1)
-				gui.Text(c, fmt.Sprintf("%d%%", int(a.glassOpacity*100+0.5))).FontSize(12).TextColor(a.pal.inkSecondary)
-				gui.Slider(c.Key("pref-glass-opacity"), &a.glassOpacity, 0.30, 0.96).Width(150).OnChange(func() {
+				gui.Text(c, fmt.Sprintf("%d%%", int(a.glassOpacity*100+0.5))).FontSize(12).Bold().TextColor(a.pal.inkSecondary)
+				gui.Slider(c.Key("pref-glass-opacity"), &a.glassOpacity, 0.30, 0.96).Width(160).OnChange(func() {
 					a.syncConfigFromState()
 				})
 			})
 		}
 
-		a.themeColorRow(c, "pref-col-canvas", a.t("settings.colorCanvas"), &a.customCanvas, a.pal.canvas, []string{"#111111", "#18191C", "#090A0D", "#FFFFFF", "#F6F3EE"})
-		a.themeColorRow(c, "pref-col-surface", a.t("settings.colorSurface"), &a.customSurface, a.pal.surface, []string{"#18181B", "#222428", "#12141A", "#F4F4F5", "#EDE8DF"})
-		a.themeColorRow(c, "pref-col-accent", a.t("settings.colorAccent"), &a.customAccent, a.pal.controlOn, []string{"#EDEDED", "#18181B", "#FF5C33", "#E11D48", "#10B981"})
-		a.themeColorRow(c, "pref-col-text", a.t("settings.colorText"), &a.customText, a.pal.ink, []string{"#FAFAFA", "#E4E4E7", "#18181B", "#1F1B17"})
+		// Only expand hex color pickers when user explicitly chooses Custom preset.
+		if a.themePreset == "custom" {
+			gui.Box(c).FillWidth().Height(1).Background(a.chromeHairline())
+			a.themeColorRow(c, "pref-col-canvas", a.t("settings.colorCanvas"), &a.customCanvas, a.pal.canvas, []string{"#111111", "#18191C", "#090A0D", "#FFFFFF", "#F6F3EE"})
+			a.themeColorRow(c, "pref-col-surface", a.t("settings.colorSurface"), &a.customSurface, a.pal.surface, []string{"#18181B", "#222428", "#12141A", "#F4F4F5", "#EDE8DF"})
+			a.themeColorRow(c, "pref-col-accent", a.t("settings.colorAccent"), &a.customAccent, a.pal.controlOn, []string{"#EDEDED", "#18181B", "#FF5C33", "#E11D48", "#10B981"})
+			a.themeColorRow(c, "pref-col-text", a.t("settings.colorText"), &a.customText, a.pal.ink, []string{"#FAFAFA", "#E4E4E7", "#18181B", "#1F1B17"})
+		} else {
+			gui.Text(c, a.t("settings.customColorsToggle")).FontSize(11).TextColor(a.pal.inkMuted)
+		}
+
+		gui.Box(c).FillWidth().Height(1).Background(a.chromeHairline())
+		gui.Row(c).FillWidth().Gap(12).AlignItems(gui.Center).Children(func() {
+			gui.Text(c, a.t("shell.language")).FontSize(13).Grow(1)
+			sel := 0
+			if a.lang == i18nEn {
+				sel = 1
+			}
+			a.arcPillTabs(c, "pref-lang", sel, []string{"繁體中文", "English"}, func(idx int) {
+				if idx == 0 {
+					a.setLang(i18nZh)
+				} else {
+					a.setLang(i18nEn)
+				}
+			})
+		})
 	})
 
 	// Workspace display group.
 	a.settingsGroup(c, a.t("settings.workspace"), func() {
-		a.settingsSwitchRow(c, "pref-sb-counts", a.t("settings.sidebarCounts"), &a.showSidebarCounts, func() {
-			a.syncConfigFromState()
-		})
-		a.settingsSwitchRow(c, "pref-tag-colors", a.t("settings.tagColors"), &a.showTagColors, func() {
-			a.syncConfigFromState()
-		})
-		a.settingsSwitchRow(c, "pref-card-caption", a.t("settings.cardCaption"), &a.showCardCaption, func() {
-			a.syncConfigFromState()
-		})
-
-		gui.Row(c).FillWidth().Gap(12).AlignItems(gui.Center).Children(func() {
-			gui.Text(c, a.t("settings.cardSize")).FontSize(13).Grow(1)
-			gui.Text(c, fmt.Sprintf("%d px", int(a.cardSize))).FontSize(12).TextColor(a.pal.inkSecondary)
-			gui.Slider(c.Key("pref-card-size"), &a.cardSize, 128, 300).Width(150).OnChange(func() {
-				a.syncConfigFromState()
-			})
-		})
-
 		gui.Row(c).FillWidth().Gap(12).AlignItems(gui.Center).Children(func() {
 			gui.Text(c, a.t("settings.defaultLayout")).FontSize(13).Grow(1)
 			sel := 0
@@ -564,7 +602,7 @@ func (a *App) settingsGeneralTab(c *gui.Context) {
 			})
 		})
 
-		gui.Column(c).FillWidth().Gap(8).Children(func() {
+		gui.Column(c).FillWidth().Gap(6).Children(func() {
 			gui.Text(c, a.t("settings.defaultSort")).FontSize(13)
 			a.arcPillTabs(c, "pref-sort", a.sortBy, []string{
 				a.t("library.sortNewest"),
@@ -578,7 +616,27 @@ func (a *App) settingsGeneralTab(c *gui.Context) {
 			})
 		})
 
-		gui.Row(c).FillWidth().Padding(4, 0, 0, 0).AlignItems(gui.Center).Children(func() {
+		gui.Row(c).FillWidth().Gap(12).AlignItems(gui.Center).Children(func() {
+			gui.Text(c, a.t("settings.cardSize")).FontSize(13).Grow(1)
+			gui.Text(c, fmt.Sprintf("%d px", int(a.cardSize))).FontSize(12).TextColor(a.pal.inkSecondary)
+			gui.Slider(c.Key("pref-card-size"), &a.cardSize, 128, 300).Width(160).OnChange(func() {
+				a.syncConfigFromState()
+			})
+		})
+
+		gui.Box(c).FillWidth().Height(1).Background(a.chromeHairline())
+		a.settingsSwitchRow(c, "pref-sb-counts", a.t("settings.sidebarCounts"), &a.showSidebarCounts, func() {
+			a.syncConfigFromState()
+		})
+		a.settingsSwitchRow(c, "pref-tag-colors", a.t("settings.tagColors"), &a.showTagColors, func() {
+			a.syncConfigFromState()
+		})
+		a.settingsSwitchRow(c, "pref-card-caption", a.t("settings.cardCaption"), &a.showCardCaption, func() {
+			a.syncConfigFromState()
+		})
+
+		gui.Box(c).FillWidth().Height(1).Background(a.chromeHairline())
+		gui.Row(c).FillWidth().AlignItems(gui.Center).Children(func() {
 			gui.Text(c, a.t("onboarding.open")).FontSize(13).Grow(1)
 			a.toolButton(c, "pref-reopen-ob", iconHelp, a.t("onboarding.reopen"), false).OnClick(func() {
 				a.settingsOpen = false
@@ -648,33 +706,65 @@ func (a *App) settingsGeneralTab(c *gui.Context) {
 }
 
 func (a *App) settingsAITab(c *gui.Context) {
-	// Built-in Visual Embedding Model card.
+	services := c.Services()
+
+	// 1. Prominent MCP AI Agent Integration card (17 tools).
+	a.settingsGroup(c, a.t("mcp.section"), func() {
+		gui.Text(c, a.t("mcp.desc")).FontSize(12).TextColor(a.pal.inkSecondary).LineHeight(1.45)
+
+		dotCol := a.pal.inkFaint
+		statusText := a.t("mcp.stopped")
+		if a.localSrv != nil && a.localSrv.Running() {
+			dotCol = gui.Hex("#10B981")
+			statusText = fmt.Sprintf(a.t("mcp.running"), a.localSrv.LocalURL())
+		}
+		gui.Row(c).FillWidth().Padding(9, 12).Gap(8).Radius(radiusControl).Background(a.pal.surfaceMuted).AlignItems(gui.Center).Children(func() {
+			gui.Box(c).Size(8, 8).Radius(radiusPill).Background(dotCol)
+			gui.Text(c, statusText).FontSize(12).Bold().TextColor(a.pal.ink).Grow(1).SingleLine()
+			a.arcSwitch(c, "pref-mcp-srv-run", &a.serverRunning, func() {
+				a.toggleBuiltInServer()
+			})
+		})
+
+		gui.Text(c, a.t("mcp.toolsSummary")).FontSize(11).TextColor(a.pal.inkMuted).LineHeight(1.45)
+
+		gui.Row(c).FillWidth().Gap(8).Wrap().AlignItems(gui.Center).Children(func() {
+			a.arcButton(c, "pref-ai-copy-mcp", a.t("server.copyMCP"), true).OnClick(func() {
+				services.WriteClipboard(a.buildMCPConfigJSON())
+				a.notify(a.t("server.mcpCopied"))
+			})
+			a.toolButton(c, "pref-ai-copy-tok", iconCopy, a.t("server.copyToken"), false).OnClick(func() {
+				services.WriteClipboard(a.ensureServerToken())
+				a.notify(a.t("common.copied"))
+			})
+		})
+		gui.Text(c, a.t("mcp.stepHint")).FontSize(11).TextColor(a.pal.inkMuted).LineHeight(1.4)
+	})
+
+	// 2. Built-in Visual Embedding Model card.
 	a.settingsGroup(c, a.t("ai.embedSection"), func() {
-		a.settingsSwitchRow(c, "pref-ai-embed-en", a.t("ai.embedEnable"), &a.embedEnabled, func() {
+		a.settingsSwitchRowDesc(c, "pref-ai-embed-en", a.t("ai.embedEnable"), a.t("ai.embedDesc"), &a.embedEnabled, func() {
 			a.syncConfigFromState()
 		})
-		gui.Text(c, a.t("ai.embedDesc")).FontSize(12).TextColor(a.pal.inkSecondary).LineHeight(1.45)
 		gui.Row(c).FillWidth().Gap(10).AlignItems(gui.Center).Children(func() {
 			gui.Text(c, fmt.Sprintf(a.t("ai.embedStatus"), a.aiIndexedCount, a.allAssetsCount)).
 				FontSize(12).
 				Bold().
 				TextColor(a.pal.ink).
 				Grow(1)
-			a.arcButton(c, "pref-ai-reindex", a.t("ai.reindex"), true).
+			a.arcButton(c, "pref-ai-reindex", a.t("ai.reindex"), false).
 				Disabled(a.aiIndexBusy || !a.embedEnabled).
 				OnClick(func() { a.reindexVisualEmbeddings() })
 		})
 	})
 
-	// Built-in Laya Decision Engine with one-click in-app deployment & runtime management.
+	// 3. Built-in Laya Decision Engine with one-click in-app deployment & runtime management.
 	a.settingsGroup(c, a.t("laya.section"), func() {
-		a.settingsSwitchRow(c, "pref-ai-laya-en", a.t("ai.layaEnable"), &a.layaEnabled, func() {
+		a.settingsSwitchRowDesc(c, "pref-ai-laya-en", a.t("ai.layaEnable"), a.t("ai.layaBuiltInDesc"), &a.layaEnabled, func() {
 			a.syncConfigFromState()
 		})
-		gui.Text(c, a.t("ai.layaBuiltInDesc")).FontSize(12).TextColor(a.pal.inkSecondary).LineHeight(1.45)
 
 		if a.layaEnabled {
-			// Live runtime status badge.
 			stateLbl := a.t("ai.layaStateNotInstalled")
 			dotCol := a.pal.inkFaint
 			if a.layaStatus.Running {
@@ -697,7 +787,6 @@ func (a *App) settingsAITab(c *gui.Context) {
 					TextColor(a.pal.inkMuted)
 			}
 
-			// Model selector pills (one-click pick).
 			models := []string{"laya:multilingual", "laya", "winnow:e4b"}
 			selMod := 0
 			for i, m := range models {
@@ -714,7 +803,6 @@ func (a *App) settingsAITab(c *gui.Context) {
 				})
 			})
 
-			// Live deployment progress indicator.
 			if a.layaDeployBusy || a.layaDeployText != "" {
 				gui.Column(c).FillWidth().Padding(10, 12).Gap(6).Radius(radiusControl).Background(a.pal.surfaceRaised).Children(func() {
 					gui.Text(c, a.layaDeployText).FontSize(12).TextColor(a.pal.ink)
@@ -732,7 +820,6 @@ func (a *App) settingsAITab(c *gui.Context) {
 				})
 			}
 
-			// One-click Deploy / Start / Stop buttons directly inside the app!
 			gui.Row(c).FillWidth().Gap(8).Wrap().AlignItems(gui.Center).Children(func() {
 				a.arcButton(c, "pref-laya-deploy", a.t("ai.layaDeploy"), true).
 					Disabled(a.layaDeployBusy).
@@ -769,10 +856,42 @@ func (a *App) settingsDatabaseTab(c *gui.Context) {
 		rootPath = a.lib.DB.Root()
 	}
 
+	// Clean compact 4-tile KPI summary row so library scale is obvious at a glance.
+	st := a.dbStats
+	totalBoards := st.TotalBoards + len(a.standaloneBoards)
+	gui.Row(c).FillWidth().Gap(8).Children(func() {
+		kpiTile := func(label string, count int) {
+			tileBg := a.pal.surface
+			if a.glassActive {
+				if a.dark {
+					tileBg = gui.RGBA(255, 255, 255, 0.04)
+				} else {
+					tileBg = gui.RGBA(0, 0, 0, 0.03)
+				}
+			}
+			gui.Row(c).
+				Grow(1).
+				Padding(9, 12).
+				Gap(6).
+				Radius(radiusControl).
+				Background(tileBg).
+				Border(1, a.chromeHairline()).
+				AlignItems(gui.Center).
+				Children(func() {
+					gui.Text(c, fmt.Sprintf("%d", count)).FontSize(15).Bold().TextColor(a.pal.ink)
+					gui.Text(c, label).FontSize(11).TextColor(a.pal.inkMuted).SingleLine()
+				})
+		}
+		kpiTile(a.t("settings.kpiAssets"), a.allAssetsCount)
+		kpiTile(a.t("settings.kpiTags"), len(a.tags))
+		kpiTile(a.t("settings.kpiProjects"), len(a.projectList))
+		kpiTile(a.t("settings.kpiBoards"), totalBoards)
+	})
+
 	// Library Location card.
 	a.settingsGroup(c, a.t("settings.dbLocation"), func() {
-		gui.Box(c).FillWidth().Padding(10, 12).Radius(radiusControl).Background(a.pal.surfaceMuted).Children(func() {
-			gui.Text(c, rootPath).FontSize(12).TextColor(a.pal.ink).LineHeight(1.4)
+		gui.Box(c).FillWidth().Padding(8, 12).Radius(radiusControl).Background(a.pal.surfaceMuted).Children(func() {
+			gui.Text(c, rootPath).FontSize(12).TextColor(a.pal.ink).LineHeight(1.35)
 		})
 		gui.Row(c).Gap(8).Wrap().Children(func() {
 			if rootPath != "" {
@@ -791,27 +910,7 @@ func (a *App) settingsDatabaseTab(c *gui.Context) {
 		})
 	})
 
-	// Storage & Statistics card.
-	a.settingsGroup(c, a.t("settings.dbStorage"), func() {
-		st := a.dbStats
-		a.settingsKVRow(c, a.t("settings.dbFile"), fmt.Sprintf("%s  (raglex.db · v%s)", formatBytes(st.DBBytes), model.SchemaVersion))
-		a.settingsKVRow(c, a.t("settings.dbFilesDir"), fmt.Sprintf("%s  (%d)", formatBytes(st.FilesBytes), st.FilesCount))
-		a.settingsKVRow(c, a.t("settings.dbThumbsDir"), fmt.Sprintf("%s  (%d)", formatBytes(st.ThumbsBytes), st.ThumbsCount))
-		a.settingsKVRow(c, a.t("settings.dbCounts"), fmt.Sprintf(
-			a.t("settings.dbCountsVal"),
-			a.allAssetsCount,
-			len(a.tags),
-			len(a.projectList),
-			st.TotalBoards,
-		))
-		gui.Row(c).Justify(gui.End).Children(func() {
-			a.toolButton(c, "pref-db-recalc", iconRefresh, a.t("settings.recalc"), false).OnClick(func() {
-				a.refreshDBStats()
-			})
-		})
-	})
-
-	// Backup & Safety card.
+	// Backup & Safety card (above the fold for instant access).
 	a.settingsGroup(c, a.t("settings.dbBackup"), func() {
 		bakLabel := a.t("settings.backupNone")
 		if a.dbStats.HasBackup {
@@ -827,6 +926,18 @@ func (a *App) settingsDatabaseTab(c *gui.Context) {
 			})
 			a.arcButton(c, "pref-db-export-bak", a.t("settings.exportBackup"), false).OnClick(func() {
 				a.exportDatabaseBackup()
+			})
+		})
+	})
+
+	// Storage & Statistics card.
+	a.settingsGroup(c, a.t("settings.dbStorage"), func() {
+		a.settingsKVRow(c, a.t("settings.dbFile"), fmt.Sprintf("%s  (raglex.db · v%s)", formatBytes(st.DBBytes), model.SchemaVersion))
+		a.settingsKVRow(c, a.t("settings.dbFilesDir"), fmt.Sprintf("%s  (%d)", formatBytes(st.FilesBytes), st.FilesCount))
+		a.settingsKVRow(c, a.t("settings.dbThumbsDir"), fmt.Sprintf("%s  (%d)", formatBytes(st.ThumbsBytes), st.ThumbsCount))
+		gui.Row(c).Justify(gui.End).Children(func() {
+			a.toolButton(c, "pref-db-recalc", iconRefresh, a.t("settings.recalc"), false).OnClick(func() {
+				a.refreshDBStats()
 			})
 		})
 	})
@@ -870,7 +981,7 @@ func (a *App) settingsImportTab(c *gui.Context) {
 		a.t("settings.modeDesc.copy"),
 	}
 
-	// Default storage mode card.
+	// Default storage mode card with highlighted plain-language explanation box.
 	a.settingsGroup(c, a.t("settings.importMode"), func() {
 		a.arcPillTabs(c, "pref-storage-mode", a.storageMode, modes, func(idx int) {
 			a.setStorageMode(idx)
@@ -879,24 +990,26 @@ func (a *App) settingsImportTab(c *gui.Context) {
 		if a.storageMode >= 0 && a.storageMode < len(modeDescs) {
 			desc = modeDescs[a.storageMode]
 		}
-		gui.Text(c, desc).FontSize(12).TextColor(a.pal.inkSecondary).LineHeight(1.45)
+		gui.Box(c).FillWidth().Padding(10, 12).Radius(radiusControl).Background(a.pal.surfaceMuted).Children(func() {
+			gui.Text(c, desc).FontSize(12).TextColor(a.pal.ink).LineHeight(1.45)
+		})
 	})
 
-	// Import behavior switches.
+	// Import behavior switches with clear helper descriptions.
 	a.settingsGroup(c, a.t("settings.importBehavior"), func() {
-		a.settingsSwitchRow(c, "pref-imp-autoselect", a.t("settings.autoSelect"), &a.autoSelectImported, func() {
+		a.settingsSwitchRowDesc(c, "pref-imp-autoselect", a.t("settings.autoSelect"), a.t("settings.impAutoSelectDesc"), &a.autoSelectImported, func() {
 			a.syncConfigFromState()
 		})
-		a.settingsSwitchRow(c, "pref-imp-autotag", a.t("settings.autoTag"), &a.autoTagOnImport, func() {
+		a.settingsSwitchRowDesc(c, "pref-imp-autotag", a.t("settings.autoTag"), a.t("settings.impAutoTagDesc"), &a.autoTagOnImport, func() {
 			a.syncConfigFromState()
 		})
-		a.settingsSwitchRow(c, "pref-imp-hidden", a.t("settings.ignoreHidden"), &a.ignoreHiddenOnImport, func() {
+		a.settingsSwitchRowDesc(c, "pref-imp-hidden", a.t("settings.ignoreHidden"), a.t("settings.impHiddenDesc"), &a.ignoreHiddenOnImport, func() {
 			a.syncConfigFromState()
 		})
-		a.settingsSwitchRow(c, "pref-imp-recursive", a.t("settings.importRecursive"), &a.importRecursive, func() {
+		a.settingsSwitchRowDesc(c, "pref-imp-recursive", a.t("settings.importRecursive"), a.t("settings.impRecursiveDesc"), &a.importRecursive, func() {
 			a.syncConfigFromState()
 		})
-		a.settingsSwitchRow(c, "pref-imp-dup", a.t("settings.notifyDup"), &a.notifyDuplicates, func() {
+		a.settingsSwitchRowDesc(c, "pref-imp-dup", a.t("settings.notifyDup"), a.t("settings.impDupDesc"), &a.notifyDuplicates, func() {
 			a.syncConfigFromState()
 		})
 	})

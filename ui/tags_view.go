@@ -15,19 +15,19 @@ func (a *App) buildTagContextMenu(m *gui.Menu, tg model.Tag, services gui.Servic
 	tagID := tg.ID
 	children := a.tagChildren[tagID]
 
-	if m.Item(a.t("tags.addChild")).Chosen() {
+	if a.menuItem(m, iconPlus, a.t("tags.addChild"), "", false).Chosen() {
 		a.newChildParentID = tagID
 		a.newChildTagName = ""
 		a.tagManagerOpen = true
 	}
-	if m.Item(a.t("tags.edit")).Chosen() {
+	if a.menuItem(m, iconEdit, a.t("tags.edit"), "", false).Chosen() {
 		a.openEditTagModal(tg)
 	}
 
 	// Move to parent submenu (cycle-safe).
 	forbidden := a.tagDescendantSet(tagID)
-	m.Submenu(a.t("tags.moveTo"), func(sm *gui.Menu) {
-		if sm.Item(a.t("tags.noParent")).Radio(tg.ParentID == "").Chosen() {
+	a.menuSub(m, iconFolder, a.t("tags.moveTo"), func(sm *gui.Menu) {
+		if a.menuRadio(sm, a.t("tags.noParent"), tg.ParentID == "").Chosen() {
 			a.moveTagParent(tagID, "")
 		}
 		sm.Separator()
@@ -36,21 +36,21 @@ func (a *App) buildTagContextMenu(m *gui.Menu, tg model.Tag, services gui.Servic
 			if forbidden[cnd.ID] {
 				continue
 			}
-			if sm.Item(cnd.Name).Radio(tg.ParentID == cnd.ID).Chosen() {
+			if a.menuRadio(sm, cnd.Name, tg.ParentID == cnd.ID).Chosen() {
 				a.moveTagParent(tagID, cnd.ID)
 			}
 		}
 	})
 
 	// Tag color submenu (8 curated studio colors + neutral default).
-	m.Submenu(a.t("tags.color"), func(sm *gui.Menu) {
-		if sm.Item(a.t("tags.colorDefault")).Radio(tg.Color == "").Chosen() {
+	a.menuSub(m, iconPalette, a.t("tags.color"), func(sm *gui.Menu) {
+		if a.menuRadio(sm, a.t("tags.colorDefault"), tg.Color == "").Chosen() {
 			a.setTagColor(tagID, "")
 		}
 		sm.Separator()
 		for _, opt := range tagColorPalette {
 			ch := opt
-			if sm.Item(a.t(ch.key)).Radio(strings.EqualFold(tg.Color, ch.hex)).Chosen() {
+			if a.menuRadio(sm, a.t(ch.key), strings.EqualFold(tg.Color, ch.hex)).Chosen() {
 				a.setTagColor(tagID, ch.hex)
 			}
 		}
@@ -63,32 +63,32 @@ func (a *App) buildTagContextMenu(m *gui.Menu, tg model.Tag, services gui.Servic
 		if a.expandedTags[tagID] {
 			lbl = a.t("tags.collapse")
 		}
-		if m.Item(lbl).Chosen() {
+		if a.menuItem(m, iconChevronDown, lbl, "", false).Chosen() {
 			a.toggleTagExpand(tagID)
 		}
 	}
-	if m.Item(a.t("tags.expandAll")).Chosen() {
+	if a.menuItem(m, iconChevronDown, a.t("tags.expandAll"), "", false).Chosen() {
 		a.expandAllTags(true)
 	}
-	if m.Item(a.t("tags.collapseAll")).Chosen() {
+	if a.menuItem(m, iconChevronRgt, a.t("tags.collapseAll"), "", false).Chosen() {
 		a.expandAllTags(false)
 	}
 
 	m.Separator()
 
-	if m.Item(a.t("tags.copyName")).Chosen() {
+	if a.menuItem(m, iconCopy, a.t("tags.copyName"), "", false).Chosen() {
 		services.WriteClipboard(tg.Name)
 		a.status = a.t("common.copied")
 	}
 	if !a.tagManagerOpen {
-		if m.Item(a.t("tags.manage")).Chosen() {
+		if a.menuItem(m, iconTag, a.t("tags.manage"), "", false).Chosen() {
 			a.tagManagerOpen = true
 		}
 	}
 
 	m.Separator()
 
-	if m.Item(a.t("tag.delete")).Chosen() {
+	if a.menuItem(m, iconTrash, a.t("tag.delete"), "Del", true).Chosen() {
 		a.deleteTagPrompt(tagID)
 	}
 }
@@ -299,7 +299,7 @@ func (a *App) tagManagerRow(c *gui.Context, tg model.Tag, depth int, q string, s
 		row.Background(row.AnimateColor("bg", bg, animFast)).
 			PopoverMenu(func(m *gui.Menu) {
 				a.buildTagContextMenu(m, tg, services)
-			})
+			}, a.popoverMenuOpts())
 
 		row.Children(func() {
 			if hasChildren {

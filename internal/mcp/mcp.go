@@ -17,6 +17,7 @@ import (
 	"raglex/internal/library"
 	"raglex/internal/model"
 	"raglex/internal/project"
+	"raglex/internal/updater"
 )
 
 // Server handles MCP JSON-RPC 2.0 requests against an open Raglex library.
@@ -135,7 +136,7 @@ func (s *Server) handle(ctx context.Context, req rpcRequest) *rpcResponse {
 				"protocolVersion": "2024-11-05",
 				"serverInfo": map[string]string{
 					"name":    "raglex-mcp",
-					"version": "0.2.0",
+					"version": updater.Version,
 				},
 				"capabilities": map[string]any{
 					"tools":     map[string]any{},
@@ -255,6 +256,7 @@ func (s *Server) callTool(ctx context.Context, rawParams json.RawMessage) (any, 
 		var args struct {
 			Query     string `json:"query"`
 			Tag       string `json:"tag"`
+			Kind      string `json:"kind"`
 			Color     string `json:"color"`
 			MinRating int    `json:"min_rating"`
 			Limit     int    `json:"limit"`
@@ -289,27 +291,242 @@ func (s *Server) callTool(ctx context.Context, rawParams json.RawMessage) (any, 
 			return nil, err
 		}
 		q := strings.ToLower(strings.TrimSpace(args.Query))
+		kindFilter := strings.ToLower(strings.TrimSpace(args.Kind))
 		var out []map[string]any
 		for _, a := range assets {
-			if q != "" && !strings.Contains(strings.ToLower(a.Label()+" "+a.Notes+" "+a.SourceTitle), q) {
+			if kindFilter == "bookmark" && !a.IsBookmark {
+				continue
+			} else if (kindFilter == "image" || kindFilter == "video") && model.MediaKind(a.Mime) != kindFilter {
 				continue
 			}
+			if q != "" && !strings.Contains(strings.ToLower(a.Label()+" "+a.Notes+" "+a.SourceTitle+" "+a.SourceURL), q) {
+				continue
+			}
+			tgs, _ := s.lib.AssetTags(a.ID)
+			tagNames := make([]string, 0, len(tgs))
+			for _, tg := range tgs {
+				tagNames = append(tagNames, tg.Name)
+			}
 			out = append(out, map[string]any{
-				"id":      a.ID,
-				"name":    a.Label(),
-				"path":    a.Path,
-				"mime":    a.Mime,
-				"width":   a.Width,
-				"height":  a.Height,
-				"rating":  a.Rating,
-				"palette": a.Palette,
-				"notes":   a.Notes,
+				"id":           a.ID,
+				"name":         a.Label(),
+				"path":         a.Path,
+				"mime":         a.Mime,
+				"width":        a.Width,
+				"height":       a.Height,
+				"rating":       a.Rating,
+				"palette":      a.Palette,
+				"notes":        a.Notes,
+				"source_url":   a.SourceURL,
+				"source_title": a.SourceTitle,
+				"is_bookmark":  a.IsBookmark,
+				"tags":         tagNames,
 			})
 			if len(out) >= args.Limit {
 				break
 			}
 		}
 		return map[string]any{"count": len(out), "assets": out}, nil
+
+	case "get_asset":
+		var args struct {
+			AssetID string `json:"asset_id"`
+		}
+		if err := json.Unmarshal(call.Arguments, &args); err != nil {
+			return nil, err
+		}
+		a, err := s.lib.Get(strings.TrimSpace(args.AssetID))
+		if err != nil {
+			return nil, err
+		}
+		tgs, _ := s.lib.AssetTags(a.ID)
+		var projRefs []model.Project
+		var boardRefs int
+		if s.projects != nil {
+			projRefs, boardRefs, _ = s.projects.UsageOfAsset(a.ID)
+		}
+		return map[string]any{
+			"asset":       a,
+			"tags":        tgs,
+			"projects":    projRefs,
+			"board_count": boardRefs,
+		}, nil
+
+	case "update_asset":
+		var args struct {
+			AssetID     string  `json:"asset_id"`
+			Name        *string `json:"name"`
+			Rating      *int    `json:"rating"`
+			Notes       *string `json:"notes"`
+			SourceURL   *string `json:"source_url"`
+			SourceTitle *string `json:"source_title"`
+		}
+		if err := json.Unmarshal(call.Arguments, &args); err != nil {
+			return nil, err
+		}
+		cur, err := s.lib.Get(strings.TrimSpace(args.AssetID))
+		if err != nil {
+			return nil, err
+		}
+		if args.Rating != nil {
+			if err := s.lib.SetRating(cur.ID, *args.Rating); err != nil {
+				return nil, err
+			}
+		}
+		if args.Name != nil && strings.TrimSpace(*args.Name) != "" {
+			cur, err = s.lib.RenameAsset(cur.ID, strings.TrimSpace(*args.Name), false)
+			if err != nil {
+				return nil, err
+			}
+		}
+		if args.Notes != nil || args.SourceURL != nil || args.SourceTitle != nil {
+			notes := cur.Notes
+			if args.Notes != nil {
+				notes = *args.Notes
+			}
+			srcURL := cur.SourceURL
+			if args.SourceURL != nil {
+				srcURL = *args.SourceURL
+			}
+			srcTitle := cur.SourceTitle
+			if args.SourceTitle != nil {
+				srcTitle = *args.SourceTitle
+			}
+			cur, err = s.lib.UpdateAssetMeta(cur.ID, notes, srcURL, srcTitle)
+			if err != nil {
+				return nil, err
+			}
+		}
+		updated, err := s.lib.Get(cur.ID)
+		if err != nil {
+			return nil, err
+		}
+		if s.onChange != nil {
+			s.onChange()
+		}
+		return map[string]any{"asset": updated}, nil
+
+	case "import_url":
+		var args struct {
+			URL  string   `json:"url"`
+			Tags []string `json:"tags"`
+		}
+		if err := json.Unmarshal(call.Arguments, &args); err != nil {
+			return nil, err
+		}
+		asset, err := s.lib.ImportFromURL(ctx, strings.TrimSpace(args.URL), model.StorageCopy)
+		if err != nil {
+			return nil, err
+		}
+		for _, name := range args.Tags {
+			if tid := s.resolveOrCreateTag(name); tid != "" {
+				_ = s.lib.SetAssetTag(asset.ID, tid, true)
+			}
+		}
+		if s.onChange != nil {
+			s.onChange()
+		}
+		return map[string]any{"asset": asset}, nil
+
+	case "import_files":
+		var args struct {
+			Paths []string `json:"paths"`
+			Mode  string   `json:"mode"`
+			Tags  []string `json:"tags"`
+		}
+		if err := json.Unmarshal(call.Arguments, &args); err != nil {
+			return nil, err
+		}
+		if len(args.Paths) == 0 {
+			return nil, fmt.Errorf("paths is required")
+		}
+		mode := strings.ToLower(strings.TrimSpace(args.Mode))
+		if mode == "" {
+			mode = model.StorageIndex
+		}
+		var tagIDs []string
+		for _, name := range args.Tags {
+			if tid := s.resolveOrCreateTag(name); tid != "" {
+				tagIDs = append(tagIDs, tid)
+			}
+		}
+		res, err := s.lib.Import(ctx, args.Paths, mode, tagIDs, nil)
+		if err != nil {
+			return nil, err
+		}
+		if s.onChange != nil {
+			s.onChange()
+		}
+		return map[string]any{
+			"added":    res.Added,
+			"existing": res.Existing,
+			"failed":   res.Failed,
+		}, nil
+
+	case "create_project":
+		if s.projects == nil {
+			return nil, fmt.Errorf("projects store unavailable")
+		}
+		var args struct {
+			Name        string   `json:"name"`
+			Description string   `json:"description"`
+			Tags        []string `json:"tags"`
+			AssetIDs    []string `json:"asset_ids"`
+		}
+		if err := json.Unmarshal(call.Arguments, &args); err != nil {
+			return nil, err
+		}
+		var tagIDs []string
+		for _, tn := range args.Tags {
+			if tid := s.resolveOrCreateTag(tn); tid != "" {
+				tagIDs = append(tagIDs, tid)
+			}
+		}
+		if len(tagIDs) == 0 {
+			fallback := strings.TrimSpace(args.Name)
+			if fallback == "" {
+				fallback = "Project"
+			}
+			if tid := s.resolveOrCreateTag(fallback); tid != "" {
+				tagIDs = append(tagIDs, tid)
+			}
+		}
+		proj, err := s.projects.Create(strings.TrimSpace(args.Name), strings.TrimSpace(args.Description), tagIDs)
+		if err != nil {
+			return nil, err
+		}
+		referenced := 0
+		for _, id := range args.AssetIDs {
+			if err := s.projects.Reference(proj.ID, id); err == nil {
+				referenced++
+			}
+		}
+		if s.onChange != nil {
+			s.onChange()
+		}
+		return map[string]any{"project": proj, "referenced": referenced}, nil
+
+	case "add_assets_to_project":
+		if s.projects == nil {
+			return nil, fmt.Errorf("projects store unavailable")
+		}
+		var args struct {
+			ProjectID string   `json:"project_id"`
+			AssetIDs  []string `json:"asset_ids"`
+		}
+		if err := json.Unmarshal(call.Arguments, &args); err != nil {
+			return nil, err
+		}
+		added := 0
+		for _, id := range args.AssetIDs {
+			if err := s.projects.Reference(args.ProjectID, id); err == nil {
+				added++
+			}
+		}
+		if s.onChange != nil {
+			s.onChange()
+		}
+		return map[string]any{"project_id": args.ProjectID, "added": added}, nil
 
 	case "find_similar_assets":
 		var args struct {
@@ -498,6 +715,142 @@ func (s *Server) callTool(ctx context.Context, rawParams json.RawMessage) (any, 
 		}
 		return map[string]any{"board_id": args.BoardID, "added": n}, nil
 
+	case "get_board":
+		if s.projects == nil {
+			return nil, fmt.Errorf("projects store unavailable")
+		}
+		var args struct {
+			BoardID string `json:"board_id"`
+		}
+		if err := json.Unmarshal(call.Arguments, &args); err != nil {
+			return nil, err
+		}
+		b, err := s.projects.GetBoard(strings.TrimSpace(args.BoardID))
+		if err != nil {
+			return nil, err
+		}
+		items, err := s.projects.LoadPlacements(b.ID)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"board": b, "items": items, "count": len(items)}, nil
+
+	case "add_board_elements":
+		if s.projects == nil {
+			return nil, fmt.Errorf("projects store unavailable")
+		}
+		var args struct {
+			BoardID  string `json:"board_id"`
+			Elements []struct {
+				Kind        string  `json:"kind"` // frame, text, note, rect, arrow
+				X           float64 `json:"x"`
+				Y           float64 `json:"y"`
+				Width       float64 `json:"width"`
+				Height      float64 `json:"height"`
+				X2          float64 `json:"x2"`
+				Y2          float64 `json:"y2"`
+				Text        string  `json:"text"`
+				Color       string  `json:"color"`
+				StrokeWidth float64 `json:"stroke_width"`
+				FontSize    float64 `json:"font_size"`
+				Dashed      bool    `json:"dashed"`
+			} `json:"elements"`
+		}
+		if err := json.Unmarshal(call.Arguments, &args); err != nil {
+			return nil, err
+		}
+		b, err := s.projects.GetBoard(strings.TrimSpace(args.BoardID))
+		if err != nil {
+			return nil, err
+		}
+		existing, err := s.projects.LoadPlacements(b.ID)
+		if err != nil {
+			return nil, err
+		}
+		maxZ := 0
+		for _, it := range existing {
+			if it.ZIndex > maxZ {
+				maxZ = it.ZIndex
+			}
+		}
+		created := make([]model.Placement, 0, len(args.Elements))
+		for _, el := range args.Elements {
+			maxZ++
+			kind := strings.ToLower(strings.TrimSpace(el.Kind))
+			if kind == "" {
+				kind = model.KindText
+			}
+			col := strings.TrimSpace(el.Color)
+			if col == "" {
+				col = "#FFFFFF"
+			}
+			sw := el.StrokeWidth
+			if sw <= 0 {
+				sw = 2.5
+			}
+			fs := el.FontSize
+			if fs <= 0 {
+				fs = 18
+			}
+			w, h := el.Width, el.Height
+			p := model.Placement{
+				ID:          model.NewID(),
+				BoardID:     b.ID,
+				Kind:        kind,
+				X:           el.X,
+				Y:           el.Y,
+				Scale:       1,
+				ZIndex:      maxZ,
+				Text:        el.Text,
+				Color:       col,
+				StrokeWidth: sw,
+				FontSize:    fs,
+				Dashed:      el.Dashed,
+			}
+			switch kind {
+			case model.KindFrame:
+				if w <= 0 {
+					w = 560
+				}
+				if h <= 0 {
+					h = 400
+				}
+				if p.Text == "" {
+					p.Text = "Section"
+				}
+				p.Width, p.Height = w, h
+				p.ZIndex = -10
+			case model.KindArrow:
+				x2, y2 := el.X2, el.Y2
+				if x2 == 0 && y2 == 0 {
+					x2, y2 = el.X+220, el.Y
+				}
+				minX := min(el.X, x2)
+				minY := min(el.Y, y2)
+				p.X, p.Y = minX, minY
+				p.Width = max(absFloat(x2-el.X), 1)
+				p.Height = max(absFloat(y2-el.Y), 1)
+				p.Points = []float64{el.X - minX, el.Y - minY, x2 - minX, y2 - minY}
+			default:
+				if w <= 0 {
+					w = 240
+				}
+				if h <= 0 {
+					h = 120
+				}
+				p.Width, p.Height = w, h
+			}
+			existing = append(existing, p)
+			created = append(created, p)
+		}
+		if err := s.projects.SavePlacements(b.ID, existing); err != nil {
+			return nil, err
+		}
+		if s.onChange != nil {
+			s.onChange()
+		}
+		return map[string]any{"board_id": b.ID, "created": created, "count": len(created)}, nil
+
 	case "classify_assets_with_laya":
 		var args struct {
 			AssetIDs  []string `json:"asset_ids"`
@@ -548,19 +901,124 @@ func (s *Server) callTool(ctx context.Context, rawParams json.RawMessage) (any, 
 	}
 }
 
+func (s *Server) resolveOrCreateTag(name string) string {
+	name = strings.TrimSpace(name)
+	if name == "" || s.lib == nil {
+		return ""
+	}
+	if tags, err := s.lib.Tags(); err == nil {
+		for _, tg := range tags {
+			if strings.EqualFold(tg.Name, name) || tg.ID == name {
+				return tg.ID
+			}
+		}
+	}
+	tg, err := s.lib.CreateTag(name)
+	if err != nil {
+		return ""
+	}
+	return tg.ID
+}
+
+func absFloat(v float64) float64 {
+	if v < 0 {
+		return -v
+	}
+	return v
+}
+
 func toolSchemas() []map[string]any {
 	return []map[string]any{
 		{
 			"name":        "search_assets",
-			"description": "Search Raglex library assets by keyword, tag name/ID, dominant hex color (#RRGGBB), or minimum star rating.",
+			"description": "Search Raglex library assets by keyword, tag name/ID, kind (image/video/bookmark), dominant hex color (#RRGGBB), or minimum star rating.",
 			"inputSchema": map[string]any{
 				"type": "object",
 				"properties": map[string]any{
 					"query":      map[string]string{"type": "string"},
 					"tag":        map[string]string{"type": "string"},
+					"kind":       map[string]string{"type": "string", "description": "Optional filter: image, video, or bookmark"},
 					"color":      map[string]string{"type": "string", "description": "Hex color like #FF5C33"},
 					"min_rating": map[string]string{"type": "integer"},
 					"limit":      map[string]string{"type": "integer"},
+				},
+			},
+		},
+		{
+			"name":        "get_asset",
+			"description": "Get complete metadata for a single Raglex asset including tags, notes, source URL, dominant palette, and project/board usage.",
+			"inputSchema": map[string]any{
+				"type":     "object",
+				"required": []string{"asset_id"},
+				"properties": map[string]any{
+					"asset_id": map[string]string{"type": "string"},
+				},
+			},
+		},
+		{
+			"name":        "update_asset",
+			"description": "Update an asset's display name, star rating (0-5), notes, source URL, or source title.",
+			"inputSchema": map[string]any{
+				"type":     "object",
+				"required": []string{"asset_id"},
+				"properties": map[string]any{
+					"asset_id":     map[string]string{"type": "string"},
+					"name":         map[string]string{"type": "string"},
+					"rating":       map[string]string{"type": "integer", "description": "0 to 5"},
+					"notes":        map[string]string{"type": "string"},
+					"source_url":   map[string]string{"type": "string"},
+					"source_title": map[string]string{"type": "string"},
+				},
+			},
+		},
+		{
+			"name":        "import_url",
+			"description": "Import a webpage URL into Raglex as a clickable web bookmark (fetches og:image preview, title, and description) or direct image URL.",
+			"inputSchema": map[string]any{
+				"type":     "object",
+				"required": []string{"url"},
+				"properties": map[string]any{
+					"url":  map[string]string{"type": "string"},
+					"tags": map[string]any{"type": "array", "items": map[string]string{"type": "string"}},
+				},
+			},
+		},
+		{
+			"name":        "import_files",
+			"description": "Import one or more local file paths into the Raglex library (supports index, copy, move, or symlink storage modes).",
+			"inputSchema": map[string]any{
+				"type":     "object",
+				"required": []string{"paths"},
+				"properties": map[string]any{
+					"paths": map[string]any{"type": "array", "items": map[string]string{"type": "string"}},
+					"mode":  map[string]string{"type": "string", "description": "index (default), copy, move, or symlink"},
+					"tags":  map[string]any{"type": "array", "items": map[string]string{"type": "string"}},
+				},
+			},
+		},
+		{
+			"name":        "create_project",
+			"description": "Create a new Raglex project and optionally reference existing assets into it without duplicating disk files.",
+			"inputSchema": map[string]any{
+				"type":     "object",
+				"required": []string{"name"},
+				"properties": map[string]any{
+					"name":        map[string]string{"type": "string"},
+					"description": map[string]string{"type": "string"},
+					"tags":        map[string]any{"type": "array", "items": map[string]string{"type": "string"}},
+					"asset_ids":   map[string]any{"type": "array", "items": map[string]string{"type": "string"}},
+				},
+			},
+		},
+		{
+			"name":        "add_assets_to_project",
+			"description": "Reference one or more library assets into an existing Raglex project.",
+			"inputSchema": map[string]any{
+				"type":     "object",
+				"required": []string{"project_id", "asset_ids"},
+				"properties": map[string]any{
+					"project_id": map[string]string{"type": "string"},
+					"asset_ids":  map[string]any{"type": "array", "items": map[string]string{"type": "string"}},
 				},
 			},
 		},
@@ -641,6 +1099,48 @@ func toolSchemas() []map[string]any {
 				"properties": map[string]any{
 					"board_id":  map[string]string{"type": "string"},
 					"asset_ids": map[string]any{"type": "array", "items": map[string]string{"type": "string"}},
+				},
+			},
+		},
+		{
+			"name":        "get_board",
+			"description": "Read a whiteboard's metadata and all placed elements (images, section frames, transparent text, sticky notes, arrows, shapes).",
+			"inputSchema": map[string]any{
+				"type":     "object",
+				"required": []string{"board_id"},
+				"properties": map[string]any{
+					"board_id": map[string]string{"type": "string"},
+				},
+			},
+		},
+		{
+			"name":        "add_board_elements",
+			"description": "Create Excalidraw-style elements on a Raglex whiteboard: section frames (kind='frame'), transparent text ('text'), sticky notes ('note'), rectangles ('rect'), or vector arrows ('arrow' with x,y,x2,y2,dashed).",
+			"inputSchema": map[string]any{
+				"type":     "object",
+				"required": []string{"board_id", "elements"},
+				"properties": map[string]any{
+					"board_id": map[string]string{"type": "string"},
+					"elements": map[string]any{
+						"type": "array",
+						"items": map[string]any{
+							"type": "object",
+							"properties": map[string]any{
+								"kind":         map[string]string{"type": "string", "description": "frame, text, note, rect, or arrow"},
+								"x":            map[string]string{"type": "number"},
+								"y":            map[string]string{"type": "number"},
+								"width":        map[string]string{"type": "number"},
+								"height":       map[string]string{"type": "number"},
+								"x2":           map[string]string{"type": "number", "description": "Arrow end X"},
+								"y2":           map[string]string{"type": "number", "description": "Arrow end Y"},
+								"text":         map[string]string{"type": "string"},
+								"color":        map[string]string{"type": "string"},
+								"stroke_width": map[string]string{"type": "number"},
+								"font_size":    map[string]string{"type": "number"},
+								"dashed":       map[string]string{"type": "boolean"},
+							},
+						},
+					},
 				},
 			},
 		},

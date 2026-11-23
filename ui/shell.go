@@ -165,7 +165,8 @@ func (a *App) shell(c *gui.Context) {
 						})
 				})
 		}
-		if !a.inspectorOpen && (a.screen == screenLibrary || a.previewOpen) {
+		_, hasSel := a.selectedAsset()
+		if !a.inspectorOpen && ((a.screen == screenLibrary && hasSel) || a.previewOpen) {
 			gui.Box(c.Key("reopen-inspector-wrap")).
 				Absolute().
 				Right(14).
@@ -178,7 +179,8 @@ func (a *App) shell(c *gui.Context) {
 				Children(func() {
 					gui.Box(c).
 						Radius(radiusPill).
-						Background(a.pal.surfaceRaised).
+						Background(a.popoverSurface()).
+						Border(1, a.chromeHairline()).
 						Shadow(0, 6, 18, 0, a.pal.shadowRaised).
 						Padding(2).
 						Children(func() {
@@ -191,21 +193,36 @@ func (a *App) shell(c *gui.Context) {
 	})
 }
 
+func (a *App) inspectorShouldShow() bool {
+	if !a.inspectorOpen {
+		return false
+	}
+	if a.previewOpen {
+		_, ok := a.assetByID[a.previewAssetID]
+		return ok
+	}
+	_, ok := a.selectedAsset()
+	return ok
+}
+
 // withAnimatedInspector renders mainContent alongside a smoothly sliding,
 // resizable right Inspector panel (shared by Library and Inline Preview).
+// The inspector only slides open when an asset is actively selected, keeping
+// the browsing stage completely uncluttered when nothing is selected.
 func (a *App) withAnimatedInspector(c *gui.Context, key string, mainContent func()) {
 	if a.inspectorWidth < 260 {
 		a.inspectorWidth = 316
 	} else if a.inspectorWidth > 460 {
 		a.inspectorWidth = 460
 	}
+	show := a.inspectorShouldShow()
 	row := gui.Row(c.Key(key)).Grow(1).FillWidth()
 	targetW := float32(0)
-	if a.inspectorOpen {
+	if show {
 		targetW = a.inspectorWidth
 	}
 	var animW float32
-	if a.inspectorResizing && a.inspectorOpen {
+	if a.inspectorResizing && show {
 		animW = row.Jump("inspector-w", a.inspectorWidth)
 	} else {
 		animW = row.AnimateTo("inspector-w", targetW, springSidebar)
@@ -215,7 +232,7 @@ func (a *App) withAnimatedInspector(c *gui.Context, key string, mainContent func
 		gui.Box(c.Key(key + "-main")).Grow(1).FillHeight().Clip().Children(mainContent)
 
 		if animW > 0.5 {
-			if a.inspectorOpen && animW >= a.inspectorWidth-1.5 {
+			if show && animW >= a.inspectorWidth-1.5 {
 				grip := gui.Box(c.Key(key + "-resize-grip")).
 					Width(1).
 					FillHeight().
@@ -346,7 +363,7 @@ func (a *App) arcNavItem(
 			a.handleNav(id)
 		})
 	if menu != nil {
-		btn.PopoverMenu(menu)
+		btn.PopoverMenu(menu, a.popoverMenuOpts())
 	}
 
 	dropHover := false
@@ -441,9 +458,12 @@ func (a *App) sidebar(c *gui.Context) {
 
 				// Clean sidebar quick-filter + Ctrl+T Go to launcher right below header.
 				gui.Row(c).Padding(6, 10, 6, 10).Gap(6).AlignItems(gui.Center).Children(func() {
-					gui.SearchField(c.Key("sidebar-filter"), &a.sidebarFilter).
+					sbSearch := gui.SearchField(c.Key("sidebar-filter"), &a.sidebarFilter).
 						Placeholder(a.t("library.search")).
 						Grow(1)
+					if a.glassActive {
+						sbSearch.Border(1, a.chromeHairline())
+					}
 					a.iconButton(c, "sb-goto-btn", iconCommand, a.t("goto.title")+" (Ctrl+T)", a.gotoOpen).OnClick(func() {
 						a.openGotoModal()
 					})
@@ -568,17 +588,17 @@ func (a *App) sidebar(c *gui.Context) {
 							bID := board.ID
 							addNav("board:"+bID, iconBoard, nil, board.Name, a.boardCounts[bID], 0, false, false, nil, func(m *gui.Menu) {
 								if len(a.projectList) > 0 {
-									m.Submenu(a.t("board.moveToProject"), func(sm *gui.Menu) {
+									a.menuSub(m, iconFolder, a.t("board.moveToProject"), func(sm *gui.Menu) {
 										for _, p := range a.projectList {
 											proj := p
-											if sm.Item(proj.Name).Chosen() {
+											if a.menuItem(sm, iconFolder, proj.Name, "", false).Chosen() {
 												a.moveBoardToProject(bID, proj.ID)
 											}
 										}
 									})
 									m.Separator()
 								}
-								if m.Item(a.t("board.deleteBoard")).Chosen() {
+								if a.menuItem(m, iconTrash, a.t("board.deleteBoard"), "Del", true).Chosen() {
 									a.deleteStandaloneBoardPrompt(board)
 								}
 							}, func(ids []string) {
@@ -744,7 +764,7 @@ func (a *App) workspaceBar(c *gui.Context) {
 
 		gui.Box(c).Grow(1).FillHeight().DragWindow()
 
-		gui.SearchField(c.Key("library-search"), &a.searchQuery).
+		topSearch := gui.SearchField(c.Key("library-search"), &a.searchQuery).
 			Bind(&a.searchHandle).
 			Placeholder(a.t("library.search")).
 			Label(a.t("library.search")).
@@ -752,6 +772,9 @@ func (a *App) workspaceBar(c *gui.Context) {
 			OnChange(func() {
 				a.applyFilters()
 			})
+		if a.glassActive {
+			topSearch.Border(1, a.chromeHairline())
+		}
 
 		gui.Box(c).Grow(1).FillHeight().DragWindow()
 
@@ -945,27 +968,27 @@ func (a *App) workspaceBar(c *gui.Context) {
 			}
 			for _, o := range opts {
 				opt := o
-				if m.Item(opt.label).Radio(a.sortBy == opt.id).Chosen() {
+				if a.menuRadio(m, opt.label, a.sortBy == opt.id).Chosen() {
 					a.sortBy = opt.id
 					a.applyFilters()
 					a.syncConfigFromState()
 				}
 			}
-		})
+		}, a.popoverMenuBtnOpts())
 
 		gui.PopoverMenuButton(c.Key("top-import"), "+ "+a.t("library.import"), func(m *gui.Menu) {
-			if m.Item(a.t("library.files")).Shortcut(gui.Cmd, gui.KeyI).Chosen() {
+			if a.menuItem(m, iconImport, a.t("library.files"), "Ctrl+I", false).Chosen() {
 				a.startImport(false)
 			}
-			if m.Item(a.t("library.folder")).Chosen() {
+			if a.menuItem(m, iconFolder, a.t("library.folder"), "", false).Chosen() {
 				a.startImport(true)
 			}
 			m.Separator()
-			if m.Item(a.t("webimport.menu")).Chosen() {
+			if a.menuItem(m, iconLink, a.t("webimport.menu"), "Ctrl+Shift+U", false).Chosen() {
 				a.webImportOpen = true
 				a.webImportURL = ""
 			}
-		})
+		}, a.popoverMenuBtnOpts())
 
 		a.iconButton(c, "top-multiselect", iconCheckSquare, a.t("batch.multiMode"), a.multiSelectMode || len(a.selectedIDs) > 1).OnClick(func() {
 			a.multiSelectMode = !a.multiSelectMode

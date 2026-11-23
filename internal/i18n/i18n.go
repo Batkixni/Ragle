@@ -719,6 +719,67 @@ var pairs = []pair{
 	{"settings.glassMode", "透明毛玻璃背景 (Acrylic)", "Frosted Glass Backdrop (Acrylic)"},
 	{"settings.glassOpacity", "毛玻璃濃度", "Glass Density"},
 	{"view.glassMode", "透明毛玻璃", "Frosted Glass"},
+
+	// Redesigned Preferences (Clear, Human-Friendly Descriptions & MCP Hub).
+	{"settings.sub.general", "調整外觀主題、毛玻璃效果、語言與日常檢視習慣。", "Customize theme, frosted glass, language, and daily workspace preferences."},
+	{"settings.sub.database", "查看目前資料庫容量、一鍵備份還原與檔案維護工具。", "Inspect library storage, run backups, and maintain thumbnails or links."},
+	{"settings.sub.import", "決定檔案進入資料庫的方式（保留原位索引或獨立複製）與自動化規則。", "Choose how files enter your library (index in place vs. copy) and import rules."},
+	{"settings.sub.sharing", "區網裝置互傳、瀏覽器擴充連線與內建網頁圖庫。", "Share over LAN, connect the browser extension, or browse via built-in web gallery."},
+	{"settings.sub.ai", "連接 Claude / Cursor / Antigravity MCP AI 助手，並管理本機視覺相似與 Laya 分類。", "Connect Claude, Cursor & Antigravity via MCP, plus local visual search and Laya tagging."},
+	{"settings.sub.plugins", "管理安裝於本機資料庫中的擴充插件。", "Manage community plugins installed inside your library."},
+	{"settings.glassDesc", "讓主視窗透出桌面柔和模糊背景，彈窗與右鍵選單維持清晰實心底色。", "Soft blurred desktop backdrop behind chrome while popups and menus stay crisp and solid."},
+	{"settings.customColorsToggle", "選擇「自訂」風格即可微調畫布、面板、強調色與文字色。", "Pick the Custom preset above to fine-tune canvas, surface, accent, and text colors."},
+	{"settings.kpiAssets", "總素材", "Assets"},
+	{"settings.kpiTags", "標籤", "Tags"},
+	{"settings.kpiProjects", "專案", "Projects"},
+	{"settings.kpiBoards", "白板", "Boards"},
+	{"settings.impAutoSelectDesc", "匯入完成後自動選取新項目並展開右側資訊欄。", "Select newly imported assets automatically and open the inspector."},
+	{"settings.impAutoTagDesc", "若目前正在檢視某個標籤，新匯入素材會自動套用該標籤。", "Automatically apply the active tag filter to newly imported files."},
+	{"settings.impHiddenDesc", "略過 .DS_Store、Thumbs.db 與隱藏資料夾，保持資料庫乾淨。", "Skip .DS_Store, Thumbs.db, and hidden dotfiles during import."},
+	{"settings.impRecursiveDesc", "匯入資料夾時一併掃描所有子資料夾中的素材。", "Include nested subfolders when importing a folder."},
+	{"settings.impDupDesc", "遇到內容雜湊相同的重複檔案時自動略過並顯示提醒。", "Skip byte-identical duplicates and show a summary toast."},
+	{"mcp.section", "MCP AI 助手整合（17 項工具）", "MCP AI Assistant Integration (17 Tools)"},
+	{"mcp.desc", "開啟內建伺服器後，Claude Desktop、Cursor、Antigravity 等 AI 代理就能直接搜尋你的靈感庫、匯入網頁書籤、管理專案，甚至在白板上自動建立分區框與箭頭。", "Enable the local server so Claude Desktop, Cursor, or Antigravity can search assets, save web bookmarks, organize projects, and build whiteboards with sections and arrows."},
+	{"mcp.running", "MCP 服務運行中 · %s/mcp", "MCP Server Running · %s/mcp"},
+	{"mcp.stopped", "MCP 服務未啟動（開啟下方開關即可連線）", "MCP Server Stopped (toggle on below to connect)"},
+	{"mcp.toolsSummary", "支援工具：素材搜尋 / 詳細資訊 / 編輯評分與備註 / 以圖搜圖 / 匯入檔案與網頁 / 標籤與批量命名 / 專案管理 / 讀取與繪製白板元素 / Laya 分類", "Tools: Search, Get & Update Assets · Visual Search · Import Files & URLs · Tags & Batch Rename · Projects · Read & Draw Board Elements · Laya AI"},
+	{"mcp.stepHint", "使用方式：1. 啟動伺服器 → 2. 點擊「複製 MCP 設定 JSON」→ 3. 貼入 Claude / Cursor / Antigravity 的 MCP 設定檔即可。", "How to connect: 1. Enable server → 2. Click Copy MCP Config JSON → 3. Paste into Claude / Cursor / Antigravity MCP settings."},
+
+	// Interactive Hands-On Guided Tour (Step-by-step live walkthrough).
+	{"tour.badge", "互動新手引導", "Interactive Guide"},
+	{"tour.stepOf", "步驟 %d / %d", "Step %d of %d"},
+	{"tour.skip", "略過教學", "Skip Tour"},
+	{"tour.prev", "上一步", "Back"},
+	{"tour.next", "下一步", "Next"},
+	{"tour.done", "開始使用 Raglex", "Start Using Raglex"},
+	{"tour.tryIt", "立即體驗", "Try It Now"},
+	{"tour.tried", "已完成體驗", "Tried!"},
+
+	{"tour.s1.title", "1. 匯入素材或網頁書籤", "1. Import Assets or Web Bookmarks"},
+	{"tour.s1.desc", "Raglex 預設使用「索引模式」：只記錄原檔位置，不重複佔硬碟空間。你可以直接拖曳圖片/PSD/影片進來，或貼上網頁連結存成可雙擊開啟的視覺書籤。", "Raglex defaults to Index mode—tracking original files without duplicating disk space. Drop images, PSDs, or videos, or save live clickable web bookmarks."},
+	{"tour.s1.act1", "匯入本機檔案…", "Import Files…"},
+	{"tour.s1.act2", "匯入網頁連結…", "Import Web URL…"},
+
+	{"tour.s2.title", "2. 點選檢視詳情，無選取時極簡收合", "2. Click to Inspect, Clean When Idle"},
+	{"tour.s2.desc", "點選任一張素材卡片，右側資訊欄就會滑出顯示完整比例預覽、色彩分析、評分與標籤；按 Esc 或點右上角 × 即可收合。按 Space 進入縮放預覽，按 Ctrl+Alt+G 快速黑白對照。", "Click any card to slide open the right inspector with fitted preview, color palette, rating, and tags; press Esc or × to tuck it away. Press Space to zoom/pan or Ctrl+Alt+G for grayscale."},
+	{"tour.s2.act1", "幫我選取第一張素材", "Select First Asset"},
+	{"tour.s2.act2", "開啟縮放預覽 (Space)", "Open Zoom Preview (Space)"},
+
+	{"tour.s3.title", "3. 右鍵選單與 Ctrl+T 快速跳轉", "3. Context Menu & Ctrl+T Quick Jump"},
+	{"tour.s3.desc", "在任何素材上按右鍵可快速加入專案、送到白板、切換透明圖背景（黑/灰/白/網格）或尋找相似圖；按 Ctrl+T 隨時秒搜標籤、專案、白板與指令。", "Right-click any item to add to projects, send to whiteboards, switch transparent backgrounds, or find similar art. Press Ctrl+T anytime to jump anywhere instantly."},
+	{"tour.s3.act1", "開啟快速跳轉 (Ctrl+T)", "Open Quick Jump (Ctrl+T)"},
+	{"tour.s3.act2", "開啟標籤管理", "Open Tag Manager"},
+
+	{"tour.s4.title", "4. Excalidraw 風格無限白板 & 透明 Ref 浮動視窗", "4. Infinite Whiteboard & Floating Ref Window"},
+	{"tour.s4.desc", "白板支援圖片排板、向量箭頭（Shift 吸附角度）、可拖帶內部項目的分區框（Section）、無框文字、Ctrl+Z 還原與 Delete 刪除；點頂部 Ref 按鈕還可彈出可調背景透明度的置頂參考視窗！", "Arrange references on an infinite whiteboard with vector arrows, Section frames that move contained items, frameless text, Ctrl+Z undo, and a transparent always-on-top Ref window."},
+	{"tour.s4.act1", "帶我打開白板試試看", "Open a Whiteboard Now"},
+
+	{"tour.s5.title", "5. 挑選喜歡的主題風格與 AI / MCP", "5. Pick Your Look & Connect AI / MCP"},
+	{"tour.s5.desc", "立刻試試毛玻璃（Acrylic）或深淺色主題！如果平常用 Claude、Cursor 或 Antigravity，也可以直接在偏好設定開啟內建 MCP 伺服器讓 AI 幫你整理靈感庫。", "Try Frosted Glass (Acrylic) or Dark/Light themes right here! You can also enable the built-in MCP server in Preferences so Claude, Cursor, or Antigravity can help organize your library."},
+	{"tour.s5.themeDark", "深色", "Dark"},
+	{"tour.s5.themeLight", "淺色", "Light"},
+	{"tour.s5.themeGlass", "毛玻璃", "Frosted Glass"},
+	{"tour.s5.openMCP", "前往 AI & MCP 設定", "Open AI & MCP Settings"},
 }
 
 var (

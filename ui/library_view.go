@@ -325,39 +325,39 @@ func (a *App) batchActionBar(c *gui.Context) {
 				gui.PopoverMenuButton(c.Key("batch-add-proj"), a.t("batch.addToProject"), func(m *gui.Menu) {
 					for _, p := range a.projectList {
 						proj := p
-						if m.Item(proj.Name).Chosen() {
+						if a.menuItem(m, iconFolder, proj.Name, "", false).Chosen() {
 							a.batchReferenceToProject(ids, proj.ID)
 						}
 					}
-				})
+				}, a.popoverMenuBtnOpts())
 			}
 
 			if len(ids) > 0 && len(a.tags) > 0 {
 				gui.PopoverMenuButton(c.Key("batch-apply-tag"), a.t("batch.applyTag"), func(m *gui.Menu) {
 					for _, tg := range a.tags {
 						tag := tg
-						if m.Item(tag.Name).Chosen() {
+						if a.menuItem(m, iconTag, tag.Name, "", false).Chosen() {
 							a.batchApplyTag(ids, tag.ID)
 						}
 					}
-				})
+				}, a.popoverMenuBtnOpts())
 			}
 
 			if len(ids) > 0 {
 				gui.PopoverMenuButton(c.Key("batch-send-board"), a.t("board.sendTo"), func(m *gui.Menu) {
-					if m.Item(a.t("board.sendToNew")).Chosen() {
+					if a.menuItem(m, iconPlus, a.t("board.sendToNew"), "", false).Chosen() {
 						a.sendAssetsToNewBoard(ids)
 					}
 					if len(a.standaloneBoards) > 0 {
 						m.Separator()
 						for _, sb := range a.standaloneBoards {
 							b := sb
-							if m.Item(b.Name).Chosen() {
+							if a.menuItem(m, iconBoard, b.Name, "", false).Chosen() {
 								a.sendAssetsToBoard(ids, b.ID)
 							}
 						}
 					}
-				})
+				}, a.popoverMenuBtnOpts())
 				if len(ids) >= 2 {
 					a.toolButton(c, "batch-stack-btn", iconLayers, a.t("stack.create"), false).OnClick(func() {
 						a.stackSelectedAssets(ids)
@@ -1043,40 +1043,40 @@ func (a *App) assetCard(c *gui.Context, index int, asset model.Asset, selected b
 		}
 		if stackCount >= 2 {
 			stID := asset.StackID
-			if m.Item(fmt.Sprintf(a.t("stack.expand"), stackCount)).Chosen() {
+			if a.menuItem(m, iconLayoutBento, fmt.Sprintf(a.t("stack.expand"), stackCount), "", false).Chosen() {
 				a.openStackView(stID)
 			}
-			if m.Item(a.t("stack.ungroup")).Chosen() {
+			if a.menuItem(m, iconX, a.t("stack.ungroup"), "", false).Chosen() {
 				a.ungroupStack(stID)
 			}
 			m.Separator()
 		} else if a.openStackID != "" && asset.StackID == a.openStackID {
 			stID := asset.StackID
 			if st, ok := a.stackByID[stID]; ok && st.CoverID != asset.ID {
-				if m.Item(a.t("stack.setCover")).Chosen() {
+				if a.menuItem(m, iconImage, a.t("stack.setCover"), "", false).Chosen() {
 					a.setStackCover(stID, asset.ID)
 				}
 			}
-			if m.Item(a.t("stack.removeAsset")).Chosen() {
+			if a.menuItem(m, iconX, a.t("stack.removeAsset"), "", false).Chosen() {
 				a.removeFromStack([]string{asset.ID})
 			}
-			if m.Item(a.t("stack.ungroup")).Chosen() {
+			if a.menuItem(m, iconX, a.t("stack.ungroup"), "", false).Chosen() {
 				a.ungroupStack(stID)
 			}
 			m.Separator()
 		}
 		if multi {
-			if m.Item(fmt.Sprintf("%s (%d) (Ctrl+G)", a.t("stack.create"), len(batchIDs))).Chosen() {
+			if a.menuItem(m, iconLayoutBento, fmt.Sprintf("%s (%d)", a.t("stack.create"), len(batchIDs)), "Ctrl+G", false).Chosen() {
 				a.stackSelectedAssets(batchIDs)
 			}
 		}
 		if !multi {
 			if u := normalizeWebURL(asset.SourceURL); u != "" {
-				if m.Item(a.t("webimport.openPage")).Chosen() {
+				if a.menuItem(m, iconLink, a.t("webimport.openPage"), "", false).Chosen() {
 					services.OpenURL(u)
 				}
 			}
-			if m.Item(a.t("library.preview")).Chosen() {
+			if a.menuItem(m, iconImage, a.t("library.preview"), "Space", false).Chosen() {
 				a.openPreview(asset)
 			}
 		}
@@ -1085,10 +1085,10 @@ func (a *App) assetCard(c *gui.Context, index int, asset model.Asset, selected b
 			if multi {
 				addProjTitle = fmt.Sprintf("%s (%d)", addProjTitle, len(batchIDs))
 			}
-			m.Submenu(addProjTitle, func(sm *gui.Menu) {
+			a.menuSub(m, iconFolder, addProjTitle, func(sm *gui.Menu) {
 				for _, p := range a.projectList {
 					proj := p
-					if sm.Item(proj.Name).Chosen() {
+					if a.menuItem(sm, iconFolder, proj.Name, "", false).Chosen() {
 						if multi {
 							a.batchReferenceToProject(batchIDs, proj.ID)
 						} else {
@@ -1099,10 +1099,10 @@ func (a *App) assetCard(c *gui.Context, index int, asset model.Asset, selected b
 			})
 		}
 		if multi && len(a.tags) > 0 {
-			m.Submenu(fmt.Sprintf("%s (%d)", a.t("batch.applyTag"), len(batchIDs)), func(sm *gui.Menu) {
+			a.menuSub(m, iconTag, fmt.Sprintf("%s (%d)", a.t("batch.applyTag"), len(batchIDs)), func(sm *gui.Menu) {
 				for _, tg := range a.tags {
 					tag := tg
-					if sm.Item(tag.Name).Chosen() {
+					if a.menuItem(sm, iconTag, tag.Name, "", false).Chosen() {
 						a.batchApplyTag(batchIDs, tag.ID)
 					}
 				}
@@ -1114,58 +1114,58 @@ func (a *App) assetCard(c *gui.Context, index int, asset model.Asset, selected b
 			targetIDs = batchIDs
 			boardMenuTitle = fmt.Sprintf("%s (%d)", a.t("board.sendTo"), len(batchIDs))
 		}
-		m.Submenu(boardMenuTitle, func(sm *gui.Menu) {
-			if sm.Item(a.t("board.sendToNew")).Chosen() {
+		a.menuSub(m, iconBoard, boardMenuTitle, func(sm *gui.Menu) {
+			if a.menuItem(sm, iconPlus, a.t("board.sendToNew"), "", false).Chosen() {
 				a.sendAssetsToNewBoard(targetIDs)
 			}
 			if len(a.standaloneBoards) > 0 {
 				sm.Separator()
 				for _, sb := range a.standaloneBoards {
 					b := sb
-					if sm.Item(b.Name).Chosen() {
+					if a.menuItem(sm, iconBoard, b.Name, "", false).Chosen() {
 						a.sendAssetsToBoard(targetIDs, b.ID)
 					}
 				}
 			}
 		})
 		if !multi {
-			m.Submenu(a.t("library.rating"), func(sm *gui.Menu) {
+			a.menuSub(m, iconSparkle, a.t("library.rating"), func(sm *gui.Menu) {
 				for r := 0; r <= 5; r++ {
 					rating := r
 					lbl := "0"
 					if rating > 0 {
 						lbl = strings.Repeat("★", rating)
 					}
-					if sm.Item(lbl).Radio(asset.Rating == rating).Chosen() {
+					if a.menuRadio(sm, lbl, asset.Rating == rating).Chosen() {
 						a.setAssetRatingFast(asset.ID, rating)
 					}
 				}
 			})
 			m.Separator()
 			if !asset.Missing && asset.Path != "" {
-				if m.Item(a.t("common.openFile")).Chosen() {
+				if a.menuItem(m, iconExternal, a.t("common.openFile"), "", false).Chosen() {
 					_ = openLocalFile(asset.Path)
 				}
-				if m.Item(a.t("common.revealFile")).Chosen() {
+				if a.menuItem(m, iconFolder, a.t("common.revealFile"), "", false).Chosen() {
 					_ = revealLocalFile(asset.Path)
 				}
 			}
-			if m.Item(a.t("common.copyPath")).Chosen() {
+			if a.menuItem(m, iconCopy, a.t("common.copyPath"), "", false).Chosen() {
 				services.WriteClipboard(asset.Path)
 				a.notify(a.t("common.copied"))
 			}
 			if asset.Missing {
-				if m.Item(a.t("inspector.relinkFile")).Chosen() {
+				if a.menuItem(m, iconLink, a.t("inspector.relinkFile"), "", false).Chosen() {
 					a.relinkMissing(false)
 				}
-				if m.Item(a.t("inspector.relink")).Chosen() {
+				if a.menuItem(m, iconFolder, a.t("inspector.relink"), "", false).Chosen() {
 					a.relinkMissing(true)
 				}
 			}
 		}
 		m.Separator()
 		if !multi && model.MediaKind(asset.Mime) == model.MediaImage && !asset.Missing {
-			if m.Item(a.t("visual.findSimilar")).Chosen() {
+			if a.menuItem(m, iconPalette, a.t("visual.findSimilar"), "", false).Chosen() {
 				a.searchSimilarByAsset(asset)
 			}
 		}
@@ -1175,7 +1175,7 @@ func (a *App) assetCard(c *gui.Context, index int, asset model.Asset, selected b
 			layaLabel = fmt.Sprintf("%s (%d)", a.t("laya.classify"), len(batchIDs))
 			layaIDs = batchIDs
 		}
-		if m.Item(layaLabel).Chosen() {
+		if a.menuItem(m, iconSparkle, layaLabel, "", false).Chosen() {
 			a.classifyAssetsWithLaya(layaIDs)
 		}
 		if a.plugins != nil {
@@ -1184,10 +1184,10 @@ func (a *App) assetCard(c *gui.Context, index int, asset model.Asset, selected b
 				hook = "batch_action"
 			}
 			if plugs := a.plugins.ForHook(hook); len(plugs) > 0 {
-				m.Submenu(a.t("plugins.menu"), func(sm *gui.Menu) {
+				a.menuSub(m, iconSliders, a.t("plugins.menu"), func(sm *gui.Menu) {
 					for _, inst := range plugs {
 						pl := inst
-						if sm.Item(pl.Manifest.Name).Chosen() {
+						if a.menuItem(sm, iconSparkle, pl.Manifest.Name, "", false).Chosen() {
 							a.runPlugin(pl.Manifest.ID, hook, layaIDs)
 						}
 					}
@@ -1195,61 +1195,65 @@ func (a *App) assetCard(c *gui.Context, index int, asset model.Asset, selected b
 			}
 		}
 		m.Separator()
-		m.Submenu(a.t("view.thumbBg"), func(sm *gui.Menu) {
-			if sm.Item(a.t("view.thumbBgNone")).Radio(a.thumbBg == "").Chosen() {
+		a.menuSub(m, iconChecker, a.t("view.thumbBg"), func(sm *gui.Menu) {
+			if a.menuRadio(sm, a.t("view.thumbBgNone"), a.thumbBg == "").Chosen() {
 				a.setThumbBg("")
 			}
 			sm.Separator()
-			if sm.Item(a.t("view.thumbBgBlack")).Radio(a.thumbBg == "black").Chosen() {
+			if a.menuRadio(sm, a.t("view.thumbBgBlack"), a.thumbBg == "black").Chosen() {
 				a.setThumbBg("black")
 			}
-			if sm.Item(a.t("view.thumbBgGray")).Radio(a.thumbBg == "gray").Chosen() {
+			if a.menuRadio(sm, a.t("view.thumbBgGray"), a.thumbBg == "gray").Chosen() {
 				a.setThumbBg("gray")
 			}
-			if sm.Item(a.t("view.thumbBgWhite")).Radio(a.thumbBg == "white").Chosen() {
+			if a.menuRadio(sm, a.t("view.thumbBgWhite"), a.thumbBg == "white").Chosen() {
 				a.setThumbBg("white")
 			}
-			if sm.Item(a.t("view.thumbBgChecker")).Radio(a.thumbBg == "checker").Chosen() {
+			if a.menuRadio(sm, a.t("view.thumbBgChecker"), a.thumbBg == "checker").Chosen() {
 				a.setThumbBg("checker")
 			}
 		})
-		if m.Item(a.t("view.grayscale") + " (Ctrl+Alt+G)").Checked(a.grayscalePreview).Chosen() {
+		grayMark := ""
+		if a.grayscalePreview {
+			grayMark = "✓ "
+		}
+		if a.menuItem(m, iconContrast, grayMark+a.t("view.grayscale"), "Ctrl+Alt+G", false).Chosen() {
 			a.grayscalePreview = !a.grayscalePreview
 			a.syncConfigFromState()
 		}
 		m.Separator()
 		if multi {
-			if m.Item(fmt.Sprintf("%s (%d)", a.t("rename.batchAction"), len(batchIDs))).Chosen() {
+			if a.menuItem(m, iconEdit, fmt.Sprintf("%s (%d)", a.t("rename.batchAction"), len(batchIDs)), "F2", false).Chosen() {
 				a.openRenameModal(batchIDs)
 			}
-			if m.Item(fmt.Sprintf("%s (%d)", a.t("export.action"), len(batchIDs))).Chosen() {
+			if a.menuItem(m, iconExport, fmt.Sprintf("%s (%d)", a.t("export.action"), len(batchIDs)), "", false).Chosen() {
 				a.openExportModal(batchIDs)
 			}
-			if m.Item(fmt.Sprintf("%s (%d)", a.t("clipboard.copyFiles"), len(batchIDs))).Chosen() {
+			if a.menuItem(m, iconCopy, fmt.Sprintf("%s (%d)", a.t("clipboard.copyFiles"), len(batchIDs)), "Ctrl+C", false).Chosen() {
 				a.copySelectedFilesToClipboard(batchIDs)
 			}
 			m.Separator()
-			if m.Item(fmt.Sprintf("%s (%d)", a.t("batch.delete"), len(batchIDs))).Chosen() {
+			if a.menuItem(m, iconTrash, fmt.Sprintf("%s (%d)", a.t("batch.delete"), len(batchIDs)), "Del", true).Chosen() {
 				a.batchDeletePrompt(batchIDs)
 			}
 		} else {
-			if m.Item(a.t("rename.action") + " (F2)").Chosen() {
+			if a.menuItem(m, iconEdit, a.t("rename.action"), "F2", false).Chosen() {
 				a.openRenameModal([]string{asset.ID})
 			}
-			if m.Item(a.t("export.action")).Chosen() {
+			if a.menuItem(m, iconExport, a.t("export.action"), "", false).Chosen() {
 				a.openExportModal([]string{asset.ID})
 			}
 			if !asset.Missing && asset.Path != "" {
-				if m.Item(a.t("clipboard.copyFiles") + " (Ctrl+C)").Chosen() {
+				if a.menuItem(m, iconCopy, a.t("clipboard.copyFiles"), "Ctrl+C", false).Chosen() {
 					a.copySelectedFilesToClipboard([]string{asset.ID})
 				}
 			}
 			m.Separator()
-			if m.Item(a.t("library.delete")).Chosen() {
+			if a.menuItem(m, iconTrash, a.t("library.delete"), "Del", true).Chosen() {
 				a.deleteAssetPrompt(asset)
 			}
 		}
-	})
+	}, a.popoverMenuOpts())
 
 	card.OnClick(func() {
 		a.selectCard(index, c.Modifiers())
@@ -1494,8 +1498,10 @@ func (a *App) inspector(c *gui.Context) {
 							LineHeight(1.55)
 					})
 				} else {
-					// Top Info / Similar segmented tab switcher (matching reference design).
-					gui.Row(c).FillWidth().Padding(12, 14, 6, 14).Justify(gui.Center).Children(func() {
+					// Top Info / Similar segmented tab switcher + dismiss X button (matching reference design).
+					gui.Row(c).FillWidth().Padding(10, 12, 6, 14).AlignItems(gui.Center).Children(func() {
+						gui.Box(c).Size(28, 28)
+						gui.Spacer(c)
 						a.arcPillTabs(c, "insp-mode-tabs", a.inspectorTab, []string{
 							a.t("inspector.tabInfo"),
 							a.t("inspector.tabSimilar"),
@@ -1505,6 +1511,18 @@ func (a *App) inspector(c *gui.Context) {
 								a.ensureInspectorSimilar(asset)
 							}
 						})
+						gui.Spacer(c)
+						a.iconButton(c, "insp-close-x", iconX, a.t("common.close"), false).
+							Size(28, 28).
+							OnClick(func() {
+								if a.previewOpen {
+									a.inspectorOpen = false
+								} else {
+									a.clearSelection()
+									a.assetIndex = -1
+									a.syncInspectorSelection(false)
+								}
+							})
 					})
 
 					if a.inspectorTab == 1 {
@@ -1595,68 +1613,85 @@ func (a *App) inspector(c *gui.Context) {
 							body := gui.Column(c.Key("insp-body-" + asset.ID)).Padding(8, 14, 16, 14).Gap(10)
 							applyBlurReveal(body, asset.ID, 0)
 							body.Children(func() {
-								// Adaptive aspect-ratio uncropped hero preview when browsing grid (omitted in inline viewer).
+								// Exact aspect-ratio-fitted centered preview thumbnail when browsing grid (omitted in inline viewer).
+								// Sized pixel-tight to the image's natural aspect ratio so rounded corners hug the artwork edges cleanly.
 								if !a.previewOpen {
 									heroTip := a.t("library.preview")
 									if asset.IsBookmark && normalizeWebURL(asset.SourceURL) != "" {
 										heroTip = a.t("webimport.openPage")
 									}
-									heroW := a.inspectorWidth - 28
-									if heroW < 200 {
-										heroW = 240
+									maxW := a.inspectorWidth - 28
+									if maxW < 180 {
+										maxW = 240
 									}
-									heroH := float32(168)
-									if asset.Width > 0 && asset.Height > 0 {
-										heroH = heroW * float32(asset.Height) / float32(asset.Width)
-										if heroH < 108 {
-											heroH = 108
-										} else if heroH > 340 {
-											heroH = 340
+									const maxH float32 = 250
+									bm := a.requestCardBitmap(asset)
+									var natW, natH float32
+									if bm != nil {
+										if bw, bh := bm.Size(); bw > 0 && bh > 0 {
+											natW, natH = float32(bw), float32(bh)
 										}
 									}
-									hero := gui.ButtonBase(c.Key("insp-hero-" + asset.ID)).
-										FillWidth().
-										Height(heroH).
-										Radius(radiusControl).
-										Clip().
-										Border(1, hairline).
-										Center().
-										Label(a.t("library.preview")).
-										Tooltip(heroTip).
-										OnClick(func() {
-											if u := normalizeWebURL(asset.SourceURL); asset.IsBookmark && u != "" {
-												services.OpenURL(u)
+									if (natW <= 0 || natH <= 0) && asset.Width > 0 && asset.Height > 0 {
+										natW, natH = float32(asset.Width), float32(asset.Height)
+									}
+									dispW, dispH := maxW, float32(168)
+									if natW > 0 && natH > 0 {
+										scale := min(maxW/natW, maxH/natH)
+										dispW = natW * scale
+										dispH = natH * scale
+										if dispW < 72 {
+											dispW = 72
+										}
+										if dispH < 72 {
+											dispH = 72
+										}
+									}
+									gui.Row(c).FillWidth().Justify(gui.Center).Padding(2, 0, 2, 0).Children(func() {
+										hero := gui.ButtonBase(c.Key("insp-hero-" + asset.ID)).
+											Size(dispW, dispH).
+											Radius(10).
+											Clip().
+											Border(1, hairline).
+											Shadow(0, 6, 18, 0, a.pal.shadowResting).
+											Center().
+											Label(a.t("library.preview")).
+											Tooltip(heroTip).
+											OnClick(func() {
+												if u := normalizeWebURL(asset.SourceURL); asset.IsBookmark && u != "" {
+													services.OpenURL(u)
+												} else {
+													a.openPreview(asset)
+												}
+											})
+										a.applyThumbBg(hero, a.pal.surfaceRaised, 10)
+										heroScale := float32(1)
+										if hero.Pressed() {
+											heroScale = 0.985
+										} else if hero.Hovered() {
+											heroScale = 1.02
+										}
+										hero.AnimatePose(gui.Pose{Scale: heroScale}, springGentle)
+										hero.Children(func() {
+											if bm != nil {
+												imgEl := gui.Image(c, bm).Fit(gui.Cover).Fill()
+												if a.grayscalePreview {
+													imgEl.Grayscale()
+												}
 											} else {
-												a.openPreview(asset)
+												gui.Column(c).Center().Gap(6).Children(func() {
+													ic := iconFile
+													switch model.MediaKind(asset.Mime) {
+													case model.MediaVideo:
+														ic = iconVideo
+													case model.MediaImage:
+														ic = iconImage
+													}
+													gui.Icon(c, ic).Size(28, 28).TextColor(a.pal.inkFaint)
+													gui.Text(c, a.assetExt(asset)).Bold().TextColor(a.pal.inkMuted)
+												})
 											}
 										})
-									a.applyThumbBg(hero, a.pal.surfaceRaised, 10)
-									heroScale := float32(1)
-									if hero.Pressed() {
-										heroScale = 0.985
-									} else if hero.Hovered() {
-										heroScale = 1.02
-									}
-									hero.AnimatePose(gui.Pose{Scale: heroScale}, springGentle)
-									hero.Children(func() {
-										if bm := a.requestCardBitmap(asset); bm != nil {
-											imgEl := gui.Image(c, bm).Fit(gui.Contain).Fill().Radius(radiusControl)
-											if a.grayscalePreview {
-												imgEl.Grayscale()
-											}
-										} else {
-											gui.Column(c).Center().Gap(6).Children(func() {
-												ic := iconFile
-												switch model.MediaKind(asset.Mime) {
-												case model.MediaVideo:
-													ic = iconVideo
-												case model.MediaImage:
-													ic = iconImage
-												}
-												gui.Icon(c, ic).Size(28, 28).TextColor(a.pal.inkFaint)
-												gui.Text(c, a.assetExt(asset)).Bold().TextColor(a.pal.inkMuted)
-											})
-										}
 									})
 								}
 
@@ -2071,11 +2106,11 @@ func (a *App) inspector(c *gui.Context) {
 											gui.PopoverMenuButton(c.Key("insp-add-proj"), "+ "+a.t("library.addToProject"), func(m *gui.Menu) {
 												for _, p := range a.projectList {
 													proj := p
-													if m.Item(proj.Name).Chosen() {
+													if a.menuItem(m, iconFolder, proj.Name, "", false).Chosen() {
 														a.referenceAssetToProject(asset.ID, proj.ID)
 													}
 												}
-											}).Padding(3, 8).FontSize(11)
+											}, a.popoverMenuBtnOpts()).Padding(3, 8).FontSize(11)
 										}
 									})
 									if len(a.inspectorProjects) == 0 {

@@ -461,14 +461,14 @@ func (a *App) boardCard(c *gui.Context, index int, board model.Board) {
 		Clip()
 
 	card.PopoverMenu(func(m *gui.Menu) {
-		if m.Item(a.t("project.openBoard")).Chosen() {
+		if a.menuItem(m, iconBoard, a.t("project.openBoard"), "", false).Chosen() {
 			a.openBoard(board)
 		}
 		m.Separator()
-		if m.Item(a.t("project.deleteBoard")).Chosen() {
+		if a.menuItem(m, iconTrash, a.t("project.deleteBoard"), "Del", true).Chosen() {
 			a.deleteBoardPrompt(board)
 		}
-	})
+	}, a.popoverMenuOpts())
 
 	targetBg := a.pal.surface
 	liftY := float32(0)
@@ -657,53 +657,57 @@ func (a *App) projectAssetWaterfallCard(c *gui.Context, index int, item model.As
 
 	card.PopoverMenu(func(m *gui.Menu) {
 		if u := normalizeWebURL(item.SourceURL); u != "" {
-			if m.Item(a.t("webimport.openPage")).Chosen() {
+			if a.menuItem(m, iconLink, a.t("webimport.openPage"), "", false).Chosen() {
 				services.OpenURL(u)
 			}
 		}
-		if m.Item(a.t("library.preview")).Chosen() {
+		if a.menuItem(m, iconImage, a.t("library.preview"), "Space", false).Chosen() {
 			a.openPreview(item)
 		}
 		if !item.Missing && item.Path != "" {
-			if m.Item(a.t("common.openFile")).Chosen() {
+			if a.menuItem(m, iconExternal, a.t("common.openFile"), "", false).Chosen() {
 				_ = openLocalFile(item.Path)
 			}
-			if m.Item(a.t("common.revealFile")).Chosen() {
+			if a.menuItem(m, iconFolder, a.t("common.revealFile"), "", false).Chosen() {
 				_ = revealLocalFile(item.Path)
 			}
 		}
-		if m.Item(a.t("common.copyPath")).Chosen() {
+		if a.menuItem(m, iconCopy, a.t("common.copyPath"), "", false).Chosen() {
 			services.WriteClipboard(item.Path)
 			a.notify(a.t("common.copied"))
 		}
 		m.Separator()
-		m.Submenu(a.t("view.thumbBg"), func(sm *gui.Menu) {
-			if sm.Item(a.t("view.thumbBgNone")).Radio(a.thumbBg == "").Chosen() {
+		a.menuSub(m, iconChecker, a.t("view.thumbBg"), func(sm *gui.Menu) {
+			if a.menuRadio(sm, a.t("view.thumbBgNone"), a.thumbBg == "").Chosen() {
 				a.setThumbBg("")
 			}
 			sm.Separator()
-			if sm.Item(a.t("view.thumbBgBlack")).Radio(a.thumbBg == "black").Chosen() {
+			if a.menuRadio(sm, a.t("view.thumbBgBlack"), a.thumbBg == "black").Chosen() {
 				a.setThumbBg("black")
 			}
-			if sm.Item(a.t("view.thumbBgGray")).Radio(a.thumbBg == "gray").Chosen() {
+			if a.menuRadio(sm, a.t("view.thumbBgGray"), a.thumbBg == "gray").Chosen() {
 				a.setThumbBg("gray")
 			}
-			if sm.Item(a.t("view.thumbBgWhite")).Radio(a.thumbBg == "white").Chosen() {
+			if a.menuRadio(sm, a.t("view.thumbBgWhite"), a.thumbBg == "white").Chosen() {
 				a.setThumbBg("white")
 			}
-			if sm.Item(a.t("view.thumbBgChecker")).Radio(a.thumbBg == "checker").Chosen() {
+			if a.menuRadio(sm, a.t("view.thumbBgChecker"), a.thumbBg == "checker").Chosen() {
 				a.setThumbBg("checker")
 			}
 		})
-		if m.Item(a.t("view.grayscale") + " (Ctrl+Alt+G)").Checked(a.grayscalePreview).Chosen() {
+		grayMark := ""
+		if a.grayscalePreview {
+			grayMark = "✓ "
+		}
+		if a.menuItem(m, iconContrast, grayMark+a.t("view.grayscale"), "Ctrl+Alt+G", false).Chosen() {
 			a.grayscalePreview = !a.grayscalePreview
 			a.syncConfigFromState()
 		}
 		m.Separator()
-		if m.Item(a.t("project.unreference")).Chosen() {
+		if a.menuItem(m, iconTrash, a.t("project.unreference"), "Del", true).Chosen() {
 			a.unreferencePrompt(item)
 		}
-	})
+	}, a.popoverMenuOpts())
 
 	hovered := card.Hovered()
 	targetBg := a.pal.surface

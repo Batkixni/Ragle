@@ -300,19 +300,21 @@ func makeThemeWithOverrides(dark bool, ov themeOverrides) (*gui.Theme, palette, 
 		p.surface = gui.RGBA(p.surface.R, p.surface.G, p.surface.B, sideAlpha)
 		p.paper = gui.RGBA(p.paper.R, p.paper.G, p.paper.B, alpha*0.88)
 		// Critical: root Theme.Background must be transparent so Windows 11 Acrylic /
-		// macOS Vibrancy blurs the desktop wallpaper cleanly behind our smoked glass layers,
-		// while Theme.Surface stays SOLID so built-in AlertDialog / PopoverMenu / Tooltips
-		// never become see-through over background artwork!
+		// macOS Vibrancy blurs the desktop wallpaper cleanly behind our smoked glass layers.
+		// Built-in overlays (AlertDialog / PopoverMenu / Tooltip) get a solid opaque
+		// Theme.Background via the glass-theme-scope gui.Themed wrapper in welcome.go,
+		// while Theme.Surface stays semi-transparent so SearchField, TextInput, and
+		// topbar buttons blend naturally into the frosted glass chrome!
 		t.Background = gui.Transparent
 		if dark {
-			t.Surface = gui.Hex("#18181D")
+			t.Surface = gui.RGBA(255, 255, 255, 0.08)
 			p.surfaceRaised = gui.RGBA(255, 255, 255, 0.055)
-			p.surfaceMuted = gui.RGBA(255, 255, 255, 0.105)
-			p.surfaceActive = gui.RGBA(255, 255, 255, 0.165)
+			p.surfaceMuted = gui.RGBA(255, 255, 255, 0.115)
+			p.surfaceActive = gui.RGBA(255, 255, 255, 0.175)
 			p.pillTrack = gui.RGBA(0, 0, 0, 0.28)
 			p.pillActive = gui.RGBA(255, 255, 255, 0.14)
 		} else {
-			t.Surface = gui.Hex("#FFFFFF")
+			t.Surface = gui.RGBA(255, 255, 255, 0.48)
 			p.surfaceRaised = gui.RGBA(255, 255, 255, 0.56)
 			p.surfaceMuted = gui.RGBA(0, 0, 0, 0.065)
 			p.surfaceActive = gui.RGBA(0, 0, 0, 0.12)

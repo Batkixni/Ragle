@@ -352,7 +352,7 @@ func (a *App) editTagModal(c *gui.Context) {
 			gui.Column(c).Gap(6).Children(func() {
 				a.sectionLabel(c, a.t("tags.parent"))
 				gui.PopoverMenuButton(c.Key("et-parent"), parentLabel, func(m *gui.Menu) {
-					if m.Item(a.t("tags.noParent")).Radio(a.editTagParentID == "").Chosen() {
+					if a.menuRadio(m, a.t("tags.noParent"), a.editTagParentID == "").Chosen() {
 						a.editTagParentID = ""
 					}
 					m.Separator()
@@ -361,11 +361,11 @@ func (a *App) editTagModal(c *gui.Context) {
 						if forbidden[cand.ID] {
 							continue
 						}
-						if m.Item(cand.Name).Radio(a.editTagParentID == cand.ID).Chosen() {
+						if a.menuRadio(m, cand.Name, a.editTagParentID == cand.ID).Chosen() {
 							a.editTagParentID = cand.ID
 						}
 					}
-				}).FillWidth()
+				}, a.popoverMenuBtnOpts()).FillWidth()
 			})
 
 			gui.Column(c).Gap(8).Children(func() {

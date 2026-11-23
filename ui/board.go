@@ -117,11 +117,11 @@ func (a *App) boardToolbar(c *gui.Context) {
 				gui.PopoverMenuButton(c.Key("board-move-proj"), a.t("board.moveToProject"), func(m *gui.Menu) {
 					for _, p := range a.projectList {
 						proj := p
-						if m.Item(proj.Name).Chosen() {
+						if a.menuItem(m, iconFolder, proj.Name, "", false).Chosen() {
 							a.moveBoardToProject(a.boardID, proj.ID)
 						}
 					}
-				})
+				}, a.popoverMenuBtnOpts())
 			}
 
 			gui.Box(c).Grow(1).FillHeight().DragWindow()

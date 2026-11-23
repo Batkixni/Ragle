@@ -111,10 +111,13 @@ func TestShellLibraryViewRenderingAndSearch(t *testing.T) {
 		t.Fatalf("asset card name missing, texts: %v", tt.Texts())
 	}
 
-	// Verify selecting an asset displays metadata in inspector.
+	// Verify inspector stays cleanly hidden when nothing is selected, then slides open on selection.
+	if tt.HasText("1920 × 1080") {
+		t.Fatalf("inspector should stay hidden when no asset is selected")
+	}
 	a.assetIndex = 0
 	a.syncInspectorSelection(true)
-	tt.Frame()
+	tt.Advance(500 * time.Millisecond)
 	if !tt.HasText("1920 × 1080") {
 		t.Fatalf("inspector dimensions missing, texts: %v", tt.Texts())
 	}

@@ -265,13 +265,16 @@ func TestRealUserClicksEveryControl(t *testing.T) {
 	}
 	tt.Key(0, gui.KeyEscape)
 
-	// 10. Inspector toggle hides & restores right panel!
+	// 10. Inspector auto-hides when nothing is selected; selecting a card reveals it, and toggle hides & restores it!
+	a.selectCard(0, 0)
+	tt.Advance(500 * time.Millisecond)
 	if err := tt.Click("切換資訊欄"); err != nil {
 		t.Fatalf("clicking inspector toggle failed: %v", err)
 	}
 	if a.inspectorOpen {
 		t.Fatal("inspectorOpen stayed true")
 	}
+	tt.Advance(450 * time.Millisecond)
 	if err := tt.Click("切換資訊欄"); err != nil {
 		t.Fatalf("clicking inspector toggle (2nd) failed: %v", err)
 	}
@@ -625,13 +628,13 @@ func TestGlobalShortcutsAndMarqueeBoxSelection(t *testing.T) {
 		}
 	}
 
-	// 8. Onboarding guide flow: click sidebar help button -> step through all 5 steps -> finish.
+	// 8. Interactive Onboarding guided tour flow: click sidebar help button -> try live action -> step through all 5 steps -> finish.
 	a.onboardingDone = false
 	if err := tt.Click("新手教學"); err != nil {
 		t.Fatalf("clicking onboarding help button failed: %v", err)
 	}
 	tt.Advance(300 * time.Millisecond)
-	if !a.onboardingOpen || !tt.HasText("歡迎使用 Raglex") {
+	if !a.onboardingOpen || !tt.HasText("1. 匯入素材或網頁書籤") {
 		t.Fatalf("onboarding step 1 did not render, texts=%v", tt.Texts())
 	}
 	for step := 1; step < onboardingTotalSteps; step++ {
@@ -642,9 +645,17 @@ func TestGlobalShortcutsAndMarqueeBoxSelection(t *testing.T) {
 		if a.onboardingStep != step {
 			t.Fatalf("expected onboardingStep=%d, got %d", step, a.onboardingStep)
 		}
+		if step == 1 && len(a.assets) > 0 {
+			if err := tt.Click("幫我選取第一張素材"); err != nil {
+				t.Fatalf("clicking live tour action failed: %v", err)
+			}
+			if !a.onboardingTried[1] || a.assetIndex != 0 {
+				t.Fatalf("expected live tour step 2 action to select first asset, tried=%v idx=%d", a.onboardingTried[1], a.assetIndex)
+			}
+		}
 	}
-	if !tt.HasText("常用快捷鍵一覽") {
-		t.Fatalf("onboarding shortcuts step missing, texts=%v", tt.Texts())
+	if !tt.HasText("5. 挑選喜歡的主題風格與 AI / MCP") {
+		t.Fatalf("onboarding step 5 missing, texts=%v", tt.Texts())
 	}
 	if err := tt.Click("開始使用 Raglex"); err != nil {
 		t.Fatalf("clicking Finish onboarding failed: %v", err)

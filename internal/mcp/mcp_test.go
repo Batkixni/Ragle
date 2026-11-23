@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"raglex/internal/library"
+	"raglex/internal/model"
 	"raglex/internal/project"
 )
 
@@ -76,5 +77,75 @@ func TestMCPStdioToolsAndResources(t *testing.T) {
 	}
 	if !strings.Contains(lines[3], "MCP Mood") {
 		t.Fatalf("create_board response missing MCP Mood: %s", lines[3])
+	}
+}
+
+func TestMCPv02NewTools(t *testing.T) {
+	dir := t.TempDir()
+	lib, err := library.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lib.Close()
+	projs := project.New(lib.DB)
+
+	a, _, err := lib.ImportBytes("hero.png", testPNG(t, color.RGBA{40, 120, 220, 255}), nil, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := projs.CreateStandaloneBoard("Agent Board")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	srv := New(Options{Library: lib, Projects: projs})
+	call := func(name string, args map[string]any) map[string]any {
+		t.Helper()
+		raw, _ := json.Marshal(map[string]any{"name": name, "arguments": args})
+		res, err := srv.callTool(context.Background(), raw)
+		if err != nil {
+			t.Fatalf("%s failed: %v", name, err)
+		}
+		return res.(map[string]any)
+	}
+
+	upd := call("update_asset", map[string]any{
+		"asset_id":   a.ID,
+		"rating":     5,
+		"notes":      "Key visual reference",
+		"source_url": "https://example.com/ref",
+	})
+	if got := upd["asset"].(model.Asset); got.Rating != 5 || got.Notes != "Key visual reference" {
+		t.Fatalf("update_asset mismatch: %+v", got)
+	}
+
+	projRes := call("create_project", map[string]any{
+		"name":        "Brand Refresh",
+		"description": "2026 identity",
+		"asset_ids":   []string{a.ID},
+	})
+	if projRes["referenced"].(int) != 1 {
+		t.Fatalf("expected 1 referenced asset, got %v", projRes["referenced"])
+	}
+
+	elRes := call("add_board_elements", map[string]any{
+		"board_id": b.ID,
+		"elements": []map[string]any{
+			{"kind": "frame", "x": 0, "y": 0, "width": 600, "height": 420, "text": "Mood Section", "color": "#4ADE80"},
+			{"kind": "arrow", "x": 40, "y": 40, "x2": 240, "y2": 180, "dashed": true, "color": "#FF5C33"},
+		},
+	})
+	if elRes["count"].(int) != 2 {
+		t.Fatalf("expected 2 created board elements, got %v", elRes["count"])
+	}
+
+	gb := call("get_board", map[string]any{"board_id": b.ID})
+	if gb["count"].(int) != 2 {
+		t.Fatalf("expected get_board count=2, got %v", gb["count"])
+	}
+
+	ga := call("get_asset", map[string]any{"asset_id": a.ID})
+	if ga["asset"].(model.Asset).Rating != 5 {
+		t.Fatalf("expected get_asset rating=5")
 	}
 }

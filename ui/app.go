@@ -353,11 +353,12 @@ type App struct {
 	glassOpacity  float64
 	glassActive   bool
 
-	// First-run onboarding guide modal state.
+	// First-run interactive guided tour state.
 	onboardingDone     bool
 	onboardingOpen     bool
 	onboardingStep     int
 	onboardingPrevStep int
+	onboardingTried    [5]bool
 
 	// Preferences / Settings modal state & live database diagnostics.
 	settingsOpen         bool
@@ -2795,6 +2796,7 @@ func (a *App) selectCard(index int, mods gui.Modifiers) {
 		a.assetIndex = index
 		a.anchorIndex = index
 	}
+	a.inspectorOpen = true
 	a.syncInspectorSelection(false)
 }
 
@@ -3063,7 +3065,7 @@ func (a *App) registerWindowShortcuts(c *gui.Context) {
 			a.newTagName = ""
 			return
 		}
-		if len(a.selectedIDs) > 0 || a.multiSelectMode {
+		if len(a.selectedIDs) > 0 || a.multiSelectMode || a.assetIndex >= 0 {
 			a.clearSelection()
 			a.assetIndex = -1
 			a.syncInspectorSelection(false)
