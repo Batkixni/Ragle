@@ -25,7 +25,7 @@ import (
 )
 
 func main() {
-	addr := flag.String("addr", ":8787", "TCP listen address (e.g. :8787 or 127.0.0.1:41595)")
+	addr := flag.String("addr", ":8787", "TCP listen address (e.g. :8787 or 127.0.0.1:47595)")
 	libPath := flag.String("library", "", "Path to a Raglex library folder (omit for signaling-only mode)")
 	token := flag.String("token", os.Getenv("RAGLEX_SERVER_TOKEN"), "API bearer/X-Raglex-Token secret for write endpoints")
 	ttl := flag.Duration("signal-ttl", 5*time.Minute, "WebRTC pairing code expiration TTL")

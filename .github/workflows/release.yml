@@ -63,8 +63,9 @@ jobs:
           find build/release/linux-amd64 -maxdepth 1 \( -name '*.tar.gz' -o -name '*.deb' -o -name '*.rpm' \) -exec cp {} dist/ \;
           find build/release/linux-arm64 -maxdepth 1 \( -name '*.tar.gz' -o -name '*.deb' -o -name '*.rpm' \) -exec cp {} dist/ \;
 
-          # Browser Companion Extension
+          # Browser Companion Extensions (Chromium .zip + Firefox/Zen .xpi)
           (cd extensions/browser && zip -r ../../dist/raglex-browser-extension.zip .)
+          (cd extensions/firefox && zip -r ../../dist/raglex-firefox-extension.xpi .)
 
           # Standalone CLI binaries (raglex-server & raglex-mcp)
           for pair in "windows amd64 .exe" "windows arm64 .exe" "darwin arm64 " "darwin amd64 " "linux amd64 " "linux arm64 "; do

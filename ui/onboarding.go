@@ -43,7 +43,7 @@ func (a *App) onboardingModal(c *gui.Context) {
 		return
 	}
 	// Temporarily tuck away while a child modal (Settings / Go To / Tag Manager / Web Import) is open.
-	if a.settingsOpen || a.gotoOpen || a.tagManagerOpen || a.webImportOpen {
+	if a.settingsOpen || a.gotoOpen || a.tagManagerOpen || a.webImportOpen || a.watchFoldersOpen {
 		return
 	}
 

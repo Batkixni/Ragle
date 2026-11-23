@@ -41,7 +41,9 @@ func (a *App) projectView(c *gui.Context) {
 				gui.Row(c).Gap(8).FillHeight().AlignItems(gui.Center).DragWindow().Children(func() {
 					gui.Text(c, "/").TextColor(a.pal.inkFaint)
 					gui.Text(c, a.project.Name).Bold().FontSize(13).SingleLine().MaxWidth(260)
-					a.pillBadge(c, fmt.Sprintf(a.t("project.summary"), len(a.boards), len(a.projectAssets)), a.pal.inkSecondary, a.pal.surfaceMuted)
+					if a.showSidebarCounts {
+						a.pillBadge(c, fmt.Sprintf(a.t("project.summary"), len(a.boards), len(a.projectAssets)), a.pal.inkSecondary, a.pal.surfaceMuted)
+					}
 				})
 				gui.Box(c).Grow(1).FillHeight().DragWindow()
 				a.windowControls(c)
@@ -84,25 +86,7 @@ func (a *App) projectView(c *gui.Context) {
 								a.shareOpen = true
 							})
 							a.iconButton(c, "proj-del-btn", iconTrash, a.t("project.delete"), false).OnClick(func() {
-								id := a.projectID
-								a.ask(a.t("project.delete"), a.t("project.deleteNote"), a.t("common.delete"), func() {
-									if a.backupBeforeDelete && a.lib != nil {
-										_ = a.lib.DB.Backup()
-									}
-									if a.boardProject == id {
-										a.session = nil
-										a.boardID = ""
-										a.boardProject = ""
-									}
-									if err := a.projects.Delete(id); err != nil {
-										a.status = err.Error()
-										return
-									}
-									a.projectID = ""
-									a.project = model.Project{}
-									a.screen = screenLibrary
-									a.reload()
-								})
+								a.deleteProjectPrompt(a.projectID)
 							})
 						})
 

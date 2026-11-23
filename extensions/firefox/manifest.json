@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Raglex Web Clipper",
-  "version": "0.2.0",
-  "description": "Drag-to-save images, capture screenshots, and batch-collect visual references directly into your local Raglex library.",
+  "version": "0.3.2",
+  "description": "Save webpages, multi-platform sources, screenshots, and page images directly into Raglex tags, projects, and boards.",
   "browser_specific_settings": {
     "gecko": {
       "id": "raglex-web-clipper@raglex.dev",

@@ -24,6 +24,27 @@ func (a *App) buildTagContextMenu(m *gui.Menu, tg model.Tag, services gui.Servic
 		a.openEditTagModal(tg)
 	}
 
+	siblings := a.tagChildren[tg.ParentID]
+	if len(siblings) > 1 {
+		idx := -1
+		for i, s := range siblings {
+			if s.ID == tagID {
+				idx = i
+				break
+			}
+		}
+		if idx > 0 {
+			if a.menuItem(m, iconChevronUp, a.t("common.moveUp"), "", false).Chosen() {
+				a.moveTagOrder(tagID, -1)
+			}
+		}
+		if idx >= 0 && idx < len(siblings)-1 {
+			if a.menuItem(m, iconChevronDown, a.t("common.moveDown"), "", false).Chosen() {
+				a.moveTagOrder(tagID, 1)
+			}
+		}
+	}
+
 	// Move to parent submenu (cycle-safe).
 	forbidden := a.tagDescendantSet(tagID)
 	a.menuSub(m, iconFolder, a.t("tags.moveTo"), func(sm *gui.Menu) {
@@ -282,24 +303,45 @@ func (a *App) tagManagerRow(c *gui.Context, tg model.Tag, depth int, q string, s
 		iconColor = col
 	}
 
-	gui.Column(c.Key("tm-node-" + tg.ID)).FillWidth().Gap(4).Children(func() {
-		row := gui.Row(c.Key("tm-row-"+tg.ID)).
-			FillWidth().
-			Padding(7, 10, 7, 10+indent).
-			Gap(8).
-			Radius(radiusControl).
-			AlignItems(gui.Center)
-		bg := a.pal.surface
-		if depth > 0 {
-			bg = a.pal.surfaceRaised
-		}
-		if row.Hovered() {
-			bg = a.pal.surfaceMuted
-		}
-		row.Background(row.AnimateColor("bg", bg, animFast)).
-			PopoverMenu(func(m *gui.Menu) {
-				a.buildTagContextMenu(m, tg, services)
-			}, a.popoverMenuOpts())
+	gui.Column(c.Key("tm-node-" + tg.ID)).
+		FillWidth().
+		Gap(4).
+		Transition(gui.ElementTransition{
+			Animation: &springSnappy,
+			Position:  true,
+		}).
+		Children(func() {
+			row := gui.Row(c.Key("tm-row-"+tg.ID)).
+				FillWidth().
+				Padding(7, 10, 7, 10+indent).
+				Gap(8).
+				Radius(radiusControl).
+				AlignItems(gui.Center)
+			bg := a.pal.surface
+			if depth > 0 {
+				bg = a.pal.surfaceRaised
+			}
+			if row.Hovered() {
+				bg = a.pal.surfaceMuted
+			}
+			row.Background(row.AnimateColor("bg", bg, animFast)).
+				Drag(tagReorderDrag{ID: tg.ID}).
+				PopoverMenu(func(m *gui.Menu) {
+					a.buildTagContextMenu(m, tg, services)
+				}, a.popoverMenuOpts())
+			if d, over := gui.DragOver[tagReorderDrag](row); over && d.ID != tg.ID {
+				a.reorderTagLive(d.ID, tg.ID)
+			}
+			if _, ok := gui.Drop[tagReorderDrag](row); ok {
+				a.lastReorderPair = ""
+			}
+			targetOp := float32(1.0)
+			if row.Dragging() {
+				targetOp = 0.24
+			}
+			if op := row.AnimateTo("drag-op", targetOp, animFast); op < 0.995 {
+				row.Opacity(op)
+			}
 
 		row.Children(func() {
 			if hasChildren {
@@ -322,7 +364,9 @@ func (a *App) tagManagerRow(c *gui.Context, tg model.Tag, depth int, q string, s
 			gui.Icon(c, iconTag).Size(14, 14).TextColor(iconColor)
 			gui.Text(c, tg.Name).FontSize(13).Bold().Grow(1).SingleLine()
 
-			a.pillBadge(c, fmt.Sprintf("%d", a.tagDisplayCount(tg.ID)), a.pal.inkSecondary, a.pal.surfaceMuted)
+			if a.showSidebarCounts {
+				a.pillBadge(c, fmt.Sprintf("%d", a.tagDisplayCount(tg.ID)), a.pal.inkSecondary, a.pal.surfaceMuted)
+			}
 
 			a.iconButton(c, "tm-view-"+tg.ID, iconEye, a.t("tags.viewAssets"), false).OnClick(func() {
 				a.tagManagerOpen = false

@@ -31,6 +31,7 @@ func (a *App) View(c *gui.Context) {
 		a.editProjectModal(c)
 		a.editTagModal(c)
 		a.webImportModal(c)
+		a.watchFoldersModal(c)
 		a.shareModal(c)
 		a.receivePairModal(c)
 		a.updatePromptModal(c)

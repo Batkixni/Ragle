@@ -22,6 +22,7 @@ import (
 
 	"raglex/internal/db"
 	"raglex/internal/model"
+	"raglex/internal/sources"
 )
 
 const (
@@ -142,127 +143,236 @@ func parseHTMLAttrs(tag string) map[string]string {
 	return out
 }
 
-// ImportFromURL fetches rawURL (either a direct image URL or a webpage with
-// og:image / twitter:image metadata), downloads the image into the library, and
-// records SourceURL, SourceTitle, and Notes automatically.
-func (l *Library) ImportFromURL(ctx context.Context, rawURL string, mode string) (model.Asset, error) {
-	rawURL = strings.TrimSpace(rawURL)
-	if rawURL == "" {
-		return model.Asset{}, errors.New("empty URL")
-	}
-	if !strings.HasPrefix(strings.ToLower(rawURL), "http://") && !strings.HasPrefix(strings.ToLower(rawURL), "https://") {
-		rawURL = "https://" + rawURL
-	}
-	parsed, err := url.Parse(rawURL)
-	if err != nil || parsed.Host == "" {
-		return model.Asset{}, fmt.Errorf("invalid URL: %s", rawURL)
-	}
+// SourceImportOptions controls multi-source URL / Feed / YouTube / oEmbed / JSON-LD importing.
+type SourceImportOptions struct {
+	TagIDs              []string // explicit tag IDs applied to every imported asset
+	AutoPlatformTag     bool     // auto-create & attach platform/author tags (e.g. "YouTube", channel)
+	AutoStackMultiImage bool     // fold 2+ images resolved from a single post into an Asset Stack
+	Registry            *sources.Registry
+	OnProgress          func(done, total int, label string)
+}
 
+// SourceImportResult summarizes a single or multi-URL source import.
+type SourceImportResult struct {
+	Assets     []model.Asset
+	StackCount int
+	Errors     []string
+}
+
+// EnsureTagID returns the ID of an existing tag matching name (case-insensitive)
+// or creates a new root tag with that name.
+func (l *Library) EnsureTagID(name string) string {
+	name = strings.TrimSpace(name)
+	if name == "" || l == nil {
+		return ""
+	}
+	if tags, err := l.Tags(); err == nil {
+		for _, tg := range tags {
+			if strings.EqualFold(strings.TrimSpace(tg.Name), name) {
+				return tg.ID
+			}
+		}
+	}
+	if tg, err := l.CreateTag(name); err == nil {
+		return tg.ID
+	}
+	return ""
+}
+
+// ImportFromURL fetches rawURL (direct image, YouTube, oEmbed, JSON-LD, RSS/Atom,
+// or standard webpage), downloads its visual cover/media into the library, and
+// records SourceURL, SourceTitle, DisplayName, IsBookmark, and Notes automatically.
+func (l *Library) ImportFromURL(ctx context.Context, rawURL string, mode string) (model.Asset, error) {
+	res, err := l.ImportSourcesFromURLs(ctx, []string{rawURL}, SourceImportOptions{
+		AutoPlatformTag:     false,
+		AutoStackMultiImage: true,
+	})
+	if err != nil {
+		return model.Asset{}, err
+	}
+	if len(res.Assets) == 0 {
+		if len(res.Errors) > 0 {
+			return model.Asset{}, errors.New(res.Errors[0])
+		}
+		return model.Asset{}, errors.New("no visual items resolved from URL")
+	}
+	return res.Assets[0], nil
+}
+
+// ImportSourcesFromURLs resolves one or more URLs across all registered source
+// adapters (YouTube, RSS/Atom/JSON Feed, oEmbed, JSON-LD galleries, OpenGraph,
+// direct images) and imports all resulting media items cleanly into the library.
+func (l *Library) ImportSourcesFromURLs(ctx context.Context, rawURLs []string, opts SourceImportOptions) (SourceImportResult, error) {
+	var result SourceImportResult
+	reg := opts.Registry
+	if reg == nil {
+		reg = sources.DefaultRegistry()
+	}
 	client := &http.Client{Timeout: 20 * time.Second}
-	fetch := func(target string, maxBytes int64) ([]byte, string, string, error) {
+	fetchImg := func(target string) ([]byte, string, error) {
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
 		if err != nil {
-			return nil, "", "", err
+			return nil, "", err
 		}
-		req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Raglex/0.2")
-		req.Header.Set("Accept", "text/html,application/xhtml+xml,image/avif,image/webp,image/*,*/*;q=0.8")
+		req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Raglex/0.3")
+		req.Header.Set("Accept", "image/avif,image/webp,image/*,*/*;q=0.8")
 		resp, err := client.Do(req)
 		if err != nil {
-			return nil, "", "", err
+			return nil, "", err
 		}
 		defer resp.Body.Close()
 		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-			return nil, "", "", fmt.Errorf("HTTP %d", resp.StatusCode)
+			return nil, "", fmt.Errorf("HTTP %d", resp.StatusCode)
 		}
-		data, err := io.ReadAll(io.LimitReader(resp.Body, maxBytes))
+		data, err := io.ReadAll(io.LimitReader(resp.Body, webImportMaxImageBytes))
 		if err != nil {
-			return nil, "", "", err
+			return nil, "", err
 		}
-		finalURL := target
-		if resp.Request != nil && resp.Request.URL != nil {
-			finalURL = resp.Request.URL.String()
+		ct := resp.Header.Get("Content-Type")
+		if !isImageContent(ct, data) {
+			return nil, "", errors.New("not image content")
 		}
-		return data, resp.Header.Get("Content-Type"), finalURL, nil
+		return data, ct, nil
 	}
 
-	body, ct, finalURL, err := fetch(rawURL, webImportMaxImageBytes)
-	if err != nil {
-		return model.Asset{}, err
+	var resolvedAll []sources.ResolvedItem
+	for _, raw := range rawURLs {
+		raw = strings.TrimSpace(raw)
+		if raw == "" {
+			continue
+		}
+		items, err := reg.Resolve(ctx, raw)
+		if err != nil {
+			result.Errors = append(result.Errors, fmt.Sprintf("%s: %v", raw, err))
+			continue
+		}
+		resolvedAll = append(resolvedAll, items...)
+	}
+	if len(resolvedAll) == 0 {
+		if len(result.Errors) > 0 {
+			return result, errors.New(result.Errors[0])
+		}
+		return result, errors.New("empty URL")
 	}
 
-	var imgBytes []byte
-	var imgCT string
-	isWebPage := false
-	meta := WebMeta{PageURL: finalURL}
-
-	if isImageContent(ct, body) {
-		imgBytes = body
-		imgCT = ct
-		meta.ImageURL = finalURL
-	} else {
-		isWebPage = true
-		htmlSlice := body
-		if len(htmlSlice) > webImportMaxHTMLBytes {
-			htmlSlice = htmlSlice[:webImportMaxHTMLBytes]
+	for idx, item := range resolvedAll {
+		if opts.OnProgress != nil {
+			opts.OnProgress(idx, len(resolvedAll), item.Title)
 		}
-		meta = ExtractWebMeta(finalURL, htmlSlice)
-		if meta.ImageURL != "" {
-			if dl, dlCT, _, dlErr := fetch(meta.ImageURL, webImportMaxImageBytes); dlErr == nil && len(dl) > 0 && isImageContent(dlCT, dl) {
-				imgBytes = dl
-				imgCT = dlCT
+		tagIDs := append([]string(nil), opts.TagIDs...)
+		if opts.AutoPlatformTag {
+			for _, tn := range item.Tags {
+				if tid := l.EnsureTagID(tn); tid != "" {
+					tagIDs = append(tagIDs, tid)
+				}
 			}
 		}
-		// If the page has no og:image or download failed, synthesize a clean
-		// minimalist cover placeholder so the web bookmark still imports cleanly!
-		if len(imgBytes) == 0 {
-			imgBytes = makeWebPlaceholderPNG()
-			imgCT = "image/png"
-		}
-	}
 
-	ext := extFromContent(imgCT, meta.ImageURL, imgBytes)
-	stem := sanitizeWebFilename(meta.Title)
-	if stem == "" {
-		if u, err := url.Parse(meta.ImageURL); err == nil {
-			base := filepath.Base(u.Path)
-			base = strings.TrimSuffix(base, filepath.Ext(base))
-			stem = sanitizeWebFilename(base)
+		// Download all image URLs for this item (or primary + fallbacks, or placeholder).
+		type dlEntry struct {
+			url  string
+			ct   string
+			data []byte
 		}
-	}
-	if stem == "" {
-		stem = sanitizeWebFilename(parsed.Host)
-	}
-	if stem == "" {
-		stem = "web_bookmark"
-	}
-
-	asset, _, err := l.ImportBytes(stem+ext, imgBytes, nil, meta.PageURL, meta.Title)
-	if err != nil {
-		return model.Asset{}, err
-	}
-	// Persist bookmark flag, human-readable webpage title, source URL, and description.
-	_ = l.DB.Update(func(tx *bolt.Tx) error {
-		cur, err := db.GetAsset(tx, asset.ID)
-		if err != nil {
-			return err
-		}
-		cur.SourceURL = meta.PageURL
-		cur.SourceTitle = meta.Title
-		if meta.Description != "" {
-			cur.Notes = meta.Description
-		}
-		if isWebPage {
-			cur.IsBookmark = true
-			if strings.TrimSpace(meta.Title) != "" {
-				cur.DisplayName = strings.TrimSpace(meta.Title)
-			} else if parsed.Host != "" {
-				cur.DisplayName = parsed.Host
+		var downloaded []dlEntry
+		if len(item.ImageURLs) > 1 {
+			// Multi-image gallery / JSON-LD post: download each unique image cleanly.
+			for _, imgURL := range item.ImageURLs {
+				if data, ct, err := fetchImg(imgURL); err == nil && len(data) > 0 {
+					downloaded = append(downloaded, dlEntry{url: imgURL, ct: ct, data: data})
+				}
+			}
+		} else {
+			cands := append([]string(nil), item.ImageURLs...)
+			cands = append(cands, item.FallbackImg...)
+			for _, imgURL := range cands {
+				if data, ct, err := fetchImg(imgURL); err == nil && len(data) > 0 {
+					downloaded = append(downloaded, dlEntry{url: imgURL, ct: ct, data: data})
+					break
+				}
 			}
 		}
-		asset = cur
-		return db.PutAsset(tx, cur)
-	})
-	return asset, nil
+		if len(downloaded) == 0 {
+			if !item.IsBookmark {
+				result.Errors = append(result.Errors, fmt.Sprintf("%s: failed to download image", item.PageURL))
+				continue
+			}
+			downloaded = []dlEntry{{url: item.PageURL, ct: "image/png", data: makeWebPlaceholderPNG()}}
+		}
+
+		parsedPage, _ := url.Parse(item.PageURL)
+		var itemAssets []model.Asset
+		for imgIdx, dl := range downloaded {
+			ext := extFromContent(dl.ct, dl.url, dl.data)
+			stem := sanitizeWebFilename(item.Title)
+			if stem == "" {
+				if u, err := url.Parse(dl.url); err == nil {
+					base := filepath.Base(u.Path)
+					base = strings.TrimSuffix(base, filepath.Ext(base))
+					stem = sanitizeWebFilename(base)
+				}
+			}
+			if stem == "" && parsedPage != nil {
+				stem = sanitizeWebFilename(parsedPage.Host)
+			}
+			if stem == "" {
+				stem = "web_bookmark"
+			}
+			if len(downloaded) > 1 {
+				stem = fmt.Sprintf("%s_%02d", stem, imgIdx+1)
+			}
+
+			asset, _, err := l.ImportBytes(stem+ext, dl.data, tagIDs, item.PageURL, item.Title)
+			if err != nil {
+				result.Errors = append(result.Errors, err.Error())
+				continue
+			}
+			_ = l.DB.Update(func(tx *bolt.Tx) error {
+				cur, err := db.GetAsset(tx, asset.ID)
+				if err != nil {
+					return err
+				}
+				cur.SourceURL = item.PageURL
+				cur.SourceTitle = item.Title
+				if item.Description != "" {
+					cur.Notes = item.Description
+				} else if item.Author != "" && cur.Notes == "" {
+					cur.Notes = item.Author
+				}
+				if item.IsBookmark {
+					cur.IsBookmark = true
+					if strings.TrimSpace(item.Title) != "" {
+						cur.DisplayName = strings.TrimSpace(item.Title)
+					} else if parsedPage != nil && parsedPage.Host != "" {
+						cur.DisplayName = parsedPage.Host
+					}
+				}
+				asset = cur
+				return db.PutAsset(tx, cur)
+			})
+			itemAssets = append(itemAssets, asset)
+			result.Assets = append(result.Assets, asset)
+		}
+
+		// Fold multi-image posts cleanly into a single Version Stack when requested.
+		if opts.AutoStackMultiImage && len(itemAssets) >= 2 {
+			ids := make([]string, 0, len(itemAssets))
+			for _, a := range itemAssets {
+				ids = append(ids, a.ID)
+			}
+			stackName := strings.TrimSpace(item.Title)
+			if stackName == "" {
+				stackName = "Gallery"
+			}
+			if _, err := l.CreateStack(stackName, ids, ids[0]); err == nil {
+				result.StackCount++
+			}
+		}
+	}
+	if opts.OnProgress != nil {
+		opts.OnProgress(len(resolvedAll), len(resolvedAll), "")
+	}
+	return result, nil
 }
 
 func makeWebPlaceholderPNG() []byte {

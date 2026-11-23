@@ -158,3 +158,43 @@ func TestStandaloneBoardsAndMoveToProject(t *testing.T) {
 		t.Fatalf("expected placed asset referenced in project, got %+v", projAssets)
 	}
 }
+
+func TestReorderProjectsPersistsCustomOrder(t *testing.T) {
+	d, err := db.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	store := New(d)
+
+	tag := model.Tag{ID: model.NewID(), Name: "Design", CreatedAt: time.Now()}
+	if err := d.Update(func(tx *bbolt.Tx) error {
+		return db.PutTag(tx, tag)
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	p1, err := store.Create("First", "", []string{tag.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p2, err := store.Create("Second", "", []string{tag.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p3, err := store.Create("Third", "", []string{tag.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := store.Reorder([]string{p3.ID, p1.ID, p2.ID}); err != nil {
+		t.Fatal(err)
+	}
+	list, err := store.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 3 || list[0].ID != p3.ID || list[1].ID != p1.ID || list[2].ID != p2.ID {
+		t.Fatalf("unexpected project order: %+v", list)
+	}
+}

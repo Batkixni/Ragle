@@ -6,7 +6,7 @@ services:
     container_name: raglex-server
     restart: unless-stopped
     ports:
-      - "41595:41595"
+      - "47595:47595"
     volumes:
       - ./data/library:/data/library
     environment:
@@ -18,4 +18,4 @@ services:
       # RAGLEX_S3_REGION: "auto"
       # RAGLEX_S3_ACCESS_KEY: "..."
       # RAGLEX_S3_SECRET_KEY: "..."
-    command: ["-addr", ":41595", "-library", "/data/library", "-token", "${RAGLEX_TOKEN:-change-me-to-a-strong-token}"]
+    command: ["-addr", ":47595", "-library", "/data/library", "-token", "${RAGLEX_TOKEN:-change-me-to-a-strong-token}"]

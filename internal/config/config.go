@@ -41,12 +41,13 @@ type Config struct {
 	LayoutMode        string   `json:"layout_mode,omitempty"` // "bento", "masonry", "grid"
 
 	// Import preferences.
-	DefaultStorageMode   string `json:"default_storage_mode,omitempty"` // "index", "symlink", "move", "copy"
-	AutoSelectImported   *bool  `json:"auto_select_imported,omitempty"`
-	AutoTagOnImport      *bool  `json:"auto_tag_on_import,omitempty"`
-	IgnoreHiddenOnImport *bool  `json:"ignore_hidden_on_import,omitempty"`
-	ImportRecursive      *bool  `json:"import_recursive,omitempty"`
-	NotifyDuplicates     *bool  `json:"notify_duplicates,omitempty"`
+	DefaultStorageMode   string        `json:"default_storage_mode,omitempty"` // "index", "symlink", "move", "copy"
+	AutoSelectImported   *bool         `json:"auto_select_imported,omitempty"`
+	AutoTagOnImport      *bool         `json:"auto_tag_on_import,omitempty"`
+	IgnoreHiddenOnImport *bool         `json:"ignore_hidden_on_import,omitempty"`
+	ImportRecursive      *bool         `json:"import_recursive,omitempty"`
+	NotifyDuplicates     *bool         `json:"notify_duplicates,omitempty"`
+	WatchFolders         []WatchFolder `json:"watch_folders,omitempty"`
 
 	// Database & safety preferences.
 	BackupBeforeDelete *bool `json:"backup_before_delete,omitempty"`
@@ -76,6 +77,16 @@ type Config struct {
 	// Auto-updater preferences (GitHub Releases).
 	AutoCheckUpdates  *bool `json:"auto_check_updates,omitempty"`
 	UpdateBetaChannel *bool `json:"update_beta_channel,omitempty"`
+}
+
+// WatchFolder defines a local disk directory continuously monitored for new
+// media files to auto-import into the active Raglex library.
+type WatchFolder struct {
+	Path        string `json:"path"`
+	TagName     string `json:"tag_name,omitempty"`
+	StorageMode string `json:"storage_mode,omitempty"` // default: "index"
+	Recursive   bool   `json:"recursive,omitempty"`
+	Enabled     bool   `json:"enabled"`
 }
 
 // BoolOr returns *p when non-nil, or def otherwise.

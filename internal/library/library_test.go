@@ -327,3 +327,54 @@ func TestDeleteBatchPreservesOriginals(t *testing.T) {
 		t.Fatalf("expected 0 remaining assets, got %d err=%v", len(remaining), err)
 	}
 }
+
+func TestReorderTagsPersistsCustomOrder(t *testing.T) {
+	lib, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lib.Close()
+
+	a, err := lib.CreateTag("Alpha")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := lib.CreateTag("Beta")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := lib.CreateTag("Gamma")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Reorder root tags to [Gamma, Alpha, Beta].
+	if err := lib.ReorderTags("", []string{c.ID, a.ID, b.ID}); err != nil {
+		t.Fatal(err)
+	}
+	tags, err := lib.Tags()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tags) != 3 || tags[0].ID != c.ID || tags[1].ID != a.ID || tags[2].ID != b.ID {
+		t.Fatalf("unexpected tag order: %+v", tags)
+	}
+
+	// Reorder also supports moving a tag under a new parent cleanly.
+	if err := lib.ReorderTags(c.ID, []string{b.ID}); err != nil {
+		t.Fatal(err)
+	}
+	tags, err = lib.Tags()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var gotB model.Tag
+	for _, tg := range tags {
+		if tg.ID == b.ID {
+			gotB = tg
+		}
+	}
+	if gotB.ParentID != c.ID || gotB.Order <= 0 {
+		t.Fatalf("expected Beta reparented under Gamma with positive Order, got %+v", gotB)
+	}
+}

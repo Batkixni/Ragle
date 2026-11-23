@@ -3,6 +3,8 @@ package project
 
 import (
 	"errors"
+	"sort"
+	"strings"
 	"time"
 
 	"go.etcd.io/bbolt"
@@ -52,7 +54,27 @@ func (s *Store) Create(name, description string, tagIDs []string) (model.Project
 	return p, err
 }
 
-// List returns every project.
+// ProjectLess defines canonical display order for projects: custom Order first,
+// then CreatedAt / Name.
+func ProjectLess(a, b model.Project) bool {
+	if a.Order != b.Order {
+		if a.Order > 0 && b.Order > 0 {
+			return a.Order < b.Order
+		}
+		if a.Order > 0 {
+			return true
+		}
+		if b.Order > 0 {
+			return false
+		}
+	}
+	if !a.CreatedAt.Equal(b.CreatedAt) {
+		return a.CreatedAt.Before(b.CreatedAt)
+	}
+	return strings.ToLower(a.Name) < strings.ToLower(b.Name)
+}
+
+// List returns every project in custom display order.
 func (s *Store) List() ([]model.Project, error) {
 	var out []model.Project
 	err := s.DB.View(func(tx *bbolt.Tx) error {
@@ -60,7 +82,55 @@ func (s *Store) List() ([]model.Project, error) {
 		out, err = db.ListProjects(tx)
 		return err
 	})
+	sort.Slice(out, func(i, j int) bool {
+		return ProjectLess(out[i], out[j])
+	})
 	return out, err
+}
+
+// Reorder persists the explicit custom display order for projects atomically.
+func (s *Store) Reorder(orderedIDs []string) error {
+	return s.DB.Update(func(tx *bbolt.Tx) error {
+		all, err := db.ListProjects(tx)
+		if err != nil {
+			return err
+		}
+		byID := make(map[string]model.Project, len(all))
+		for _, p := range all {
+			byID[p.ID] = p
+		}
+		seen := make(map[string]bool, len(orderedIDs))
+		seq := 10
+		for _, id := range orderedIDs {
+			p, ok := byID[id]
+			if !ok || seen[id] {
+				continue
+			}
+			p.Order = seq
+			seq += 10
+			seen[id] = true
+			if err := db.PutProject(tx, p); err != nil {
+				return err
+			}
+		}
+		var rest []model.Project
+		for _, p := range all {
+			if !seen[p.ID] {
+				rest = append(rest, p)
+			}
+		}
+		sort.Slice(rest, func(i, j int) bool {
+			return ProjectLess(rest[i], rest[j])
+		})
+		for _, p := range rest {
+			p.Order = seq
+			seq += 10
+			if err := db.PutProject(tx, p); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 // Update edits a project's name and description.

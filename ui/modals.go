@@ -3,11 +3,18 @@ package ui
 import (
 	"context"
 	"fmt"
+	"path/filepath"
+	"strings"
 	"time"
 
+	"github.com/egoist/mygo"
 	gui "github.com/egoist/mygo/ui"
 
+	"raglex/internal/config"
+	"raglex/internal/library"
 	"raglex/internal/model"
+	"raglex/internal/sources"
+	"raglex/internal/watcher"
 )
 
 func (a *App) styledDialog(c *gui.Context, key string, open *bool, w, h float32, fn func(panel gui.Element)) {
@@ -392,33 +399,90 @@ func (a *App) webImportModal(c *gui.Context) {
 	if !a.webImportOpen {
 		return
 	}
-	a.styledDialog(c, "web-import", &a.webImportOpen, 480, 0, func(panel gui.Element) {
-		panel.Padding(22).Children(func() {
-			gui.Column(c).Gap(14).Children(func() {
-				gui.Row(c).Gap(8).AlignItems(gui.Center).Children(func() {
-					gui.Icon(c, iconGlobe).Size(18, 18).TextColor(a.pal.ink)
-					gui.Text(c, a.t("webimport.title")).FontSize(16).Bold().Grow(1)
+	a.styledDialog(c, "web-import", &a.webImportOpen, 540, 0, func(panel gui.Element) {
+		panel.Padding(18, 20).Children(func() {
+			gui.Column(c).FillWidth().Gap(8).Children(func() {
+				// Clean single-purpose header for Web Sources.
+				gui.Row(c).FillWidth().Padding(0, 4, 6, 4).Gap(10).AlignItems(gui.Center).Children(func() {
+					gui.Icon(c, iconGlobe).Size(17, 17).TextColor(a.pal.ink)
+					gui.Text(c, a.t("webimport.title")).FontSize(15).Bold().SingleLine()
+					gui.Spacer(c)
 					a.iconButton(c, "web-imp-close", iconX, a.t("common.close"), false).OnClick(func() {
 						if !a.webImportBusy {
 							a.webImportOpen = false
 						}
 					})
 				})
-				gui.Text(c, a.t("webimport.hint")).
-					FontSize(12).
-					TextColor(a.pal.inkSecondary).
-					LineHeight(1.5)
-				gui.TextInput(c.Key("web-imp-url"), &a.webImportURL).
-					Placeholder(a.t("webimport.placeholder")).
-					FillWidth().
-					OnSubmit(func() { a.startWebImport() })
+
+				gui.Box(c).FillWidth().Height(1).Background(a.chromeHairline())
+
+				// Multi-Platform Web Sources (YouTube, oEmbed/JSON-LD, RSS/Atom, Direct Images).
+				gui.Column(c).FillWidth().Padding(6, 4, 2, 4).Gap(10).Children(func() {
+					gui.Text(c, a.t("webimport.hint")).
+						FontSize(12).
+						TextColor(a.pal.inkSecondary).
+						LineHeight(1.45)
+
+					// Supported source badges strip.
+					gui.Row(c).FillWidth().Gap(6).Wrap().AlignItems(gui.Center).Children(func() {
+						a.pillBadge(c, "YouTube", a.pal.inkSecondary, a.pal.surfaceMuted)
+						a.pillBadge(c, "oEmbed / JSON-LD", a.pal.inkSecondary, a.pal.surfaceMuted)
+						a.pillBadge(c, "RSS / Atom / JSON Feed", a.pal.inkSecondary, a.pal.surfaceMuted)
+						a.pillBadge(c, a.t("webimport.badge"), a.pal.inkSecondary, a.pal.surfaceMuted)
+					})
+
+					gui.TextArea(c.Key("web-imp-url"), &a.webImportURL).
+						Placeholder(a.t("webimport.placeholder")).
+						FillWidth().
+						Height(108)
+
+					// Live zero-network source detection summary as user pastes links.
+					urls := sources.ParseURLList(a.webImportURL)
+					if len(urls) > 0 {
+						counts := map[string]int{}
+						for _, u := range urls {
+							counts[sources.DetectSourceKind(u)]++
+						}
+						gui.Row(c).FillWidth().Gap(6).Wrap().AlignItems(gui.Center).Children(func() {
+							gui.Text(c, fmt.Sprintf(a.t("webimport.detected"), len(urls))).
+								FontSize(11.5).
+								Bold().
+								TextColor(a.pal.ink)
+							if n := counts["youtube"]; n > 0 {
+								a.pillBadge(c, fmt.Sprintf("YouTube ×%d", n), gui.Hex("#FF5C33"), gui.RGBA(255, 92, 51, 0.14))
+							}
+							if n := counts["feed"]; n > 0 {
+								a.pillBadge(c, fmt.Sprintf("RSS/Feed ×%d", n), gui.Hex("#38BDF8"), gui.RGBA(56, 189, 248, 0.14))
+							}
+							if n := counts["image"]; n > 0 {
+								a.pillBadge(c, fmt.Sprintf("Image ×%d", n), gui.Hex("#10B981"), gui.RGBA(16, 185, 129, 0.14))
+							}
+							if n := counts["web"]; n > 0 {
+								a.pillBadge(c, fmt.Sprintf("Media/Web ×%d", n), a.pal.inkSecondary, a.pal.surfaceMuted)
+							}
+						})
+					}
+				})
+
+				gui.Box(c).FillWidth().Height(1).Background(a.chromeHairline())
+
+				// Flat toggle options (matching Preferences style).
+				a.settingsSwitchRowTip(c, "web-imp-autotag", iconTag, a.t("webimport.autoTag"), a.t("webimport.autoTagTip"), &a.webImportAutoTag, nil)
+				a.settingsSwitchRowTip(c, "web-imp-autostack", iconLayers, a.t("webimport.autoStack"), a.t("webimport.autoStackTip"), &a.webImportAutoStack, nil)
+
 				if a.webImportBusy {
-					gui.Row(c).Gap(8).AlignItems(gui.Center).Children(func() {
-						gui.Text(c, a.t("webimport.fetching")).FontSize(12).TextColor(a.pal.inkSecondary)
+					prog := a.webImportProgress
+					if prog == "" {
+						prog = a.t("webimport.fetching")
+					}
+					gui.Row(c).Padding(2, 10).Gap(8).AlignItems(gui.Center).Children(func() {
+						gui.Text(c, prog).FontSize(12).TextColor(a.pal.inkSecondary).SingleLine()
 					})
 				}
-				gui.Divider(c)
-				gui.Row(c).Gap(8).Justify(gui.End).Children(func() {
+
+				gui.Box(c).FillWidth().Height(1).Background(a.chromeHairline())
+
+				gui.Row(c).FillWidth().Padding(6, 4, 0, 4).Gap(8).Justify(gui.End).Children(func() {
 					a.arcButton(c, "web-imp-cancel", a.t("common.cancel"), false).OnClick(func() {
 						if !a.webImportBusy {
 							a.webImportOpen = false
@@ -428,9 +492,11 @@ func (a *App) webImportModal(c *gui.Context) {
 					if a.webImportBusy {
 						lbl = a.t("webimport.fetching")
 					}
-					a.arcButton(c, "web-imp-go", lbl, true).OnClick(func() {
-						a.startWebImport()
-					})
+					a.arcButton(c, "web-imp-go", lbl, true).
+						Disabled(a.webImportBusy || len(sources.ParseURLList(a.webImportURL)) == 0).
+						OnClick(func() {
+							a.startWebImport()
+						})
 				})
 			})
 		})
@@ -441,39 +507,299 @@ func (a *App) startWebImport() {
 	if a.webImportBusy || a.lib == nil {
 		return
 	}
-	rawURL := trim(a.webImportURL)
-	if rawURL == "" {
+	urls := sources.ParseURLList(a.webImportURL)
+	if len(urls) == 0 {
 		return
 	}
 	a.webImportBusy = true
+	a.webImportProgress = a.t("webimport.fetching")
 	win := a.win
 	lib := a.lib
+	autoTag := a.webImportAutoTag
+	autoStack := a.webImportAutoStack
+	var activeTagIDs []string
+	if a.autoTagOnImport && a.tagID != "" && a.tagID != "untagged" {
+		activeTagIDs = []string{a.tagID}
+	}
+
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
-		asset, err := lib.ImportFromURL(ctx, rawURL, model.StorageCopy)
+		res, err := lib.ImportSourcesFromURLs(ctx, urls, library.SourceImportOptions{
+			TagIDs:              activeTagIDs,
+			AutoPlatformTag:     autoTag,
+			AutoStackMultiImage: autoStack,
+			OnProgress: func(done, total int, label string) {
+				if win == nil {
+					return
+				}
+				win.Update(func() {
+					if !a.isClosed() && total > 1 {
+						a.webImportProgress = fmt.Sprintf(a.t("webimport.progress"), done+1, total)
+					}
+				})
+			},
+		})
 		finish := func() {
 			a.webImportBusy = false
-			if err != nil {
+			a.webImportProgress = ""
+			if err != nil && len(res.Assets) == 0 {
 				a.notify(fmt.Sprintf(a.t("webimport.failed"), err.Error()))
 				return
 			}
 			a.webImportOpen = false
 			a.webImportURL = ""
 			if a.thumbs != nil {
-				a.thumbs.Prioritize(asset.ID)
+				for i, ast := range res.Assets {
+					if i < 6 {
+						a.thumbs.Prioritize(ast.ID)
+					}
+				}
 			}
 			a.reload()
-			if a.autoSelectImported {
+			if a.autoSelectImported && len(res.Assets) > 0 {
+				firstID := res.Assets[0].ID
 				for i, it := range a.assets {
-					if it.ID == asset.ID {
+					if it.ID == firstID {
 						a.assetIndex = i
-						a.selectedIDs = map[string]bool{asset.ID: true}
+						a.selectedIDs = map[string]bool{firstID: true}
 						break
 					}
 				}
 			}
-			a.notify(fmt.Sprintf(a.t("webimport.done"), a.assetName(asset)))
+			switch {
+			case len(res.Assets) == 1 && res.StackCount == 0:
+				a.notify(fmt.Sprintf(a.t("webimport.done"), a.assetName(res.Assets[0])))
+			case res.StackCount > 0:
+				a.notify(fmt.Sprintf(a.t("webimport.batchDone"), len(res.Assets), res.StackCount))
+			default:
+				a.notify(fmt.Sprintf(a.t("webimport.batchDoneSimple"), len(res.Assets)))
+			}
+		}
+		if win != nil && !a.isClosed() {
+			win.Update(finish)
+		} else {
+			finish()
+		}
+	}()
+}
+
+// watchFoldersModal renders a dedicated, clean Watch Folders manager opened
+// directly from the "+ Import" menu right next to "Import Folder".
+func (a *App) watchFoldersModal(c *gui.Context) {
+	if !a.watchFoldersOpen {
+		return
+	}
+	a.styledDialog(c, "watch-folders-modal", &a.watchFoldersOpen, 520, 0, func(panel gui.Element) {
+		panel.Padding(18, 20).Children(func() {
+			gui.Column(c).FillWidth().Gap(8).Children(func() {
+				gui.Row(c).FillWidth().Padding(0, 4, 6, 4).Gap(8).AlignItems(gui.Center).Children(func() {
+					gui.Icon(c, iconRefresh).Size(16, 16).TextColor(a.pal.ink)
+					gui.Text(c, a.t("watch.section")).FontSize(15).Bold().SingleLine()
+					a.helpTip(c, a.t("watch.tip"))
+					gui.Spacer(c)
+					a.iconButton(c, "wf-modal-close", iconX, a.t("common.close"), false).OnClick(func() {
+						a.watchFoldersOpen = false
+					})
+				})
+
+				gui.Box(c).FillWidth().Height(1).Background(a.chromeHairline())
+				a.watchFoldersPanel(c, "modal-wf")
+				gui.Box(c).FillWidth().Height(1).Background(a.chromeHairline())
+
+				gui.Row(c).FillWidth().Padding(6, 4, 0, 4).Gap(8).AlignItems(gui.Center).Children(func() {
+					a.toolButton(c, "wf-open-imp-pref", iconSettings, a.t("settings.tab.import"), false).OnClick(func() {
+						a.watchFoldersOpen = false
+						a.openSettings(settingsTabImport)
+					})
+					gui.Spacer(c)
+					a.arcButton(c, "wf-modal-done", a.t("common.done"), true).OnClick(func() {
+						a.watchFoldersOpen = false
+					})
+				})
+			})
+		})
+	})
+}
+
+// watchFoldersPanel renders the flat divider-separated Watch Folders manager
+// shared between the dedicated Watch Folders modal and Preferences -> Import.
+func (a *App) watchFoldersPanel(c *gui.Context, prefix string) {
+	gui.Column(c).FillWidth().Gap(4).Children(func() {
+		gui.Row(c).FillWidth().Padding(4, 10).Gap(8).AlignItems(gui.Center).Children(func() {
+			gui.TextInput(c.Key(prefix+"-tag"), &a.watchNewTag).
+				Placeholder(a.t("watch.tagPlaceholder")).
+				Grow(1)
+			a.arcButton(c, prefix+"-add", a.t("watch.add"), true).OnClick(func() {
+				a.addWatchFolder()
+			})
+			if len(a.watchFolders) > 0 {
+				a.toolButton(c, prefix+"-scan", iconRefresh, a.t("watch.scan"), false).
+					Disabled(a.watchScanning).
+					OnClick(func() { a.scanWatchFoldersNow() })
+			}
+		})
+
+		if len(a.watchFolders) == 0 {
+			gui.Text(c, a.t("watch.empty")).
+				FontSize(12).
+				TextColor(a.pal.inkMuted).
+				LineHeight(1.45).
+				Padding(6, 10)
+			return
+		}
+
+		for i := range a.watchFolders {
+			idx := i
+			wf := a.watchFolders[idx]
+			if i > 0 {
+				gui.Box(c).FillWidth().Height(1).Margin(2, 10).Background(a.chromeHairline())
+			}
+			en := wf.Enabled
+			name := filepath.Base(wf.Path)
+			if name == "" || name == "." {
+				name = wf.Path
+			}
+			row := gui.Row(c.Key(fmt.Sprintf("%s-row-%d", prefix, idx))).
+				FillWidth().
+				Padding(7, 10).
+				Gap(10).
+				Radius(8).
+				AlignItems(gui.Center)
+			if row.Hovered() {
+				row.Background(a.settingsRowHoverBg())
+			}
+			row.Children(func() {
+				gui.Icon(c, iconFolder).Size(15, 15).TextColor(a.pal.inkSecondary)
+				gui.Column(c).Grow(1).Gap(2).Children(func() {
+					gui.Row(c).Gap(6).AlignItems(gui.Center).Children(func() {
+						gui.Text(c, name).FontSize(13).Bold().TextColor(a.pal.ink).SingleLine()
+						if wf.TagName != "" {
+							a.pillBadge(c, "#"+wf.TagName, a.pal.inkSecondary, a.pal.surfaceMuted)
+						}
+					})
+					gui.Text(c, wf.Path).FontSize(11).TextColor(a.pal.inkMuted).SingleLine()
+				})
+				a.arcSwitch(c, fmt.Sprintf("%s-en-%d", prefix, idx), &en, func() {
+					a.toggleWatchFolder(idx, en)
+				})
+				a.iconButton(c, fmt.Sprintf("%s-del-%d", prefix, idx), iconTrash, a.t("watch.remove"), false).OnClick(func() {
+					a.removeWatchFolder(idx)
+				})
+			})
+		}
+	})
+}
+
+func (a *App) syncWatcherRules() {
+	if a.watch == nil {
+		return
+	}
+	rules := make([]watcher.WatchRule, 0, len(a.watchFolders))
+	for _, wf := range a.watchFolders {
+		mode := wf.StorageMode
+		if mode == "" {
+			mode = model.StorageIndex
+		}
+		rules = append(rules, watcher.WatchRule{
+			Path:        wf.Path,
+			TagName:     wf.TagName,
+			StorageMode: mode,
+			Recursive:   wf.Recursive,
+			Enabled:     wf.Enabled,
+		})
+	}
+	a.watch.SetWatchRules(rules)
+}
+
+func (a *App) addWatchFolder() {
+	if a.win == nil {
+		return
+	}
+	win := a.win
+	title := a.t("watch.add")
+	tagName := strings.TrimSpace(a.watchNewTag)
+	rec := a.importRecursive
+	go func() {
+		dirs, err := mygo.Dialog.Open(mygo.OpenDialogOptions{
+			Parent:    win,
+			Title:     title,
+			Directory: true,
+		})
+		if err != nil || len(dirs) == 0 || strings.TrimSpace(dirs[0]) == "" {
+			return
+		}
+		clean := filepath.Clean(dirs[0])
+		win.Update(func() {
+			if a.isClosed() {
+				return
+			}
+			for i, existing := range a.watchFolders {
+				if strings.EqualFold(filepath.Clean(existing.Path), clean) {
+					a.watchFolders[i].Enabled = true
+					if tagName != "" {
+						a.watchFolders[i].TagName = tagName
+					}
+					a.syncConfigFromState()
+					a.syncWatcherRules()
+					a.scanWatchFoldersNow()
+					return
+				}
+			}
+			a.watchFolders = append(a.watchFolders, config.WatchFolder{
+				Path:        clean,
+				TagName:     tagName,
+				StorageMode: model.StorageIndex,
+				Recursive:   rec,
+				Enabled:     true,
+			})
+			a.watchNewTag = ""
+			a.syncConfigFromState()
+			a.syncWatcherRules()
+			a.notify(fmt.Sprintf(a.t("watch.added"), filepath.Base(clean)))
+			a.scanWatchFoldersNow()
+		})
+	}()
+}
+
+func (a *App) toggleWatchFolder(idx int, on bool) {
+	if idx < 0 || idx >= len(a.watchFolders) {
+		return
+	}
+	a.watchFolders[idx].Enabled = on
+	a.syncConfigFromState()
+	a.syncWatcherRules()
+}
+
+func (a *App) removeWatchFolder(idx int) {
+	if idx < 0 || idx >= len(a.watchFolders) {
+		return
+	}
+	a.watchFolders = append(a.watchFolders[:idx], a.watchFolders[idx+1:]...)
+	a.syncConfigFromState()
+	a.syncWatcherRules()
+}
+
+func (a *App) scanWatchFoldersNow() {
+	if a.watch == nil || a.watchScanning {
+		return
+	}
+	a.watchScanning = true
+	w := a.watch
+	win := a.win
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		added, _ := w.ScanWatchRules(ctx)
+		finish := func() {
+			a.watchScanning = false
+			if a.isClosed() {
+				return
+			}
+			if added > 0 {
+				a.reload()
+			}
+			a.notify(fmt.Sprintf(a.t("watch.scanned"), added))
 		}
 		if win != nil && !a.isClosed() {
 			win.Update(finish)

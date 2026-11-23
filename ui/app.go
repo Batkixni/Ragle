@@ -69,6 +69,16 @@ type assetBatchDrag struct {
 	IDs []string
 }
 
+// tagReorderDrag is the value dragged when reordering tags in the sidebar or Tag Manager.
+type tagReorderDrag struct {
+	ID string
+}
+
+// projectReorderDrag is the value dragged when reordering projects in the sidebar.
+type projectReorderDrag struct {
+	ID string
+}
+
 var storageModes = []string{
 	model.StorageIndex,
 	model.StorageSymlink,
@@ -343,6 +353,10 @@ type App struct {
 	// Random discovery seed.
 	randomSeed int64
 
+	// Smooth live drag-and-drop reorder anti-jitter cooldown.
+	lastReorderPair string
+	lastReorderAt   time.Time
+
 	// Custom theme overrides & Frosted Glass (Acrylic / Vibrancy).
 	themePreset   string
 	customCanvas  string
@@ -373,8 +387,15 @@ type App struct {
 	grayscalePreview     bool
 	displayPopoverOpen   bool
 	webImportOpen        bool
+	watchFoldersOpen     bool
 	webImportURL         string
 	webImportBusy        bool
+	webImportAutoTag     bool
+	webImportAutoStack   bool
+	webImportProgress    string
+	watchFolders         []config.WatchFolder
+	watchNewTag          string
+	watchScanning        bool
 	autoSelectImported   bool
 	autoTagOnImport      bool
 	ignoreHiddenOnImport bool
@@ -551,6 +572,8 @@ func NewApp() *App {
 		importRecursive:      true,
 		notifyDuplicates:     true,
 		backupBeforeDelete:   true,
+		webImportAutoTag:     true,
+		webImportAutoStack:   true,
 		previewLoop:          true,
 		onboardingDone:       true,
 		assetIndex:           -1,
@@ -698,6 +721,7 @@ func (a *App) applyConfig(cfg config.Config) {
 	a.ignoreHiddenOnImport = config.BoolOr(cfg.IgnoreHiddenOnImport, true)
 	a.importRecursive = config.BoolOr(cfg.ImportRecursive, true)
 	a.notifyDuplicates = config.BoolOr(cfg.NotifyDuplicates, true)
+	a.watchFolders = append([]config.WatchFolder(nil), cfg.WatchFolders...)
 	a.backupBeforeDelete = config.BoolOr(cfg.BackupBeforeDelete, true)
 	a.shareFiles = config.BoolOr(cfg.ShareIncludeFiles, true)
 	a.deviceName = cfg.DeviceName
@@ -712,7 +736,7 @@ func (a *App) applyConfig(cfg config.Config) {
 		a.layaModel = laya.DefaultModel
 	}
 	port := cfg.ServerPort
-	if port <= 0 || port > 65535 {
+	if port <= 0 || port > 65535 || (port >= 41595 && port <= 41605) {
 		port = server.DefaultPort
 	}
 	a.serverPortStr = strconv.Itoa(port)
@@ -758,6 +782,7 @@ func (a *App) syncConfigFromState() {
 	a.cfg.IgnoreHiddenOnImport = config.BoolPtr(a.ignoreHiddenOnImport)
 	a.cfg.ImportRecursive = config.BoolPtr(a.importRecursive)
 	a.cfg.NotifyDuplicates = config.BoolPtr(a.notifyDuplicates)
+	a.cfg.WatchFolders = append([]config.WatchFolder(nil), a.watchFolders...)
 	a.cfg.BackupBeforeDelete = config.BoolPtr(a.backupBeforeDelete)
 	a.cfg.ShareIncludeFiles = config.BoolPtr(a.shareFiles)
 	a.cfg.DeviceName = strings.TrimSpace(a.deviceName)
@@ -973,6 +998,7 @@ func (a *App) attach(lib *library.Library, root string) {
 	})
 	if err == nil {
 		a.watch = w
+		a.syncWatcherRules()
 	}
 	a.ffmpeg = thumbnail.Available()
 	a.screen = screenLibrary
@@ -1380,10 +1406,224 @@ func (a *App) rebuildTagTree() {
 	for pid := range a.tagChildren {
 		list := a.tagChildren[pid]
 		sort.Slice(list, func(i, j int) bool {
-			return strings.ToLower(list[i].Name) < strings.ToLower(list[j].Name)
+			return library.TagLess(list[i], list[j])
 		})
 		a.tagChildren[pid] = list
 	}
+}
+
+// reorderTagLive performs an immediate, lightweight in-memory + DB reorder
+// during DragOver so sibling rows smoothly glide into place with a spring.
+func (a *App) reorderTagLive(dragID, targetID string) {
+	if dragID == "" || targetID == "" || dragID == targetID {
+		return
+	}
+	pair := dragID + ">" + targetID
+	if a.lastReorderPair == pair && time.Since(a.lastReorderAt) < 180*time.Millisecond {
+		return
+	}
+	a.reorderTagDrop(dragID, targetID)
+	a.lastReorderPair = pair
+	a.lastReorderAt = time.Now()
+}
+
+// reorderTagDrop moves dragID to targetID's position inside targetID's sibling
+// list (and updates dragID's parent if dragged across levels).
+func (a *App) reorderTagDrop(dragID, targetID string) {
+	if a.lib == nil || dragID == "" || targetID == "" || dragID == targetID {
+		return
+	}
+	a.ensureTagTree()
+	if _, ok := a.tagByID[dragID]; !ok {
+		return
+	}
+	targetTag, ok := a.tagByID[targetID]
+	if !ok {
+		return
+	}
+	if a.tagDescendantSet(dragID)[targetID] {
+		return
+	}
+	parentID := targetTag.ParentID
+	siblings := a.tagChildren[parentID]
+	dragIdx, targetIdx := -1, -1
+	for i, s := range siblings {
+		if s.ID == dragID {
+			dragIdx = i
+		}
+		if s.ID == targetID {
+			targetIdx = i
+		}
+	}
+	if targetIdx < 0 {
+		return
+	}
+	insertAfter := dragIdx >= 0 && dragIdx < targetIdx
+	ids := make([]string, 0, len(siblings)+1)
+	for _, s := range siblings {
+		if s.ID == dragID {
+			continue
+		}
+		if !insertAfter && s.ID == targetID {
+			ids = append(ids, dragID)
+		}
+		ids = append(ids, s.ID)
+		if insertAfter && s.ID == targetID {
+			ids = append(ids, dragID)
+		}
+	}
+	if err := a.lib.ReorderTags(parentID, ids); err != nil {
+		a.notify(err.Error())
+		return
+	}
+	if tags, err := a.lib.Tags(); err == nil {
+		a.tags = tags
+		a.rebuildTagTree()
+	}
+}
+
+// moveTagOrder shifts tagID up (delta < 0) or down (delta > 0) among its siblings.
+func (a *App) moveTagOrder(tagID string, delta int) {
+	if a.lib == nil || tagID == "" || delta == 0 {
+		return
+	}
+	a.ensureTagTree()
+	tg, ok := a.tagByID[tagID]
+	if !ok {
+		return
+	}
+	siblings := a.tagChildren[tg.ParentID]
+	idx := -1
+	ids := make([]string, len(siblings))
+	for i, s := range siblings {
+		ids[i] = s.ID
+		if s.ID == tagID {
+			idx = i
+		}
+	}
+	next := idx + delta
+	if idx < 0 || next < 0 || next >= len(ids) {
+		return
+	}
+	ids[idx], ids[next] = ids[next], ids[idx]
+	if err := a.lib.ReorderTags(tg.ParentID, ids); err != nil {
+		a.notify(err.Error())
+		return
+	}
+	if tags, err := a.lib.Tags(); err == nil {
+		a.tags = tags
+		a.rebuildTagTree()
+	}
+}
+
+// reorderProjectLive performs an immediate, lightweight in-memory + DB reorder
+// during DragOver so project rows smoothly glide into place with a spring.
+func (a *App) reorderProjectLive(dragID, targetID string) {
+	if dragID == "" || targetID == "" || dragID == targetID {
+		return
+	}
+	pair := dragID + ">" + targetID
+	if a.lastReorderPair == pair && time.Since(a.lastReorderAt) < 180*time.Millisecond {
+		return
+	}
+	a.reorderProjectDrop(dragID, targetID)
+	a.lastReorderPair = pair
+	a.lastReorderAt = time.Now()
+}
+
+// reorderProjectDrop moves dragID to targetID's position in the project list.
+func (a *App) reorderProjectDrop(dragID, targetID string) {
+	if a.projects == nil || dragID == "" || targetID == "" || dragID == targetID {
+		return
+	}
+	dragIdx, targetIdx := -1, -1
+	for i, p := range a.projectList {
+		if p.ID == dragID {
+			dragIdx = i
+		}
+		if p.ID == targetID {
+			targetIdx = i
+		}
+	}
+	if dragIdx < 0 || targetIdx < 0 {
+		return
+	}
+	insertAfter := dragIdx < targetIdx
+	ids := make([]string, 0, len(a.projectList))
+	for _, p := range a.projectList {
+		if p.ID == dragID {
+			continue
+		}
+		if !insertAfter && p.ID == targetID {
+			ids = append(ids, dragID)
+		}
+		ids = append(ids, p.ID)
+		if insertAfter && p.ID == targetID {
+			ids = append(ids, dragID)
+		}
+	}
+	if err := a.projects.Reorder(ids); err != nil {
+		a.notify(err.Error())
+		return
+	}
+	if list, err := a.projects.List(); err == nil {
+		a.projectList = list
+	}
+}
+
+// moveProjectOrder shifts projID up (delta < 0) or down (delta > 0) in the project list.
+func (a *App) moveProjectOrder(projID string, delta int) {
+	if a.projects == nil || projID == "" || delta == 0 {
+		return
+	}
+	idx := -1
+	ids := make([]string, len(a.projectList))
+	for i, p := range a.projectList {
+		ids[i] = p.ID
+		if p.ID == projID {
+			idx = i
+		}
+	}
+	next := idx + delta
+	if idx < 0 || next < 0 || next >= len(ids) {
+		return
+	}
+	ids[idx], ids[next] = ids[next], ids[idx]
+	if err := a.projects.Reorder(ids); err != nil {
+		a.notify(err.Error())
+		return
+	}
+	if list, err := a.projects.List(); err == nil {
+		a.projectList = list
+	}
+}
+
+func (a *App) deleteProjectPrompt(id string) {
+	if id == "" || a.projects == nil {
+		return
+	}
+	a.ask(a.t("project.delete"), a.t("project.deleteNote"), a.t("common.delete"), func() {
+		if a.backupBeforeDelete && a.lib != nil {
+			_ = a.lib.DB.Backup()
+		}
+		if a.boardProject == id {
+			a.session = nil
+			a.boardID = ""
+			a.boardProject = ""
+		}
+		if err := a.projects.Delete(id); err != nil {
+			a.status = err.Error()
+			return
+		}
+		if a.projectID == id {
+			a.projectID = ""
+			a.project = model.Project{}
+			a.screen = screenLibrary
+			a.selectedNav = "tag-all"
+			a.lastNav = "tag-all"
+		}
+		a.reload()
+	})
 }
 
 func (a *App) ensureTagTree() {
@@ -3049,7 +3289,7 @@ func (a *App) registerWindowShortcuts(c *gui.Context) {
 		}
 	})
 	c.OnShortcut(gui.Cmd, gui.KeyZ, func() {
-		if a.screen == screenBoard && a.session != nil && !a.askOpen && !a.settingsOpen && !a.gotoOpen && !a.webImportOpen {
+		if a.screen == screenBoard && a.session != nil && !a.askOpen && !a.settingsOpen && !a.gotoOpen && !a.webImportOpen && !a.watchFoldersOpen {
 			a.boardUndo()
 			return
 		}
@@ -3058,12 +3298,12 @@ func (a *App) registerWindowShortcuts(c *gui.Context) {
 		}
 	})
 	c.OnShortcut(gui.Cmd|gui.Shift, gui.KeyZ, func() {
-		if a.screen == screenBoard && a.session != nil && !a.askOpen && !a.settingsOpen && !a.gotoOpen && !a.webImportOpen {
+		if a.screen == screenBoard && a.session != nil && !a.askOpen && !a.settingsOpen && !a.gotoOpen && !a.webImportOpen && !a.watchFoldersOpen {
 			a.boardRedo()
 		}
 	})
 	c.OnShortcut(gui.Cmd, gui.KeyY, func() {
-		if a.screen == screenBoard && a.session != nil && !a.askOpen && !a.settingsOpen && !a.gotoOpen && !a.webImportOpen {
+		if a.screen == screenBoard && a.session != nil && !a.askOpen && !a.settingsOpen && !a.gotoOpen && !a.webImportOpen && !a.watchFoldersOpen {
 			a.boardRedo()
 		}
 	})

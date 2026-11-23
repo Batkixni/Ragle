@@ -353,82 +353,130 @@ func (a *App) arcNavItem(
 ) (gui.Element, bool) {
 	active := a.selectedNav == id
 	indent := float32(depth * 18)
+	isTag := strings.HasPrefix(id, "tag:")
+	isProject := strings.HasPrefix(id, "project:")
+	reorderable := isTag || isProject
 
-	btn := gui.ButtonBase(c.Key("nav-"+id)).
-		FillWidth().
-		Padding(7, 10, 7, 8+indent).
-		Gap(7).
-		Radius(radiusControl).
-		AlignItems(gui.Center).
-		OnClick(func() {
-			a.handleNav(id)
+	// Outer wrapper isolates assetBatchDrag drops from reorder drops (MyGo's
+	// DragOver overwrites accepts per element) and drives smooth spring FLIP
+	// movement whenever sibling order changes.
+	wrap := gui.Box(c.Key("nav-wrap-" + id)).FillWidth()
+	if reorderable {
+		wrap.Transition(gui.ElementTransition{
+			Animation: &springSnappy,
+			Position:  true,
 		})
-	if menu != nil {
-		btn.PopoverMenu(menu, a.popoverMenuOpts())
 	}
 
 	dropHover := false
 	if onDrop != nil {
-		if _, over := gui.DragOver[assetBatchDrag](btn); over {
+		if _, over := gui.DragOver[assetBatchDrag](wrap); over {
 			dropHover = true
 		}
-		if drag, ok := gui.Drop[assetBatchDrag](btn); ok && len(drag.IDs) > 0 {
+		if drag, ok := gui.Drop[assetBatchDrag](wrap); ok && len(drag.IDs) > 0 {
 			onDrop(drag.IDs)
 		}
 	}
 
-	targetFg := a.pal.inkSecondary
-	if active || btn.Hovered() || dropHover {
-		targetFg = a.pal.ink
-	}
-	fg := btn.AnimateColor("fg", targetFg, animFast)
+	var btn gui.Element
+	wrap.Children(func() {
+		btn = gui.ButtonBase(c.Key("nav-"+id)).
+			FillWidth().
+			Padding(7, 10, 7, 8+indent).
+			Gap(7).
+			Radius(radiusControl).
+			AlignItems(gui.Center).
+			OnClick(func() {
+				a.handleNav(id)
+			})
+		if menu != nil {
+			btn.PopoverMenu(menu, a.popoverMenuOpts())
+		}
 
-	if dropHover {
-		btn.Background(a.pal.surfaceActive).Border(1.5, a.pal.controlOn)
-	} else if !active {
-		hoverBg := gui.Transparent
-		if btn.Hovered() {
-			hoverBg = a.pal.surfaceMuted
+		if isTag {
+			tagID := strings.TrimPrefix(id, "tag:")
+			btn.Drag(tagReorderDrag{ID: tagID})
+			if d, over := gui.DragOver[tagReorderDrag](btn); over && d.ID != tagID {
+				a.reorderTagLive(d.ID, tagID)
+			}
+			if _, ok := gui.Drop[tagReorderDrag](btn); ok {
+				a.lastReorderPair = ""
+			}
+		} else if isProject {
+			projID := strings.TrimPrefix(id, "project:")
+			btn.Drag(projectReorderDrag{ID: projID})
+			if d, over := gui.DragOver[projectReorderDrag](btn); over && d.ID != projID {
+				a.reorderProjectLive(d.ID, projID)
+			}
+			if _, ok := gui.Drop[projectReorderDrag](btn); ok {
+				a.lastReorderPair = ""
+			}
 		}
-		btn.Background(btn.AnimateColor("hbg", hoverBg, animFast))
-	}
 
-	btn.Children(func() {
-		if hasChildren && onToggleExpand != nil {
-			chevIcon := iconChevronRgt
-			if expanded {
-				chevIcon = iconChevronDown
-			}
-			chevBtn := gui.ButtonBase(c.Key("nav-exp-"+id)).
-				Size(20, 20).
-				Center().
-				Radius(6).
-				OnClick(onToggleExpand)
-			cbg := gui.Transparent
-			cfg := a.pal.inkSecondary
-			if chevBtn.Hovered() || chevBtn.Pressed() {
-				cbg = a.pal.surfaceActive
-				cfg = a.pal.ink
-			}
-			chevBtn.Background(chevBtn.AnimateColor("cbg", cbg, animFast)).
-				TextColor(chevBtn.AnimateColor("cfg", cfg, animFast)).
-				Children(func() {
-					gui.Icon(c, chevIcon).Size(12, 12)
-				})
-		} else if depth > 0 {
-			gui.Box(c).Size(10, 1)
+		dragging := reorderable && btn.Dragging()
+		targetOp := float32(1.0)
+		if dragging {
+			targetOp = 0.24
 		}
-		if icon != nil {
-			ic := fg
-			if iconTint != nil {
-				ic = *iconTint
+		if op := btn.AnimateTo("drag-op", targetOp, animFast); op < 0.995 {
+			btn.Opacity(op)
+		}
+
+		targetFg := a.pal.inkSecondary
+		if active || btn.Hovered() || dropHover {
+			targetFg = a.pal.ink
+		}
+		fg := btn.AnimateColor("fg", targetFg, animFast)
+
+		if dropHover {
+			btn.Background(a.pal.surfaceActive).Border(1, a.pal.controlOn)
+		} else if dragging {
+			btn.Background(a.pal.surfaceMuted)
+		} else if !active {
+			hoverBg := gui.Transparent
+			if btn.Hovered() {
+				hoverBg = a.pal.surfaceMuted
 			}
-			gui.Icon(c, icon).Size(15, 15).TextColor(ic)
+			btn.Background(btn.AnimateColor("hbg", hoverBg, animFast))
 		}
-		gui.Text(c, label).FontSize(13).Bold().TextColor(fg).Grow(1).SingleLine()
-		if a.showSidebarCounts && count > 0 {
-			gui.Text(c, strconv.Itoa(count)).FontSize(11).TextColor(a.pal.inkMuted).SingleLine()
-		}
+
+		btn.Children(func() {
+			if hasChildren && onToggleExpand != nil {
+				chevIcon := iconChevronRgt
+				if expanded {
+					chevIcon = iconChevronDown
+				}
+				chevBtn := gui.ButtonBase(c.Key("nav-exp-"+id)).
+					Size(20, 20).
+					Center().
+					Radius(6).
+					OnClick(onToggleExpand)
+				cbg := gui.Transparent
+				cfg := a.pal.inkSecondary
+				if chevBtn.Hovered() || chevBtn.Pressed() {
+					cbg = a.pal.surfaceActive
+					cfg = a.pal.ink
+				}
+				chevBtn.Background(chevBtn.AnimateColor("cbg", cbg, animFast)).
+					TextColor(chevBtn.AnimateColor("cfg", cfg, animFast)).
+					Children(func() {
+						gui.Icon(c, chevIcon).Size(12, 12)
+					})
+			} else if depth > 0 {
+				gui.Box(c).Size(10, 1)
+			}
+			if icon != nil {
+				ic := fg
+				if iconTint != nil {
+					ic = *iconTint
+				}
+				gui.Icon(c, icon).Size(15, 15).TextColor(ic)
+			}
+			gui.Text(c, label).FontSize(13).Bold().TextColor(fg).Grow(1).SingleLine()
+			if a.showSidebarCounts && count > 0 {
+				gui.Text(c, strconv.Itoa(count)).FontSize(11).TextColor(a.pal.inkMuted).SingleLine()
+			}
+		})
 	})
 	return btn, active
 }
@@ -524,6 +572,10 @@ func (a *App) sidebar(c *gui.Context) {
 								chCol := gui.Column(c.Key("tag-ch-" + tagID)).
 									FillWidth().
 									Gap(2).
+									Transition(gui.ElementTransition{
+										Animation: &springSnappy,
+										Position:  true,
+									}).
 									Draw(func(p *gui.Painter, r gui.Rect) {
 										if r.H > 6 {
 											p.Fill(gui.Rect{X: r.X + lineX, Y: r.Y + 2, W: 1, H: r.H - 6}, guideCol, 0.5)
@@ -616,13 +668,38 @@ func (a *App) sidebar(c *gui.Context) {
 							})
 						})
 
-						for _, p := range a.projectList {
+						for i, p := range a.projectList {
+							idx := i
 							proj := p
 							if sf != "" && !strings.Contains(strings.ToLower(proj.Name), sf) {
 								continue
 							}
 							projID := proj.ID
-							addNav("project:"+projID, iconFolder, nil, proj.Name, 0, 0, false, false, nil, nil, func(ids []string) {
+							addNav("project:"+projID, iconFolder, nil, proj.Name, 0, 0, false, false, nil, func(m *gui.Menu) {
+								moved := false
+								if idx > 0 {
+									moved = true
+									if a.menuItem(m, iconChevronUp, a.t("common.moveUp"), "", false).Chosen() {
+										a.moveProjectOrder(projID, -1)
+									}
+								}
+								if idx < len(a.projectList)-1 {
+									moved = true
+									if a.menuItem(m, iconChevronDown, a.t("common.moveDown"), "", false).Chosen() {
+										a.moveProjectOrder(projID, 1)
+									}
+								}
+								if moved {
+									m.Separator()
+								}
+								if a.menuItem(m, iconEdit, a.t("project.edit"), "", false).Chosen() {
+									a.openProject(projID)
+									a.openEditProjectModal()
+								}
+								if a.menuItem(m, iconTrash, a.t("project.delete"), "Del", true).Chosen() {
+									a.deleteProjectPrompt(projID)
+								}
+							}, func(ids []string) {
 								a.batchReferenceToProject(ids, projID)
 							})
 						}
@@ -758,7 +835,7 @@ func (a *App) workspaceBar(c *gui.Context) {
 	bar.Children(func() {
 		gui.Row(c).Gap(8).FillHeight().AlignItems(gui.Center).DragWindow().Children(func() {
 			gui.Text(c, a.currentViewTitle()).Bold().FontSize(14).SingleLine().MaxWidth(titleMaxW)
-			if !tight {
+			if !tight && a.showSidebarCounts {
 				a.pillBadge(c, fmt.Sprintf(a.t("common.itemsCount"), len(a.assets)), a.pal.inkSecondary, a.pal.surfaceMuted)
 			}
 		})
@@ -943,6 +1020,9 @@ func (a *App) workspaceBar(c *gui.Context) {
 						switchRow("disp-sw-rating", a.t("view.showRating"), &a.showCardRating, func() {
 							a.syncConfigFromState()
 						})
+						switchRow("disp-sw-counts", a.t("pref.sbCounts"), &a.showSidebarCounts, func() {
+							a.syncConfigFromState()
+						})
 						switchRow("disp-sw-gray", a.t("view.grayscale"), &a.grayscalePreview, func() {
 							a.syncConfigFromState()
 						})
@@ -983,6 +1063,13 @@ func (a *App) workspaceBar(c *gui.Context) {
 			}
 			if a.menuItem(m, iconFolder, a.t("library.folder"), "", false).Chosen() {
 				a.startImport(true)
+			}
+			watchLabel := a.t("watch.section")
+			if len(a.watchFolders) > 0 {
+				watchLabel = fmt.Sprintf("%s (%d)", watchLabel, len(a.watchFolders))
+			}
+			if a.menuItem(m, iconRefresh, watchLabel, "", false).Chosen() {
+				a.watchFoldersOpen = true
 			}
 			m.Separator()
 			if a.menuItem(m, iconLink, a.t("webimport.menu"), "Ctrl+Shift+U", false).Chosen() {

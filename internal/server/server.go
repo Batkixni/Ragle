@@ -33,7 +33,7 @@ import (
 )
 
 const (
-	DefaultPort = 41595
+	DefaultPort = 47595
 	maxImportMB = 64 << 20
 )
 
@@ -275,6 +275,8 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/api/v1/boards/", s.handleBoardByID)
 	s.mux.HandleFunc("/api/v1/import/base64", s.requireToken(s.handleImportBase64))
 	s.mux.HandleFunc("/api/v1/import/url", s.requireToken(s.handleImportURL))
+	s.mux.HandleFunc("/api/v1/import/source", s.requireToken(s.handleImportSource))
+	s.mux.HandleFunc("/api/v1/stacks", s.requireToken(s.handleCreateStack))
 	s.mux.HandleFunc("/api/v1/rename/preview", s.requireToken(s.handleRenamePreview))
 	s.mux.HandleFunc("/api/v1/rename/apply", s.requireToken(s.handleRenameApply))
 
@@ -298,9 +300,12 @@ func (s *Server) withCORS(next http.Handler) http.Handler {
 		if origin != "" {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Vary", "Origin")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Raglex-Token, X-Raglex-Share-Password")
-			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		} else {
+			w.Header().Set("Access-Control-Allow-Origin", "*")
 		}
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Raglex-Token, X-Raglex-Share-Password")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Private-Network", "true")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
 			return
@@ -710,6 +715,8 @@ func (s *Server) handleImportBase64(w http.ResponseWriter, r *http.Request) {
 		SourceTitle string   `json:"source_title"`
 		Notes       string   `json:"notes"`
 		TagIDs      []string `json:"tag_ids"`
+		ProjectID   string   `json:"project_id"`
+		BoardID     string   `json:"board_id"`
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, maxImportMB)).Decode(&req); err != nil {
 		writeJSONError(w, http.StatusBadRequest, err.Error())
@@ -732,6 +739,7 @@ func (s *Server) handleImportBase64(w http.ResponseWriter, r *http.Request) {
 	if req.Notes != "" {
 		asset, _ = s.lib.UpdateAssetMeta(asset.ID, req.Notes, req.SourceURL, req.SourceTitle)
 	}
+	s.attachImportedDestinations([]string{asset.ID}, req.ProjectID, req.BoardID)
 	if _, err := s.lib.EnsureVisualFeatures(asset.ID); err == nil {
 		asset, _ = s.lib.Get(asset.ID)
 	}
@@ -740,6 +748,20 @@ func (s *Server) handleImportBase64(w http.ResponseWriter, r *http.Request) {
 		"added": added,
 		"asset": toAPIAsset(asset, nil),
 	})
+}
+
+func (s *Server) attachImportedDestinations(assetIDs []string, projectID, boardID string) {
+	if s.projects == nil || len(assetIDs) == 0 {
+		return
+	}
+	if pid := strings.TrimSpace(projectID); pid != "" {
+		for _, id := range assetIDs {
+			_ = s.projects.Reference(pid, id)
+		}
+	}
+	if bid := strings.TrimSpace(boardID); bid != "" {
+		_, _ = s.projects.AddAssetsToBoard(bid, assetIDs)
+	}
 }
 
 func (s *Server) handleImportURL(w http.ResponseWriter, r *http.Request) {
@@ -757,6 +779,8 @@ func (s *Server) handleImportURL(w http.ResponseWriter, r *http.Request) {
 		SourceTitle string   `json:"source_title"`
 		Notes       string   `json:"notes"`
 		TagIDs      []string `json:"tag_ids"`
+		ProjectID   string   `json:"project_id"`
+		BoardID     string   `json:"board_id"`
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 2<<20)).Decode(&req); err != nil {
 		writeJSONError(w, http.StatusBadRequest, err.Error())
@@ -819,6 +843,7 @@ func (s *Server) handleImportURL(w http.ResponseWriter, r *http.Request) {
 	if req.Notes != "" {
 		asset, _ = s.lib.UpdateAssetMeta(asset.ID, req.Notes, srcURL, req.SourceTitle)
 	}
+	s.attachImportedDestinations([]string{asset.ID}, req.ProjectID, req.BoardID)
 	if _, err := s.lib.EnsureVisualFeatures(asset.ID); err == nil {
 		asset, _ = s.lib.Get(asset.ID)
 	}
@@ -827,6 +852,103 @@ func (s *Server) handleImportURL(w http.ResponseWriter, r *http.Request) {
 		"added": added,
 		"asset": toAPIAsset(asset, nil),
 	})
+}
+
+func (s *Server) handleImportSource(w http.ResponseWriter, r *http.Request) {
+	if !s.requireLibrary(w) {
+		return
+	}
+	if r.Method != http.MethodPost {
+		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	var req struct {
+		URL             string   `json:"url"`
+		URLs            []string `json:"urls"`
+		Notes           string   `json:"notes"`
+		TagIDs          []string `json:"tag_ids"`
+		ProjectID       string   `json:"project_id"`
+		BoardID         string   `json:"board_id"`
+		AutoPlatformTag *bool    `json:"auto_platform_tag"`
+		AutoStack       *bool    `json:"auto_stack"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 2<<20)).Decode(&req); err != nil {
+		writeJSONError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	urls := append([]string(nil), req.URLs...)
+	if u := strings.TrimSpace(req.URL); u != "" {
+		urls = append(urls, u)
+	}
+	if len(urls) == 0 {
+		writeJSONError(w, http.StatusBadRequest, "missing url")
+		return
+	}
+	autoTag := true
+	if req.AutoPlatformTag != nil {
+		autoTag = *req.AutoPlatformTag
+	}
+	autoStack := true
+	if req.AutoStack != nil {
+		autoStack = *req.AutoStack
+	}
+	res, err := s.lib.ImportSourcesFromURLs(r.Context(), urls, library.SourceImportOptions{
+		TagIDs:              req.TagIDs,
+		AutoPlatformTag:     autoTag,
+		AutoStackMultiImage: autoStack,
+	})
+	if err != nil && len(res.Assets) == 0 {
+		writeJSONError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	ids := make([]string, 0, len(res.Assets))
+	apiAssets := make([]apiAsset, 0, len(res.Assets))
+	for _, a := range res.Assets {
+		if strings.TrimSpace(req.Notes) != "" {
+			a, _ = s.lib.UpdateAssetMeta(a.ID, strings.TrimSpace(req.Notes), a.SourceURL, a.SourceTitle)
+		}
+		if _, err := s.lib.EnsureVisualFeatures(a.ID); err == nil {
+			a, _ = s.lib.Get(a.ID)
+		}
+		ids = append(ids, a.ID)
+		apiAssets = append(apiAssets, toAPIAsset(a, nil))
+	}
+	s.attachImportedDestinations(ids, req.ProjectID, req.BoardID)
+	s.notifyChanged()
+	writeJSON(w, http.StatusCreated, map[string]any{
+		"added":  len(apiAssets),
+		"stacks": res.StackCount,
+		"assets": apiAssets,
+	})
+}
+
+func (s *Server) handleCreateStack(w http.ResponseWriter, r *http.Request) {
+	if !s.requireLibrary(w) {
+		return
+	}
+	if r.Method != http.MethodPost {
+		writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	var req struct {
+		Name     string   `json:"name"`
+		AssetIDs []string `json:"asset_ids"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&req); err != nil {
+		writeJSONError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if len(req.AssetIDs) < 2 {
+		writeJSONError(w, http.StatusBadRequest, "need at least 2 asset_ids to create a stack")
+		return
+	}
+	st, err := s.lib.CreateStack(req.Name, req.AssetIDs, req.AssetIDs[0])
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.notifyChanged()
+	writeJSON(w, http.StatusCreated, st)
 }
 
 func (s *Server) handleRenamePreview(w http.ResponseWriter, r *http.Request) {

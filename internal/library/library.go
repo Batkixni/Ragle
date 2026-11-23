@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -186,13 +187,102 @@ func (l *Library) SetTagColor(id, color string) error {
 	})
 }
 
-// Tags lists every tag.
+// ReorderTags persists the explicit sibling order for tags under parentID
+// (empty string for root tags) in a single atomic transaction.
+func (l *Library) ReorderTags(parentID string, orderedIDs []string) error {
+	return l.DB.Update(func(tx *bbolt.Tx) error {
+		all, err := db.ListTags(tx)
+		if err != nil {
+			return err
+		}
+		byID := make(map[string]model.Tag, len(all))
+		for _, tg := range all {
+			byID[tg.ID] = tg
+		}
+		seen := make(map[string]bool, len(orderedIDs))
+		seq := 10
+		for _, id := range orderedIDs {
+			tg, ok := byID[id]
+			if !ok || seen[id] {
+				continue
+			}
+			// Guard against cycles when moving across parents.
+			if parentID != "" && parentID != tg.ParentID {
+				walk := parentID
+				cyclic := false
+				for walk != "" {
+					if walk == id {
+						cyclic = true
+						break
+					}
+					walk = byID[walk].ParentID
+				}
+				if cyclic {
+					continue
+				}
+				tg.ParentID = parentID
+			} else if parentID == "" && tg.ParentID != "" {
+				tg.ParentID = ""
+			}
+			tg.Order = seq
+			seq += 10
+			seen[id] = true
+			if err := db.PutTag(tx, tg); err != nil {
+				return err
+			}
+		}
+		// Keep any remaining siblings in deterministic trailing order.
+		var rest []model.Tag
+		for _, tg := range all {
+			if tg.ParentID == parentID && !seen[tg.ID] {
+				rest = append(rest, tg)
+			}
+		}
+		sort.Slice(rest, func(i, j int) bool {
+			return TagLess(rest[i], rest[j])
+		})
+		for _, tg := range rest {
+			tg.Order = seq
+			seq += 10
+			if err := db.PutTag(tx, tg); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+// TagLess defines canonical display order for sibling tags: custom Order first,
+// then case-insensitive Name.
+func TagLess(a, b model.Tag) bool {
+	if a.Order != b.Order {
+		if a.Order > 0 && b.Order > 0 {
+			return a.Order < b.Order
+		}
+		if a.Order > 0 {
+			return true
+		}
+		if b.Order > 0 {
+			return false
+		}
+	}
+	la, lb := strings.ToLower(a.Name), strings.ToLower(b.Name)
+	if la != lb {
+		return la < lb
+	}
+	return a.ID < b.ID
+}
+
+// Tags lists every tag sorted by custom Order then Name.
 func (l *Library) Tags() ([]model.Tag, error) {
 	var tags []model.Tag
 	err := l.DB.View(func(tx *bbolt.Tx) error {
 		var err error
 		tags, err = db.ListTags(tx)
 		return err
+	})
+	sort.Slice(tags, func(i, j int) bool {
+		return TagLess(tags[i], tags[j])
 	})
 	return tags, err
 }

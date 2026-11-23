@@ -45,7 +45,6 @@ func (a *App) startBuiltInServer() {
 	if a.serverBindAll {
 		host = "0.0.0.0"
 	}
-	addr := fmt.Sprintf("%s:%d", host, port)
 
 	win := a.win
 	onChange := func() {
@@ -74,13 +73,43 @@ func (a *App) startBuiltInServer() {
 			mux.Handle("/mcp", mcpSrv)
 		},
 	})
-	if _, err := srv.Start(addr); err != nil {
+	basePort := port
+	var startErr error
+	usedPort := port
+	for offset := 0; offset <= 10; offset++ {
+		tryPort := basePort + offset
+		if tryPort > 65535 {
+			break
+		}
+		tryAddr := fmt.Sprintf("%s:%d", host, tryPort)
+		if _, err := srv.Start(tryAddr); err == nil {
+			usedPort = tryPort
+			startErr = nil
+			break
+		} else {
+			startErr = err
+			low := strings.ToLower(err.Error())
+			if !strings.Contains(low, "address already in use") && !strings.Contains(low, "only one usage") && !strings.Contains(low, "bind:") {
+				break
+			}
+		}
+	}
+	if startErr != nil {
 		a.serverRunning = false
-		a.notify(err.Error())
+		low := strings.ToLower(startErr.Error())
+		if strings.Contains(low, "address already in use") || strings.Contains(low, "only one usage") {
+			a.notify(fmt.Sprintf(a.t("server.portBusy"), basePort))
+		} else {
+			a.notify(startErr.Error())
+		}
 		return
 	}
 	a.localSrv = srv
 	a.serverRunning = true
+	if usedPort != basePort {
+		a.serverPortStr = strconv.Itoa(usedPort)
+		a.notify(fmt.Sprintf(a.t("server.portFallback"), basePort, usedPort))
+	}
 	a.syncConfigFromState()
 }
 

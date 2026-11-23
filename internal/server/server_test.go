@@ -9,6 +9,7 @@ import (
 	"image/color"
 	"image/png"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -132,4 +133,46 @@ func TestUnifiedServerAPIWebAndSignaling(t *testing.T) {
 		t.Fatalf("web board failed: %v", err)
 	}
 	_ = resp.Body.Close()
+
+	// 6. Multi-source companion clip (/api/v1/import/source) + auto-stack + board attachment.
+	srcSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/post":
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			_, _ = w.Write([]byte(`<html><head><script type="application/ld+json">{
+				"@type":"CreativeWork","name":"Clip Gallery","image":["/p1.png","/p2.png"]
+			}</script></head><body></body></html>`))
+		case "/p1.png":
+			w.Header().Set("Content-Type", "image/png")
+			_, _ = w.Write(makePNG(t, 16, 16, color.RGBA{255, 92, 51, 255}))
+		case "/p2.png":
+			w.Header().Set("Content-Type", "image/png")
+			_, _ = w.Write(makePNG(t, 16, 16, color.RGBA{56, 189, 248, 255}))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srcSrv.Close()
+
+	srcBody, _ := json.Marshal(map[string]any{
+		"url":        srcSrv.URL + "/post",
+		"board_id":   boardResp.ID,
+		"auto_stack": true,
+	})
+	req, _ = http.NewRequest(http.MethodPost, base+"/api/v1/import/source", bytes.NewReader(srcBody))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Raglex-Token", "secret123")
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil || resp.StatusCode != http.StatusCreated {
+		t.Fatalf("import source failed: err=%v status=%v", err, resp.StatusCode)
+	}
+	var srcResp struct {
+		Added  int `json:"added"`
+		Stacks int `json:"stacks"`
+	}
+	_ = json.NewDecoder(resp.Body).Decode(&srcResp)
+	_ = resp.Body.Close()
+	if srcResp.Added != 2 || srcResp.Stacks != 1 {
+		t.Fatalf("expected 2 assets + 1 auto stack from /api/v1/import/source, got %+v", srcResp)
+	}
 }

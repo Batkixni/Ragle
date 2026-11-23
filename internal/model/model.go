@@ -117,6 +117,7 @@ type Tag struct {
 	Name      string    `msgpack:"name"`
 	ParentID  string    `msgpack:"parent_id,omitempty"`
 	Color     string    `msgpack:"color,omitempty"`
+	Order     int       `msgpack:"order,omitempty"`
 	CreatedAt time.Time `msgpack:"created_at"`
 }
 
@@ -126,6 +127,7 @@ type Project struct {
 	ID          string    `msgpack:"id"`
 	Name        string    `msgpack:"name"`
 	Description string    `msgpack:"description"`
+	Order       int       `msgpack:"order,omitempty"`
 	CreatedAt   time.Time `msgpack:"created_at"`
 }
 

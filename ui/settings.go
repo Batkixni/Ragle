@@ -20,6 +20,7 @@ const (
 	settingsTabGeneral = iota
 	settingsTabDatabase
 	settingsTabImport
+	settingsTabExtension
 	settingsTabSharing
 	settingsTabAI
 	settingsTabPlugins
@@ -262,6 +263,7 @@ func (a *App) settingsModal(c *gui.Context) {
 			{settingsTabGeneral, iconSliders, a.t("settings.tab.general")},
 			{settingsTabDatabase, iconDatabase, a.t("settings.tab.database")},
 			{settingsTabImport, iconImport, a.t("settings.tab.import")},
+			{settingsTabExtension, iconGlobe, a.t("settings.tab.extension")},
 			{settingsTabSharing, iconShare, a.t("settings.tab.sharing")},
 			{settingsTabAI, iconSparkle, a.t("settings.tab.ai")},
 			{settingsTabPlugins, iconPalette, a.t("settings.tab.plugins")},
@@ -347,12 +349,13 @@ func (a *App) settingsModal(c *gui.Context) {
 				activeTitle := tabs[0].label
 				activeSub := a.t("settings.sub.general")
 				subKeys := map[int]string{
-					settingsTabGeneral:  "settings.sub.general",
-					settingsTabDatabase: "settings.sub.database",
-					settingsTabImport:   "settings.sub.import",
-					settingsTabSharing:  "settings.sub.sharing",
-					settingsTabAI:       "settings.sub.ai",
-					settingsTabPlugins:  "settings.sub.plugins",
+					settingsTabGeneral:   "settings.sub.general",
+					settingsTabDatabase:  "settings.sub.database",
+					settingsTabImport:    "settings.sub.import",
+					settingsTabExtension: "settings.sub.extension",
+					settingsTabSharing:   "settings.sub.sharing",
+					settingsTabAI:        "settings.sub.ai",
+					settingsTabPlugins:   "settings.sub.plugins",
 				}
 				for _, tb := range tabs {
 					if tb.id == a.settingsTab {
@@ -398,6 +401,8 @@ func (a *App) settingsModal(c *gui.Context) {
 							a.settingsDatabaseTab(c)
 						case settingsTabImport:
 							a.settingsImportTab(c)
+						case settingsTabExtension:
+							a.settingsExtensionTab(c)
 						case settingsTabSharing:
 							a.settingsSharingTab(c)
 						case settingsTabAI:
@@ -659,7 +664,7 @@ func (a *App) settingsGeneralTab(c *gui.Context) {
 			})
 		})
 
-		a.settingsIconSwitchRow(c, "pref-sb-counts", iconPanelLeft, a.t("pref.sbCounts"), &a.showSidebarCounts, func() {
+		a.settingsSwitchRowTip(c, "pref-sb-counts", iconPanelLeft, a.t("pref.sbCounts"), a.t("pref.sbCountsTip"), &a.showSidebarCounts, func() {
 			a.syncConfigFromState()
 		})
 		a.settingsIconSwitchRow(c, "pref-tag-colors", iconTag, a.t("pref.tagColors"), &a.showTagColors, func() {
@@ -1020,6 +1025,82 @@ func (a *App) settingsImportTab(c *gui.Context) {
 			a.syncConfigFromState()
 		})
 	})
+
+	// 3. 監控資料夾 (Watch Folders)
+	a.settingsSection(c, a.t("watch.section"), a.t("watch.tip"), true, func() {
+		a.watchFoldersPanel(c, "pref-wf")
+	})
+}
+
+func (a *App) settingsExtensionTab(c *gui.Context) {
+	services := c.Services()
+	tok := a.ensureServerToken()
+	addr := fmt.Sprintf("http://127.0.0.1:%s", strings.TrimSpace(a.serverPortStr))
+	if a.localSrv != nil && a.localSrv.Running() {
+		addr = a.localSrv.LocalURL()
+	}
+
+	// 1. 擴充連線 + 獨立置頂存取金鑰
+	a.settingsSection(c, a.t("ext.grpConn"), a.t("ext.connTip"), false, func() {
+		dotCol := a.pal.inkFaint
+		statusText := a.t("ext.statusOff")
+		if a.localSrv != nil && a.localSrv.Running() {
+			dotCol = gui.Hex("#10B981")
+			statusText = a.t("ext.statusOn")
+		}
+		a.settingsItemRow(c, "ext-run", iconGlobe, a.t("ext.grpConn"), "", func() {
+			gui.Row(c).Gap(8).AlignItems(gui.Center).Children(func() {
+				gui.Box(c).Size(7, 7).Radius(radiusPill).Background(dotCol)
+				gui.Text(c, statusText).FontSize(12).TextColor(a.pal.inkMuted).SingleLine()
+				a.arcSwitch(c, "pref-ext-srv-run", &a.serverRunning, func() {
+					a.toggleBuiltInServer()
+				})
+			})
+		})
+
+		a.settingsItemRow(c, "ext-key", iconLock, a.t("pref.advToken"), a.t("ext.keyTip"), func() {
+			gui.Row(c).Gap(8).AlignItems(gui.Center).Children(func() {
+				gui.Text(c, tok).FontSize(12).TextColor(a.pal.inkSecondary).MaxWidth(210).SingleLine()
+				a.arcButton(c, "pref-ext-copy-key", a.t("ext.copyKey"), true).OnClick(func() {
+					services.WriteClipboard(tok)
+					a.notify(a.t("common.copied"))
+				})
+			})
+		})
+
+		a.settingsItemRow(c, "ext-addr", iconLink, a.t("ext.addr"), a.t("ext.addrTip"), func() {
+			gui.Row(c).Gap(8).AlignItems(gui.Center).Children(func() {
+				gui.Text(c, addr).FontSize(12).TextColor(a.pal.inkMuted).SingleLine()
+				a.iconButton(c, "pref-ext-copy-addr", iconCopy, a.t("common.copyPath"), false).OnClick(func() {
+					services.WriteClipboard(addr)
+					a.notify(a.t("common.copied"))
+				})
+			})
+		})
+
+		a.settingsIconSwitchRow(c, "pref-ext-auto", iconClock, a.t("pref.advAuto"), &a.serverAutoStart, func() {
+			a.syncConfigFromState()
+		})
+	})
+
+	// 2. 安裝與步驟
+	a.settingsSection(c, a.t("ext.grpInstall"), "", true, func() {
+		a.settingsItemRow(c, "ext-chrome", iconExternal, a.t("ext.chrome"), a.t("ext.chromeTip"), func() {
+			a.toolButton(c, "pref-ext-dl-chrome", iconExternal, a.t("ext.download"), false).OnClick(func() {
+				services.OpenURL("https://github.com/Batkixni/Raglex/releases/latest")
+			})
+		})
+		a.settingsItemRow(c, "ext-firefox", iconExternal, a.t("ext.firefox"), a.t("ext.firefoxTip"), func() {
+			a.toolButton(c, "pref-ext-dl-ff", iconExternal, a.t("ext.download"), false).OnClick(func() {
+				services.OpenURL("https://github.com/Batkixni/Raglex/releases/latest")
+			})
+		})
+		gui.Text(c, a.t("ext.steps")).
+			FontSize(11.5).
+			TextColor(a.pal.inkMuted).
+			LineHeight(1.5).
+			Padding(6, 10, 2, 10)
+	})
 }
 
 func (a *App) settingsSharingTab(c *gui.Context) {
@@ -1045,7 +1126,7 @@ func (a *App) settingsSharingTab(c *gui.Context) {
 		gui.Row(c).FillWidth().Padding(4, 10).Gap(8).AlignItems(gui.Center).Children(func() {
 			gui.Icon(c, iconRefresh).Size(15, 15).TextColor(a.pal.inkSecondary)
 			gui.TextInput(c.Key("pref-sync-url"), &a.syncServerURL).
-				Placeholder("http://127.0.0.1:41595").
+				Placeholder("http://127.0.0.1:47595").
 				Grow(1).
 				OnChange(func() { a.syncConfigFromState() })
 			gui.TextInput(c.Key("pref-sync-tok"), &a.syncToken).
@@ -1123,7 +1204,7 @@ func (a *App) settingsSharingTab(c *gui.Context) {
 		if a.settingsAdvShareOpen {
 			a.settingsItemRow(c, "adv-relay", iconLink, a.t("pref.advRelay"), a.t("pref.advRelayTip"), func() {
 				gui.TextInput(c.Key("pref-signal-url"), &a.signalURL).
-					Placeholder("http://127.0.0.1:41595").
+					Placeholder("http://127.0.0.1:47595").
 					Width(240).
 					OnChange(func() {
 						a.signalURL = strings.TrimSpace(a.signalURL)
@@ -1132,7 +1213,7 @@ func (a *App) settingsSharingTab(c *gui.Context) {
 			})
 			a.settingsItemRow(c, "adv-port", iconSliders, a.t("pref.advPort"), "", func() {
 				gui.TextInput(c.Key("pref-srv-port"), &a.serverPortStr).
-					Placeholder("41595").
+					Placeholder("47595").
 					Width(96).
 					OnSubmit(func() { a.syncConfigFromState() })
 			})

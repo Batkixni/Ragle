@@ -10,6 +10,6 @@ RUN apk add --no-cache ca-certificates tzdata
 WORKDIR /app
 COPY --from=builder /out/raglex-server /usr/local/bin/raglex-server
 VOLUME ["/data/library"]
-EXPOSE 41595
+EXPOSE 47595
 ENTRYPOINT ["raglex-server"]
-CMD ["-addr", ":41595", "-library", "/data/library"]
+CMD ["-addr", ":47595", "-library", "/data/library"]

@@ -10,12 +10,12 @@ export RAGLEX_TOKEN="your-strong-secret-token"
 docker compose up -d
 ```
 
-Once running on port `41595`:
-- **Desktop Sync URL**: `http://<your-server>:41595` (enter in **Preferences → Sharing & Sync** with your `RAGLEX_TOKEN`)
-- **Mobile PWA**: Open `http://<your-server>:41595/mobile` on iOS Safari or Android Chrome → **Add to Home Screen**
-- **Public Share Links**: `http://<your-server>:41595/s/<share-id>`
-- **Cross-Network E2E Relay**: `http://<your-server>:41595` (enter as Relay Address in Preferences → Sharing → Advanced Network)
-- **MCP AI Server**: `http://<your-server>:41595/mcp`
+Once running on port `47595`:
+- **Desktop Sync URL**: `http://<your-server>:47595` (enter in **Preferences → Sharing** with your `RAGLEX_TOKEN`)
+- **Mobile PWA**: Open `http://<your-server>:47595/mobile` on iOS Safari or Android Chrome → **Add to Home Screen**
+- **Public Share Links**: `http://<your-server>:47595/s/<share-id>`
+- **Cross-Network E2E Relay**: `http://<your-server>:47595` (enter as Relay Address in Preferences → Sharing → Advanced Network)
+- **MCP AI Server**: `http://<your-server>:47595/mcp`
 
 ## Optional: Cloudflare R2 / S3 Storage (Zero Egress)
 

@@ -897,4 +897,49 @@ func TestStacksNativePreviewsAndRefWindowUI(t *testing.T) {
 	if !tt.HasText("立即更新並重啟") || !tt.HasText("稍後再說") {
 		t.Fatalf("expected auto-update popup actions, texts=%v", tt.Texts())
 	}
+	a.updatePromptOpen = false
+
+	// 5. Web Sources modal (live YouTube & RSS badges) + dedicated Watch Folders modal.
+	a.webImportOpen = true
+	a.webImportURL = "https://youtu.be/dQw4w9WgXcQ\nhttps://example.com/feed.xml"
+	tt.Frame()
+	if !tt.HasText("YouTube ×1") || !tt.HasText("RSS/Feed ×1") {
+		t.Fatalf("expected live multi-source detection badges, texts=%v", tt.Texts())
+	}
+	a.webImportOpen = false
+
+	a.watchFoldersOpen = true
+	tt.Frame()
+	if !tt.HasText("新增資料夾") || !tt.HasText("監控資料夾") {
+		t.Fatalf("expected dedicated Watch Folders modal controls, texts=%v", tt.Texts())
+	}
+	a.watchFoldersOpen = false
+
+	// 6. Custom ordering for Tags & Projects + global item count visibility toggle.
+	t1, _ := a.lib.CreateTag("TagOne")
+	t2, _ := a.lib.CreateTag("TagTwo")
+	p1, _ := a.projects.Create("ProjOne", "", []string{t1.ID})
+	p2, _ := a.projects.Create("ProjTwo", "", []string{t1.ID})
+	a.reload()
+	a.reorderTagDrop(t2.ID, t1.ID)
+	if len(a.tagChildren[""]) < 2 || a.tagChildren[""][0].ID != t2.ID {
+		t.Fatalf("expected TagTwo reordered first, got %+v", a.tagChildren[""])
+	}
+	a.reorderProjectDrop(p2.ID, p1.ID)
+	if len(a.projectList) < 2 || a.projectList[0].ID != p2.ID {
+		t.Fatalf("expected ProjTwo reordered first, got %+v", a.projectList)
+	}
+
+	// Hide all item counts across sidebar & library header.
+	a.handleNav("tag-all")
+	a.showSidebarCounts = true
+	tt.Frame()
+	if !tt.HasText("個素材") {
+		t.Fatalf("expected header items count pill when showSidebarCounts=true, texts=%v", tt.Texts())
+	}
+	a.showSidebarCounts = false
+	tt.Frame()
+	if tt.HasText("個素材") {
+		t.Fatalf("expected header items count pill hidden when showSidebarCounts=false, texts=%v", tt.Texts())
+	}
 }

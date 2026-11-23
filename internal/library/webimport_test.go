@@ -81,3 +81,57 @@ func TestImportFromURL_OGImageEndToEnd(t *testing.T) {
 		t.Fatalf("SourceTitle=%q Notes=%q", asset.SourceTitle, asset.Notes)
 	}
 }
+
+func TestImportSourcesFromURLs_MultiImageAutoStackAndBatch(t *testing.T) {
+	makePNG := func(r, g, b uint8) []byte {
+		var buf bytes.Buffer
+		img := image.NewNRGBA(image.Rect(0, 0, 20, 20))
+		img.SetNRGBA(0, 0, color.NRGBA{R: r, G: g, B: b, A: 255})
+		_ = png.Encode(&buf, img)
+		return buf.Bytes()
+	}
+	img1 := makePNG(255, 92, 51)
+	img2 := makePNG(56, 189, 248)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/gallery":
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			_, _ = w.Write([]byte(`<html><head><script type="application/ld+json">{
+				"@type": "CreativeWork",
+				"name": "Dual Poster",
+				"author": {"name": "Mina"},
+				"image": ["/a.png", "/b.png"]
+			}</script></head><body></body></html>`))
+		case "/a.png":
+			w.Header().Set("Content-Type", "image/png")
+			_, _ = w.Write(img1)
+		case "/b.png":
+			w.Header().Set("Content-Type", "image/png")
+			_, _ = w.Write(img2)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	lib, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lib.Close()
+
+	res, err := lib.ImportSourcesFromURLs(context.Background(), []string{srv.URL + "/gallery"}, SourceImportOptions{
+		AutoPlatformTag:     true,
+		AutoStackMultiImage: true,
+	})
+	if err != nil {
+		t.Fatalf("ImportSourcesFromURLs: %v", err)
+	}
+	if len(res.Assets) != 2 {
+		t.Fatalf("expected 2 imported images, got %d", len(res.Assets))
+	}
+	if res.StackCount != 1 {
+		t.Fatalf("expected 1 auto-created stack for multi-image gallery, got %d", res.StackCount)
+	}
+}

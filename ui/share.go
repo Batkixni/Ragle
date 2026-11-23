@@ -140,7 +140,7 @@ func (a *App) shareModal(c *gui.Context) {
 				if a.pairAdvRelayOpen {
 					a.settingsItemRow(c, "pair-relay", iconGlobe, a.t("pref.advRelay"), a.t("pref.advRelayTip"), func() {
 						gui.TextInput(c.Key("signal-url"), &a.signalURL).
-							Placeholder("http://127.0.0.1:41595").
+							Placeholder("http://127.0.0.1:47595").
 							Width(240)
 					})
 					gui.Row(c).FillWidth().Padding(2, 10, 6, 35).Children(func() {
@@ -233,7 +233,7 @@ func (a *App) receivePairModal(c *gui.Context) {
 					a.helpTip(c, a.t("pref.advRelayTip"))
 				})
 				gui.TextInput(c.Key("recv-signal-url"), &a.signalURL).
-					Placeholder("http://127.0.0.1:41595").
+					Placeholder("http://127.0.0.1:47595").
 					FillWidth()
 			})
 
