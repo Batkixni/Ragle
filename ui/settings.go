@@ -248,7 +248,8 @@ func (a *App) settingsModal(c *gui.Context) {
 			Height(620).
 			Radius(radiusSurface).
 			Clip().
-			Background(a.pal.canvas).
+			Background(a.popoverSurface()).
+			Border(1, a.chromeHairline()).
 			Shadow(0, 22, 54, 0, a.pal.shadowFloating)
 		applyBlurReveal(panel, "settings-modal", 0)
 
@@ -267,10 +268,18 @@ func (a *App) settingsModal(c *gui.Context) {
 
 		gui.Row(c).Fill().Children(func() {
 			// Left category sidebar with Arc gliding pill highlight.
+			navBg := a.pal.surface
+			if a.glassActive {
+				if a.dark {
+					navBg = gui.Hex("#131317")
+				} else {
+					navBg = gui.Hex("#F4F4F6")
+				}
+			}
 			gui.Column(c).
 				Width(198).
 				FillHeight().
-				Background(a.pal.surface).
+				Background(navBg).
 				Padding(18, 12, 16, 12).
 				Gap(14).
 				Children(func() {
@@ -450,9 +459,9 @@ func (a *App) settingsGeneralTab(c *gui.Context) {
 		})
 	})
 
-	// Custom theme colors group.
+	// Custom theme colors & Zeron Frosted Glass group.
 	a.settingsGroup(c, a.t("settings.customTheme"), func() {
-		presetIDs := []string{"", "graphite", "warm", "midnight", "custom"}
+		presetIDs := []string{"", "graphite", "warm", "midnight", "glass", "custom"}
 		presetSel := 0
 		for i, id := range presetIDs {
 			if a.themePreset == id {
@@ -472,6 +481,7 @@ func (a *App) settingsGeneralTab(c *gui.Context) {
 				a.t("settings.preset.graphite"),
 				a.t("settings.preset.warm"),
 				a.t("settings.preset.midnight"),
+				a.t("settings.preset.glass"),
 				a.t("settings.preset.custom"),
 			}, func(idx int) {
 				if presetIDs[idx] == "custom" {
@@ -494,6 +504,20 @@ func (a *App) settingsGeneralTab(c *gui.Context) {
 				}
 			})
 		})
+
+		a.settingsSwitchRow(c, "pref-glass-mode", a.t("settings.glassMode"), &a.glassMode, func() {
+			a.syncWindowVibrancy()
+			a.syncConfigFromState()
+		})
+		if a.glassMode {
+			gui.Row(c).FillWidth().Gap(12).AlignItems(gui.Center).Children(func() {
+				gui.Text(c, a.t("settings.glassOpacity")).FontSize(13).Grow(1)
+				gui.Text(c, fmt.Sprintf("%d%%", int(a.glassOpacity*100+0.5))).FontSize(12).TextColor(a.pal.inkSecondary)
+				gui.Slider(c.Key("pref-glass-opacity"), &a.glassOpacity, 0.30, 0.96).Width(150).OnChange(func() {
+					a.syncConfigFromState()
+				})
+			})
+		}
 
 		a.themeColorRow(c, "pref-col-canvas", a.t("settings.colorCanvas"), &a.customCanvas, a.pal.canvas, []string{"#111111", "#18191C", "#090A0D", "#FFFFFF", "#F6F3EE"})
 		a.themeColorRow(c, "pref-col-surface", a.t("settings.colorSurface"), &a.customSurface, a.pal.surface, []string{"#18181B", "#222428", "#12141A", "#F4F4F5", "#EDE8DF"})

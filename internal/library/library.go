@@ -1044,6 +1044,18 @@ func mimeOf(path string) string {
 		return "font/woff2"
 	case ".pdf":
 		return "application/pdf"
+	case ".psd", ".psb":
+		return "image/vnd.adobe.photoshop"
+	case ".ai":
+		return "application/illustrator"
+	case ".eps":
+		return "application/postscript"
+	case ".ico", ".cur":
+		return "image/x-icon"
+	case ".tga":
+		return "image/x-tga"
+	case ".cr2", ".cr3", ".nef", ".arw", ".dng", ".raf", ".orf", ".rw2", ".pef", ".srw":
+		return "image/x-raw"
 	}
 	f, err := os.Open(path)
 	if err != nil {

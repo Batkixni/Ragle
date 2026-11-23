@@ -6,6 +6,7 @@ import (
 	"image"
 	"image/color"
 	"image/jpeg"
+	"image/png"
 	"os"
 	"path/filepath"
 	"sync"
@@ -188,14 +189,51 @@ func (s *Service) build(id string) error {
 	case model.IsSVG(asset.Mime, asset.Path):
 		// SVG is rendered losslessly by the UI vector engine on demand.
 		return nil
+	case model.IsIllustrator(asset.Mime, asset.Path):
+		if !hasThumb {
+			img, err := preview.DecodeCreativeImage(asset.Path, longEdge)
+			if err != nil {
+				return err
+			}
+			fitted := imaging.Fit(img, longEdge, longEdge, imaging.Lanczos)
+			savedPath, err := saveSmartThumb(fitted, s.db.ThumbsDir(), asset.ID)
+			if err != nil {
+				return err
+			}
+			dest = savedPath
+			ph, dh, pal = ExtractVisualFromImage(fitted)
+			vec = embed.ExtractFromImage(fitted)
+		}
+	case model.IsExtraCreativeImage(asset.Mime, asset.Path):
+		var fitted image.Image
+		if !hasThumb {
+			img, err := preview.DecodeCreativeImage(asset.Path, longEdge)
+			if err != nil {
+				return err
+			}
+			fitted = imaging.Fit(img, longEdge, longEdge, imaging.Lanczos)
+			savedPath, err := saveSmartThumb(fitted, s.db.ThumbsDir(), asset.ID)
+			if err != nil {
+				return err
+			}
+			dest = savedPath
+		} else if img, err := imaging.Open(dest); err == nil {
+			fitted = img
+		}
+		if fitted != nil {
+			ph, dh, pal = ExtractVisualFromImage(fitted)
+			vec = embed.ExtractFromImage(fitted)
+		}
 	case model.MediaKind(asset.Mime) == model.MediaImage:
 		var fitted image.Image
 		if !hasThumb {
 			var err error
-			fitted, err = imageThumbAndExtract(asset.Path, dest)
+			var savedPath string
+			fitted, savedPath, err = imageThumbAndExtract(asset.Path, s.db.ThumbsDir(), asset.ID)
 			if err != nil {
 				return err
 			}
+			dest = savedPath
 		} else {
 			if img, err := imaging.Open(dest); err == nil {
 				fitted = img
@@ -272,16 +310,74 @@ func (s *Service) build(id string) error {
 	})
 }
 
-func imageThumbAndExtract(src, dest string) (image.Image, error) {
+func imageThumbAndExtract(src, thumbsDir, id string) (image.Image, string, error) {
 	img, err := imaging.Open(src, imaging.AutoOrientation(true))
 	if err != nil {
-		return nil, err
+		// Fall back to extended creative decoders (ICO, TGA, TIFF, BMP, RAW, PSD).
+		img, err = preview.DecodeCreativeImage(src, longEdge)
+		if err != nil {
+			return nil, "", err
+		}
 	}
 	fitted := imaging.Fit(img, longEdge, longEdge, imaging.Lanczos)
-	if err := saveJPEG(fitted, dest); err != nil {
-		return nil, err
+	dest, err := saveSmartThumb(fitted, thumbsDir, id)
+	if err != nil {
+		return nil, "", err
 	}
-	return fitted, nil
+	return fitted, dest, nil
+}
+
+// saveSmartThumb saves alpha-transparent thumbnails as PNG (preserving cutouts
+// for Thumbnail Background modes) and opaque thumbnails as fast JPEG.
+func saveSmartThumb(img image.Image, thumbsDir, id string) (string, error) {
+	if hasTransparentPixels(img) {
+		dest := filepath.Join(thumbsDir, id+".png")
+		if err := savePNG(img, dest); err != nil {
+			return "", err
+		}
+		return dest, nil
+	}
+	dest := filepath.Join(thumbsDir, id+".jpg")
+	if err := saveJPEG(img, dest); err != nil {
+		return "", err
+	}
+	return dest, nil
+}
+
+func hasTransparentPixels(img image.Image) bool {
+	if op, ok := img.(interface{ Opaque() bool }); ok {
+		return !op.Opaque()
+	}
+	b := img.Bounds()
+	stepX := max(1, b.Dx()/64)
+	stepY := max(1, b.Dy()/64)
+	for y := b.Min.Y; y < b.Max.Y; y += stepY {
+		for x := b.Min.X; x < b.Max.X; x += stepX {
+			_, _, _, a := img.At(x, y).RGBA()
+			if a < 0xFF00 {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func savePNG(img image.Image, dest string) error {
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		return err
+	}
+	f, err := os.Create(dest)
+	if err != nil {
+		return err
+	}
+	enc := png.Encoder{CompressionLevel: png.BestSpeed}
+	err = enc.Encode(f, img)
+	closeErr := f.Close()
+	if err != nil {
+		_ = os.Remove(dest)
+		return err
+	}
+	return closeErr
 }
 
 func saveJPEG(img image.Image, dest string) error {

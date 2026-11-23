@@ -162,8 +162,9 @@ var pairs = []pair{
 	{"inspector.added", "匯入時間", "Added"},
 	{"inspector.usedIn", "引用於專案", "Used in projects"},
 	{"inspector.usedNone", "尚未被任何專案引用", "Not referenced by any project"},
-	{"inspector.placements", "白版放置 %d 次", "%d board placements"},
+	{"inspector.placements", "白板放置 %d 次", "%d board placements"},
 	{"inspector.actions", "操作", "Actions"},
+	{"inspector.fileActions", "開啟 / 複製", "Open & Copy"},
 	{"inspector.toggle", "切換資訊欄", "Toggle inspector"},
 	{"sidebar.toggle", "切換側邊欄 (Ctrl+B)", "Toggle sidebar (Ctrl+B)"},
 	{"inspector.quickTag", "新增並套用標籤…", "Add & apply tag…"},
@@ -659,6 +660,65 @@ var pairs = []pair{
 	{"import.canceling", "正在取消…", "Canceling…"},
 	{"import.canceled", "已取消匯入：已新增 %d，已存在 %d", "Import canceled: %d added, %d existing"},
 	{"import.liveStats", "新增 %d · 已存在 %d", "%d added · %d existing"},
+
+	// Global View Display Options, Thumbnail Backgrounds & Grayscale.
+	{"view.layoutMode", "排版方式", "Layout Mode"},
+	{"view.thumbBg", "縮圖背景", "Thumbnail Background"},
+	{"view.thumbBgNone", "無", "None"},
+	{"view.thumbBgBlack", "黑", "Black"},
+	{"view.thumbBgGray", "灰", "Gray"},
+	{"view.thumbBgWhite", "白", "White"},
+	{"view.thumbBgChecker", "網格", "Checker"},
+	{"view.showTitle", "顯示標題", "Show Titles"},
+	{"view.showExt", "顯示副檔名", "Show Extension"},
+	{"view.showRating", "顯示評分", "Show Rating"},
+	{"view.grayscale", "黑白預覽", "Grayscale Preview"},
+	{"view.showSidebar", "顯示側邊欄", "Show Sidebar"},
+	{"view.showInspector", "顯示檢查器", "Show Inspector"},
+
+	// Web URL Import (og:image auto-extraction).
+	{"webimport.menu", "匯入網頁連結…", "Import Web URL…"},
+	{"webimport.title", "從網頁連結匯入圖片", "Import Image from Web URL"},
+	{"webimport.hint", "貼上任一網頁網址（自動擷取 og:image / 主圖）或圖片直連網址，並自動保留來源標題與連結。", "Paste any webpage URL (auto-fetches og:image / hero image) or direct image URL. Source title and link are saved automatically."},
+	{"webimport.placeholder", "https://example.com/article 或圖片網址…", "https://example.com/page or image URL…"},
+	{"webimport.action", "擷取並匯入", "Fetch & Import"},
+	{"webimport.fetching", "正在擷取網頁與圖片…", "Fetching page & image…"},
+	{"webimport.done", "已從網頁匯入：%s", "Imported from web: %s"},
+	{"webimport.failed", "網頁匯入失敗：%s", "Web import failed: %s"},
+	{"webimport.openPage", "在瀏覽器開啟網頁", "Open Webpage in Browser"},
+	{"webimport.copyURL", "複製網頁連結", "Copy Webpage URL"},
+	{"webimport.badge", "網頁", "Web"},
+
+	// Video Player Timeline & Audio Controls.
+	{"video.mute", "靜音", "Mute"},
+	{"video.unmute", "取消靜音", "Unmute"},
+	{"video.speed", "播放速度", "Playback Speed"},
+
+	// Upgraded Board Studio Tools & Transparent Ref Window.
+	{"board.toolPen", "畫筆 (P)", "Pen (P)"},
+	{"board.toolHighlight", "螢光筆 (M)", "Highlighter (M)"},
+	{"board.toolEraser", "橡皮擦 (E)", "Eraser (E)"},
+	{"board.toolRect", "矩形 (R)", "Rectangle (R)"},
+	{"board.toolArrow", "箭頭 (A)", "Arrow (A)"},
+	{"board.toolFrame", "分區框 (F)", "Section Frame (F)"},
+	{"board.strokeWidth", "筆畫粗細", "Stroke Width"},
+	{"board.strokeColor", "標註顏色", "Annotation Color"},
+	{"board.minimap", "導覽小地圖", "Minimap"},
+	{"board.undo", "還原 (Ctrl+Z)", "Undo (Ctrl+Z)"},
+	{"board.redo", "重做 (Ctrl+Shift+Z)", "Redo (Ctrl+Shift+Z)"},
+	{"pureref.bgOpacity", "背景透明度", "Background Opacity"},
+	{"pureref.imgOpacity", "圖片透明度", "Image Opacity"},
+	{"pureref.transparentBg", "透明背景模式", "Transparent Background"},
+	{"pureref.flipH", "水平翻轉 (H)", "Flip Horizontal (H)"},
+	{"pureref.grayscale", "黑白對照 (G)", "Grayscale (G)"},
+	{"pureref.clickThrough", "穿透點擊 (鎖定)", "Click-through Lock"},
+	{"pureref.borderless", "無邊框極簡", "Borderless"},
+
+	// Zeron-style Frosted Glass (Acrylic / Vibrancy) Theme.
+	{"settings.preset.glass", "毛玻璃", "Glass"},
+	{"settings.glassMode", "透明毛玻璃背景 (Acrylic)", "Frosted Glass Backdrop (Acrylic)"},
+	{"settings.glassOpacity", "毛玻璃濃度", "Glass Density"},
+	{"view.glassMode", "透明毛玻璃", "Frosted Glass"},
 }
 
 var (

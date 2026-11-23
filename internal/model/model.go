@@ -17,9 +17,14 @@ const (
 
 // Placement kinds.
 const (
-	KindImage = "image"
-	KindText  = "text"
-	KindGroup = "group"
+	KindImage     = "image"
+	KindText      = "text"
+	KindGroup     = "group"
+	KindStroke    = "stroke"
+	KindHighlight = "highlight"
+	KindRect      = "rect"
+	KindArrow     = "arrow"
+	KindFrame     = "frame"
 )
 
 // Media kinds used by the library filter.
@@ -62,6 +67,7 @@ type Asset struct {
 	Missing       bool           `msgpack:"missing"`
 	SourceURL     string         `msgpack:"source_url,omitempty"`
 	SourceTitle   string         `msgpack:"source_title,omitempty"`
+	IsBookmark    bool           `msgpack:"is_bookmark,omitempty"`
 	Notes         string         `msgpack:"notes,omitempty"`
 	Palette       []PaletteColor `msgpack:"palette,omitempty"`
 	PHash         uint64         `msgpack:"phash,omitempty"`
@@ -138,21 +144,26 @@ type Board struct {
 // are also relative to the parent. A parent scales and rotates its children.
 // Notes is an annotation. Text is the body of a text object.
 type Placement struct {
-	ID       string  `msgpack:"id"`
-	BoardID  string  `msgpack:"board_id"`
-	Kind     string  `msgpack:"kind"`
-	AssetID  string  `msgpack:"asset_id"`
-	ParentID string  `msgpack:"parent_id"`
-	X        float64 `msgpack:"x"`
-	Y        float64 `msgpack:"y"`
-	Width    float64 `msgpack:"width"`
-	Height   float64 `msgpack:"height"`
-	Scale    float64 `msgpack:"scale"`
-	Rotation float64 `msgpack:"rotation"`
-	ZIndex   int     `msgpack:"z_index"`
-	Notes    string  `msgpack:"notes"`
-	Text     string  `msgpack:"text"`
-	FontSize float64 `msgpack:"font_size"`
+	ID          string    `msgpack:"id"`
+	BoardID     string    `msgpack:"board_id"`
+	Kind        string    `msgpack:"kind"`
+	AssetID     string    `msgpack:"asset_id"`
+	ParentID    string    `msgpack:"parent_id"`
+	X           float64   `msgpack:"x"`
+	Y           float64   `msgpack:"y"`
+	Width       float64   `msgpack:"width"`
+	Height      float64   `msgpack:"height"`
+	Scale       float64   `msgpack:"scale"`
+	Rotation    float64   `msgpack:"rotation"`
+	ZIndex      int       `msgpack:"z_index"`
+	Notes       string    `msgpack:"notes"`
+	Text        string    `msgpack:"text"`
+	FontSize    float64   `msgpack:"font_size"`
+	Color       string    `msgpack:"color,omitempty"`
+	StrokeWidth float64   `msgpack:"stroke_width,omitempty"`
+	Points      []float64 `msgpack:"points,omitempty"` // interleaved local x,y pairs for stroke/highlight/arrow
+	Opacity     float64   `msgpack:"opacity,omitempty"`
+	Dashed      bool      `msgpack:"dashed,omitempty"`
 }
 
 // ScaleOrOne returns Scale, or 1 when it was never set.
@@ -216,4 +227,55 @@ func IsPDF(mime, path string) bool {
 		return true
 	}
 	return strings.EqualFold(filepath.Ext(path), ".pdf")
+}
+
+// IsPSD reports whether the asset is an Adobe Photoshop PSD or PSB document.
+func IsPSD(mime, path string) bool {
+	low := strings.ToLower(mime)
+	if low == "image/vnd.adobe.photoshop" || low == "application/x-photoshop" {
+		return true
+	}
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".psd", ".psb":
+		return true
+	}
+	return false
+}
+
+// IsIllustrator reports whether the asset is an Adobe Illustrator (.ai) document.
+func IsIllustrator(mime, path string) bool {
+	if strings.EqualFold(mime, "application/illustrator") {
+		return true
+	}
+	return strings.EqualFold(filepath.Ext(path), ".ai")
+}
+
+// IsEPS reports whether the asset is an Encapsulated PostScript (.eps) file.
+func IsEPS(mime, path string) bool {
+	if strings.EqualFold(mime, "application/postscript") {
+		return true
+	}
+	return strings.EqualFold(filepath.Ext(path), ".eps")
+}
+
+// IsCameraRAW reports whether the asset is a camera RAW photo with embedded JPEG preview.
+func IsCameraRAW(path string) bool {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".cr2", ".cr3", ".nef", ".arw", ".dng", ".raf", ".orf", ".rw2", ".pef", ".srw":
+		return true
+	}
+	return false
+}
+
+// IsExtraCreativeImage reports whether the file requires Raglex's extended
+// creative format decoders (PSD/PSB, EPS, ICO, TGA, Camera RAW).
+func IsExtraCreativeImage(mime, path string) bool {
+	if IsPSD(mime, path) || IsEPS(mime, path) || IsCameraRAW(path) {
+		return true
+	}
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".ico", ".cur", ".tga":
+		return true
+	}
+	return false
 }

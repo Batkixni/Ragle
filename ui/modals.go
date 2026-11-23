@@ -1,7 +1,9 @@
 package ui
 
 import (
+	"context"
 	"fmt"
+	"time"
 
 	gui "github.com/egoist/mygo/ui"
 
@@ -14,7 +16,8 @@ func (a *App) styledDialog(c *gui.Context, key string, open *bool, w, h float32,
 		panel.
 			Radius(radiusSurface).
 			Clip().
-			Background(a.pal.surfaceRaised).
+			Background(a.popoverSurface()).
+			Border(1, a.chromeHairline()).
 			Shadow(0, 22, 54, 0, a.pal.shadowFloating)
 		if w > 0 {
 			panel.Width(w)
@@ -383,4 +386,99 @@ func (a *App) editTagModal(c *gui.Context) {
 			})
 		})
 	})
+}
+
+func (a *App) webImportModal(c *gui.Context) {
+	if !a.webImportOpen {
+		return
+	}
+	a.styledDialog(c, "web-import", &a.webImportOpen, 480, 0, func(panel gui.Element) {
+		panel.Padding(22).Children(func() {
+			gui.Column(c).Gap(14).Children(func() {
+				gui.Row(c).Gap(8).AlignItems(gui.Center).Children(func() {
+					gui.Icon(c, iconGlobe).Size(18, 18).TextColor(a.pal.ink)
+					gui.Text(c, a.t("webimport.title")).FontSize(16).Bold().Grow(1)
+					a.iconButton(c, "web-imp-close", iconX, a.t("common.close"), false).OnClick(func() {
+						if !a.webImportBusy {
+							a.webImportOpen = false
+						}
+					})
+				})
+				gui.Text(c, a.t("webimport.hint")).
+					FontSize(12).
+					TextColor(a.pal.inkSecondary).
+					LineHeight(1.5)
+				gui.TextInput(c.Key("web-imp-url"), &a.webImportURL).
+					Placeholder(a.t("webimport.placeholder")).
+					FillWidth().
+					OnSubmit(func() { a.startWebImport() })
+				if a.webImportBusy {
+					gui.Row(c).Gap(8).AlignItems(gui.Center).Children(func() {
+						gui.Text(c, a.t("webimport.fetching")).FontSize(12).TextColor(a.pal.inkSecondary)
+					})
+				}
+				gui.Divider(c)
+				gui.Row(c).Gap(8).Justify(gui.End).Children(func() {
+					a.arcButton(c, "web-imp-cancel", a.t("common.cancel"), false).OnClick(func() {
+						if !a.webImportBusy {
+							a.webImportOpen = false
+						}
+					})
+					lbl := a.t("webimport.action")
+					if a.webImportBusy {
+						lbl = a.t("webimport.fetching")
+					}
+					a.arcButton(c, "web-imp-go", lbl, true).OnClick(func() {
+						a.startWebImport()
+					})
+				})
+			})
+		})
+	})
+}
+
+func (a *App) startWebImport() {
+	if a.webImportBusy || a.lib == nil {
+		return
+	}
+	rawURL := trim(a.webImportURL)
+	if rawURL == "" {
+		return
+	}
+	a.webImportBusy = true
+	win := a.win
+	lib := a.lib
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
+		defer cancel()
+		asset, err := lib.ImportFromURL(ctx, rawURL, model.StorageCopy)
+		finish := func() {
+			a.webImportBusy = false
+			if err != nil {
+				a.notify(fmt.Sprintf(a.t("webimport.failed"), err.Error()))
+				return
+			}
+			a.webImportOpen = false
+			a.webImportURL = ""
+			if a.thumbs != nil {
+				a.thumbs.Prioritize(asset.ID)
+			}
+			a.reload()
+			if a.autoSelectImported {
+				for i, it := range a.assets {
+					if it.ID == asset.ID {
+						a.assetIndex = i
+						a.selectedIDs = map[string]bool{asset.ID: true}
+						break
+					}
+				}
+			}
+			a.notify(fmt.Sprintf(a.t("webimport.done"), a.assetName(asset)))
+		}
+		if win != nil && !a.isClosed() {
+			win.Update(finish)
+		} else {
+			finish()
+		}
+	}()
 }

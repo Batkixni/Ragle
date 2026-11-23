@@ -105,7 +105,7 @@ func TestRealUserClicksEveryControl(t *testing.T) {
 	if r, ok := tt.Find("評分"); !ok {
 		t.Fatal("missing rating label in inspector")
 	} else {
-		tt.ClickAt(r.X+70, r.Y+28)
+		tt.ClickAt(r.X+200, r.Y+r.H/2)
 		updated, err := lib.Get(sel.ID)
 		if err != nil {
 			t.Fatal(err)
@@ -115,9 +115,9 @@ func TestRealUserClicksEveryControl(t *testing.T) {
 		}
 	}
 
-	// 3. Clicking Quick Preview button inside Right Inspector MUST open Lightbox, and Escape closes it!
+	// 3. Clicking Hero Preview thumbnail inside Right Inspector MUST open Preview, and Escape closes it!
 	if err := tt.Click("快速預覽"); err != nil {
-		t.Fatalf("clicking Quick Preview failed: %v", err)
+		t.Fatalf("clicking Quick Preview hero failed: %v", err)
 	}
 	if !a.previewOpen {
 		t.Fatal("preview modal did not open")
@@ -127,12 +127,34 @@ func TestRealUserClicksEveryControl(t *testing.T) {
 		t.Fatal("Escape did not close preview modal")
 	}
 
-	// 4. Clicking Copy Path inside Right Inspector MUST copy asset path!
-	if err := tt.Click("複製路徑"); err != nil {
-		t.Fatalf("clicking Copy Path failed: %v", err)
+	// 4. Hovering consolidated "開啟 / 複製" button MUST reveal Open/Reveal/Copy menu, and clicking Copy Path copies path!
+	actRect, ok := tt.Find("開啟 / 複製")
+	if !ok {
+		t.Fatalf("missing consolidated file actions button, texts=%v", tt.Texts())
 	}
+	tt.Move(actRect.X+actRect.W/2, actRect.Y+actRect.H/2)
+	tt.Advance(260 * time.Millisecond)
+	if !tt.HasText("開啟檔案") || !tt.HasText("在資料夾顯示") || !tt.HasText("複製路徑") {
+		t.Fatalf("hovering file actions button did NOT reveal menu options! texts=%v", tt.Texts())
+	}
+	copyRect, ok := tt.Find("複製路徑")
+	if !ok {
+		t.Fatalf("missing 複製路徑 item in hover menu")
+	}
+	tt.Move(copyRect.X+copyRect.W/2, copyRect.Y+copyRect.H/2)
+	tt.Advance(100 * time.Millisecond)
+	if !tt.HasText("複製路徑") {
+		t.Fatalf("hover menu collapsed when moving cursor onto menu item!")
+	}
+	tt.ClickAt(copyRect.X+copyRect.W/2, copyRect.Y+copyRect.H/2)
 	if tt.Clipboard() != sel.Path {
 		t.Fatalf("clipboard=%q, want %q", tt.Clipboard(), sel.Path)
+	}
+	// Moving pointer away from button & menu MUST collapse hover menu.
+	tt.Move(10, 10)
+	tt.Advance(300 * time.Millisecond)
+	if tt.HasText("開啟檔案") {
+		t.Fatalf("hover menu stayed open after moving pointer away")
 	}
 
 	// 5. Clicking "+ 加入專案" PopoverMenuButton inside Right Inspector MUST reference asset into Campaign!

@@ -118,7 +118,8 @@ func (a *App) renameModal(c *gui.Context) {
 			Height(590).
 			Radius(radiusSurface).
 			Clip().
-			Background(a.pal.canvas).
+			Background(a.popoverSurface()).
+			Border(1, a.chromeHairline()).
 			Shadow(0, 24, 60, 0, a.pal.shadowFloating)
 		applyBlurReveal(panel, "rename-modal", 0)
 
@@ -377,7 +378,8 @@ func (a *App) exportModal(c *gui.Context) {
 			Width(480).
 			Radius(radiusSurface).
 			Clip().
-			Background(a.pal.canvas).
+			Background(a.popoverSurface()).
+			Border(1, a.chromeHairline()).
 			Shadow(0, 24, 60, 0, a.pal.shadowFloating)
 		applyBlurReveal(panel, "export-modal", 0)
 

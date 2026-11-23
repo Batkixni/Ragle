@@ -46,7 +46,8 @@ func (a *App) onboardingModal(c *gui.Context) {
 			Height(560).
 			Radius(radiusSurface).
 			Clip().
-			Background(a.pal.canvas).
+			Background(a.popoverSurface()).
+			Border(1, a.chromeHairline()).
 			Shadow(0, 24, 60, 0, a.pal.shadowFloating)
 		applyBlurReveal(panel, "onboarding-modal", 0)
 

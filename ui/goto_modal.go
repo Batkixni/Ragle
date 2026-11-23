@@ -205,7 +205,8 @@ func (a *App) gotoModal(c *gui.Context) {
 			MaxHeight(520).
 			Radius(radiusSurface).
 			Clip().
-			Background(a.pal.surface).
+			Background(a.popoverSurface()).
+			Border(1, a.chromeHairline()).
 			Shadow(0, 24, 64, 0, a.pal.shadowFloating)
 		applyBlurReveal(panel, "goto-modal", 0)
 

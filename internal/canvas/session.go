@@ -26,6 +26,81 @@ type Session struct {
 
 	dirty      bool
 	dirtySince time.Time
+
+	undoStack []map[string]model.Placement
+	redoStack []map[string]model.Placement
+}
+
+const maxUndoDepth = 80
+
+func cloneItems(src map[string]model.Placement) map[string]model.Placement {
+	out := make(map[string]model.Placement, len(src))
+	for k, v := range src {
+		if len(v.Points) > 0 {
+			pts := make([]float64, len(v.Points))
+			copy(pts, v.Points)
+			v.Points = pts
+		}
+		out[k] = v
+	}
+	return out
+}
+
+// RecordUndo saves a deep snapshot of the current Items before a mutation.
+func (s *Session) RecordUndo() {
+	s.PushUndo(s.Items)
+}
+
+// PushUndo pushes a previously captured snapshot onto the undo stack and clears redo.
+func (s *Session) PushUndo(snap map[string]model.Placement) {
+	if snap == nil {
+		return
+	}
+	s.undoStack = append(s.undoStack, cloneItems(snap))
+	if len(s.undoStack) > maxUndoDepth {
+		s.undoStack = s.undoStack[len(s.undoStack)-maxUndoDepth:]
+	}
+	s.redoStack = nil
+}
+
+// CanUndo reports whether there is at least one state to restore.
+func (s *Session) CanUndo() bool { return len(s.undoStack) > 0 }
+
+// CanRedo reports whether there is at least one undone state to reapply.
+func (s *Session) CanRedo() bool { return len(s.redoStack) > 0 }
+
+// Undo restores the previous board state and pushes the current state to redo.
+func (s *Session) Undo() bool {
+	if len(s.undoStack) == 0 {
+		return false
+	}
+	s.redoStack = append(s.redoStack, cloneItems(s.Items))
+	prev := s.undoStack[len(s.undoStack)-1]
+	s.undoStack = s.undoStack[:len(s.undoStack)-1]
+	s.Items = prev
+	for id := range s.Selected {
+		if _, ok := s.Items[id]; !ok {
+			delete(s.Selected, id)
+		}
+	}
+	return true
+}
+
+// Redo reapplies the most recently undone board state.
+func (s *Session) Redo() bool {
+	if len(s.redoStack) == 0 {
+		return false
+	}
+	s.undoStack = append(s.undoStack, cloneItems(s.Items))
+	next := s.redoStack[len(s.redoStack)-1]
+	s.redoStack = s.redoStack[:len(s.redoStack)-1]
+	s.Items = next
+	for id := range s.Selected {
+		if _, ok := s.Items[id]; !ok {
+			delete(s.Selected, id)
+		}
+	}
+	return true
 }
 
 // NewSession copies items into a board opened at a small margin from the origin.
@@ -149,24 +224,88 @@ func (s *Session) Visible(width, height float64) []string {
 // Hit finds the front-most object under a board point.
 // A single selection's handles win over the body so they can be grabbed.
 func (s *Session) Hit(wx, wy float64) (id, part string, ok bool) {
-	handle := 8 / s.Zoom
-	if s.Zoom == 0 {
-		handle = 8
+	zoom := s.Zoom
+	if zoom == 0 {
+		zoom = 1
 	}
+	handle := 9 / zoom
 	if len(s.Selected) == 1 {
 		for sel := range s.Selected {
-			if p, hit := hitHandle(s.Items, sel, wx, wy, handle, s.Zoom); hit {
+			if p, hit := hitHandle(s.Items, sel, wx, wy, handle, zoom); hit {
 				return sel, p, true
 			}
 		}
 	}
 	order := paintOrder(s.Items)
 	for i := len(order) - 1; i >= 0; i-- {
-		if ContainsPoint(s.Items, order[i], wx, wy) {
-			return order[i], "body", true
+		cid := order[i]
+		if hitBody(s.Items, cid, wx, wy, zoom) {
+			return cid, "body", true
 		}
 	}
 	return "", "", false
+}
+
+func hitBody(items map[string]model.Placement, id string, wx, wy, zoom float64) bool {
+	p, ok := items[id]
+	if !ok {
+		return false
+	}
+	tol := math.Max(10/zoom, p.StrokeWidth/2+4/zoom)
+	switch p.Kind {
+	case model.KindArrow:
+		if len(p.Points) < 4 {
+			return ContainsPoint(items, id, wx, wy)
+		}
+		x0, y0 := localToWorld(items, id, p.Points[0], p.Points[1])
+		x1, y1 := localToWorld(items, id, p.Points[2], p.Points[3])
+		return distPointToSeg(wx, wy, x0, y0, x1, y1) <= tol
+	case model.KindStroke, model.KindHighlight:
+		if len(p.Points) < 4 {
+			return ContainsPoint(items, id, wx, wy)
+		}
+		for i := 0; i+3 < len(p.Points); i += 2 {
+			x0, y0 := localToWorld(items, id, p.Points[i], p.Points[i+1])
+			x1, y1 := localToWorld(items, id, p.Points[i+2], p.Points[i+3])
+			if distPointToSeg(wx, wy, x0, y0, x1, y1) <= tol {
+				return true
+			}
+		}
+		return false
+	case model.KindFrame:
+		lx, ly := WorldToLocal(items, id, wx, wy)
+		hw, hh := p.Width/2, p.Height/2
+		// Title label bar above top-left corner of Frame.
+		labelH := 26 / zoom
+		labelW := math.Min(math.Max(110/zoom, p.Width*0.65), p.Width)
+		if lx >= -hw-4/zoom && lx <= -hw+labelW && ly >= -hh-labelH && ly <= -hh+tol {
+			return true
+		}
+		// Frame border ring (interior stays click-through so items inside can be marquee-selected!).
+		if math.Abs(lx) <= hw+tol && math.Abs(ly) <= hh+tol {
+			if math.Abs(lx) >= hw-tol || math.Abs(ly) >= hh-tol {
+				return true
+			}
+		}
+		return false
+	default:
+		return ContainsPoint(items, id, wx, wy)
+	}
+}
+
+func distPointToSeg(px, py, x0, y0, x1, y1 float64) float64 {
+	dx, dy := x1-x0, y1-y0
+	l2 := dx*dx + dy*dy
+	if l2 < 1e-9 {
+		return math.Hypot(px-x0, py-y0)
+	}
+	t := ((px-x0)*dx + (py-y0)*dy) / l2
+	if t < 0 {
+		t = 0
+	} else if t > 1 {
+		t = 1
+	}
+	return math.Hypot(px-(x0+t*dx), py-(y0+t*dy))
 }
 
 func hitHandle(items map[string]model.Placement, id string, wx, wy, reach, zoom float64) (string, bool) {
@@ -177,6 +316,18 @@ func hitHandle(items map[string]model.Placement, id string, wx, wy, reach, zoom 
 	if zoom == 0 {
 		zoom = 1
 	}
+	// Excalidraw-style Arrow: two draggable endpoint handles (start & tip).
+	if p.Kind == model.KindArrow && len(p.Points) >= 4 {
+		x0, y0 := localToWorld(items, id, p.Points[0], p.Points[1])
+		if dist(x0, y0, wx, wy) <= reach*1.25 {
+			return "arrow-p0", true
+		}
+		x1, y1 := localToWorld(items, id, p.Points[2], p.Points[3])
+		if dist(x1, y1, wx, wy) <= reach*1.25 {
+			return "arrow-p1", true
+		}
+		return "", false
+	}
 	w := World(items, id)
 	scale := w.Scale
 	if scale == 0 {
@@ -185,6 +336,30 @@ func hitHandle(items map[string]model.Placement, id string, wx, wy, reach, zoom 
 	// Handles stay a fixed size on screen, so their local offset shrinks as the view zooms in.
 	rotateGap := (24 / zoom) / scale
 	hw, hh := p.Width/2, p.Height/2
+	if p.Kind == model.KindFrame || p.Kind == model.KindRect {
+		locals := []struct {
+			x, y float64
+			part string
+		}{
+			{-hw, -hh, "resize-tl"},
+			{hw, -hh, "resize-tr"},
+			{hw, hh, "resize-br"},
+			{-hw, hh, "resize-bl"},
+		}
+		if p.Kind == model.KindRect {
+			locals = append(locals, struct {
+				x, y float64
+				part string
+			}{0, -hh - rotateGap, "rotate"})
+		}
+		for _, h := range locals {
+			sx, sy := localToWorld(items, id, h.x, h.y)
+			if dist(sx, sy, wx, wy) <= reach {
+				return h.part, true
+			}
+		}
+		return "", false
+	}
 	locals := []struct {
 		x, y float64
 		part string
@@ -214,6 +389,98 @@ func hitHandle(items map[string]model.Placement, id string, wx, wy, reach, zoom 
 		}
 	}
 	return "", false
+}
+
+// ResizeCorner resizes a Frame or Rectangle by moving one corner handle while
+// keeping the opposite corner fixed, preserving crisp stroke width.
+func (s *Session) ResizeCorner(start map[string]model.Placement, id, part string, wx, wy float64) {
+	orig, ok := start[id]
+	if !ok {
+		return
+	}
+	cur, ok := s.Items[id]
+	if !ok {
+		return
+	}
+	left := orig.X - orig.Width/2
+	right := orig.X + orig.Width/2
+	top := orig.Y - orig.Height/2
+	bottom := orig.Y + orig.Height/2
+	switch part {
+	case "resize-tl":
+		left, top = wx, wy
+	case "resize-tr":
+		right, top = wx, wy
+	case "resize-br":
+		right, bottom = wx, wy
+	case "resize-bl":
+		left, bottom = wx, wy
+	default:
+		return
+	}
+	if right < left {
+		left, right = right, left
+	}
+	if bottom < top {
+		top, bottom = bottom, top
+	}
+	w := math.Max(24, right-left)
+	h := math.Max(24, bottom-top)
+	cur.X = (left + right) / 2
+	cur.Y = (top + bottom) / 2
+	cur.Width = w
+	cur.Height = h
+	cur.Scale = 1
+	s.Items[id] = cur
+}
+
+// SetArrowEndpoint repositions either the start (idx=0) or tip (idx=1) of an
+// arrow in world coordinates and normalizes its center & local Points.
+func (s *Session) SetArrowEndpoint(id string, idx int, wx, wy float64) {
+	item, ok := s.Items[id]
+	if !ok || item.Kind != model.KindArrow || len(item.Points) < 4 {
+		return
+	}
+	x0, y0 := item.X+item.Points[0], item.Y+item.Points[1]
+	x1, y1 := item.X+item.Points[2], item.Y+item.Points[3]
+	if idx == 0 {
+		x0, y0 = wx, wy
+	} else {
+		x1, y1 = wx, wy
+	}
+	cx := (x0 + x1) / 2
+	cy := (y0 + y1) / 2
+	item.X = cx
+	item.Y = cy
+	item.Width = math.Max(16, math.Abs(x1-x0))
+	item.Height = math.Max(16, math.Abs(y1-y0))
+	item.Scale = 1
+	item.Rotation = 0
+	item.Points = []float64{x0 - cx, y0 - cy, x1 - cx, y1 - cy}
+	s.Items[id] = item
+}
+
+// FrameContainedIDs returns all top-level non-frame item IDs whose center lies
+// inside the given Frame so dragging a Section Frame moves its contents together.
+func (s *Session) FrameContainedIDs(frameID string) []string {
+	fr, ok := s.Items[frameID]
+	if !ok || fr.Kind != model.KindFrame {
+		return nil
+	}
+	minX := fr.X - fr.Width/2
+	maxX := fr.X + fr.Width/2
+	minY := fr.Y - fr.Height/2
+	maxY := fr.Y + fr.Height/2
+	var out []string
+	for id, it := range s.Items {
+		if id == frameID || it.ParentID != "" || it.Kind == model.KindFrame {
+			continue
+		}
+		if it.X >= minX && it.X <= maxX && it.Y >= minY && it.Y <= maxY {
+			out = append(out, id)
+		}
+	}
+	return out
 }
 
 func localToWorld(items map[string]model.Placement, id string, lx, ly float64) (float64, float64) {
@@ -365,6 +632,16 @@ func (s *Session) PlaceText(text string, x, y float64) string {
 		Kind: model.KindText, Text: text,
 		X: x, Y: y, Width: 240, Height: 72, Scale: 1, FontSize: 18,
 	})
+}
+
+// PlaceAnnotation adds a drawn stroke, highlighter, rectangle, arrow, or section frame.
+// Frames automatically sit behind images so artwork inside them stays interactive.
+func (s *Session) PlaceAnnotation(p model.Placement) string {
+	id := s.add(p)
+	if p.Kind == model.KindFrame {
+		s.BringBack(id)
+	}
+	return id
 }
 
 func fitBox(w, h float64) (float64, float64) {

@@ -17,21 +17,28 @@ type Config struct {
 	CardSize     float64 `json:"card_size,omitempty"`
 
 	// Custom theme colors (optional overrides applied on top of light/dark mode).
-	ThemePreset   string `json:"theme_preset,omitempty"`   // "", "graphite", "warm", "midnight", "custom"
-	CustomCanvas  string `json:"custom_canvas,omitempty"`  // #RRGGBB
-	CustomSurface string `json:"custom_surface,omitempty"` // #RRGGBB
-	CustomAccent  string `json:"custom_accent,omitempty"`  // #RRGGBB
-	CustomText    string `json:"custom_text,omitempty"`    // #RRGGBB
+	ThemePreset   string   `json:"theme_preset,omitempty"`   // "", "graphite", "warm", "midnight", "glass", "custom"
+	CustomCanvas  string   `json:"custom_canvas,omitempty"`  // #RRGGBB
+	CustomSurface string   `json:"custom_surface,omitempty"` // #RRGGBB
+	CustomAccent  string   `json:"custom_accent,omitempty"`  // #RRGGBB
+	CustomText    string   `json:"custom_text,omitempty"`    // #RRGGBB
+	GlassMode     *bool    `json:"glass_mode,omitempty"`
+	GlassOpacity  *float64 `json:"glass_opacity,omitempty"`
 
 	// Onboarding state (shown automatically on first launch).
 	OnboardingDone bool `json:"onboarding_done,omitempty"`
 
 	// Workspace & appearance preferences.
-	ShowSidebarCounts *bool  `json:"show_sidebar_counts,omitempty"`
-	ShowTagColors     *bool  `json:"show_tag_colors,omitempty"`
-	ShowCardCaption   *bool  `json:"show_card_caption,omitempty"`
-	DefaultSort       int    `json:"default_sort,omitempty"`
-	LayoutMode        string `json:"layout_mode,omitempty"` // "bento", "masonry", "grid"
+	ShowSidebarCounts *bool    `json:"show_sidebar_counts,omitempty"`
+	ShowTagColors     *bool    `json:"show_tag_colors,omitempty"`
+	ShowCardCaption   *bool    `json:"show_card_caption,omitempty"`
+	ShowCardExt       *bool    `json:"show_card_ext,omitempty"`
+	ShowCardRating    *bool    `json:"show_card_rating,omitempty"`
+	ThumbBg           string   `json:"thumb_bg,omitempty"` // "", "black", "gray", "white", "checker"
+	GrayscalePreview  bool     `json:"grayscale_preview,omitempty"`
+	PureRefBgOpacity  *float64 `json:"pureref_bg_opacity,omitempty"`
+	DefaultSort       int      `json:"default_sort,omitempty"`
+	LayoutMode        string   `json:"layout_mode,omitempty"` // "bento", "masonry", "grid"
 
 	// Import preferences.
 	DefaultStorageMode   string `json:"default_storage_mode,omitempty"` // "index", "symlink", "move", "copy"

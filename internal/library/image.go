@@ -10,9 +10,14 @@ import (
 	_ "golang.org/x/image/bmp"
 	_ "golang.org/x/image/tiff"
 	_ "golang.org/x/image/webp"
+
+	"raglex/internal/preview"
 )
 
 func imageSize(path string) (int, int) {
+	if w, h := preview.CreativeImageSize(path); w > 0 && h > 0 {
+		return w, h
+	}
 	f, err := os.Open(path)
 	if err != nil {
 		return 0, 0

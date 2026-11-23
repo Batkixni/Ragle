@@ -3,6 +3,8 @@ package ui
 import (
 	"fmt"
 	"math"
+	"net/url"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -126,11 +128,13 @@ type palette struct {
 // themeOverrides lets users pick a built-in studio preset or customize
 // canvas, surface, accent, and text colors in Preferences.
 type themeOverrides struct {
-	preset  string
-	canvas  string
-	surface string
-	accent  string
-	text    string
+	preset     string
+	canvas     string
+	surface    string
+	accent     string
+	text       string
+	glass      bool
+	glassAlpha float32
 }
 
 type themePresetSpec struct {
@@ -147,6 +151,7 @@ var themePresets = []themePresetSpec{
 	{id: "graphite", dark: true, canvas: "#18191C", surface: "#222428", accent: "#E4E4E7", text: "#F4F5F7"},
 	{id: "warm", dark: false, canvas: "#F6F3EE", surface: "#EDE8DF", accent: "#1F1B17", text: "#1F1B17"},
 	{id: "midnight", dark: true, canvas: "#090A0D", surface: "#12141A", accent: "#FFFFFF", text: "#FAFAFA"},
+	{id: "glass", dark: true, canvas: "#0C0C10", surface: "#18181E", accent: "#EDEDED", text: "#FAFAFA"},
 }
 
 func parseHexColor(s string) (gui.Color, bool) {
@@ -282,6 +287,41 @@ func makeThemeWithOverrides(dark bool, ov themeOverrides) (*gui.Theme, palette, 
 		t.TextMuted = p.inkSecondary
 	}
 	_ = hasCustom
+	if ov.glass {
+		alpha := ov.glassAlpha
+		if alpha < 0.25 || alpha > 0.96 {
+			alpha = 0.85
+		}
+		sideAlpha := alpha * 0.78
+		if sideAlpha < 0.20 {
+			sideAlpha = 0.20
+		}
+		p.canvas = gui.RGBA(p.canvas.R, p.canvas.G, p.canvas.B, alpha)
+		p.surface = gui.RGBA(p.surface.R, p.surface.G, p.surface.B, sideAlpha)
+		p.paper = gui.RGBA(p.paper.R, p.paper.G, p.paper.B, alpha*0.88)
+		// Critical: root Theme.Background must be transparent so Windows 11 Acrylic /
+		// macOS Vibrancy blurs the desktop wallpaper cleanly behind our smoked glass layers,
+		// while Theme.Surface stays SOLID so built-in AlertDialog / PopoverMenu / Tooltips
+		// never become see-through over background artwork!
+		t.Background = gui.Transparent
+		if dark {
+			t.Surface = gui.Hex("#18181D")
+			p.surfaceRaised = gui.RGBA(255, 255, 255, 0.055)
+			p.surfaceMuted = gui.RGBA(255, 255, 255, 0.105)
+			p.surfaceActive = gui.RGBA(255, 255, 255, 0.165)
+			p.pillTrack = gui.RGBA(0, 0, 0, 0.28)
+			p.pillActive = gui.RGBA(255, 255, 255, 0.14)
+		} else {
+			t.Surface = gui.Hex("#FFFFFF")
+			p.surfaceRaised = gui.RGBA(255, 255, 255, 0.56)
+			p.surfaceMuted = gui.RGBA(0, 0, 0, 0.065)
+			p.surfaceActive = gui.RGBA(0, 0, 0, 0.12)
+			p.pillTrack = gui.RGBA(0, 0, 0, 0.08)
+			p.pillActive = gui.RGBA(255, 255, 255, 0.76)
+		}
+		t.SurfaceHover = p.surfaceMuted
+		t.SurfacePressed = p.surfaceActive
+	}
 	return t, p, dark
 }
 
@@ -887,4 +927,146 @@ func aspectRatioLabel(w, h int) string {
 		return fmt.Sprintf("%.2f:1", float64(w)/float64(h))
 	}
 	return fmt.Sprintf("%d:%d", rw, rh)
+}
+
+// chromeHairline returns a crisp 1px edge-to-edge panel separator color.
+func (a *App) chromeHairline() gui.Color {
+	if a.glassActive {
+		if a.dark {
+			return gui.RGBA(255, 255, 255, 0.11)
+		}
+		return gui.RGBA(0, 0, 0, 0.10)
+	}
+	if a.dark {
+		return gui.RGBA(255, 255, 255, 0.08)
+	}
+	return gui.RGBA(0, 0, 0, 0.09)
+}
+
+// popoverSurface returns a crisp, solid backdrop for floating menus, popovers,
+// and modals so overlay text stays razor-legible even in Frosted Glass mode.
+func (a *App) popoverSurface() gui.Color {
+	if !a.glassActive {
+		return a.pal.surfaceRaised
+	}
+	if a.dark {
+		return gui.Hex("#18181D")
+	}
+	return gui.Hex("#FFFFFF")
+}
+
+// paintCheckerboard draws a neutral transparency grid inside r (ideal for
+// transparent PNG/SVG/PSD/WebP assets with either light or dark graphics).
+func (a *App) paintCheckerboard(p *gui.Painter, r gui.Rect, cell float32) {
+	if cell < 4 {
+		cell = 10
+	}
+	c1 := gui.Hex("#323238")
+	c2 := gui.Hex("#242429")
+	if !a.dark {
+		c1 = gui.Hex("#EAEAEF")
+		c2 = gui.Hex("#D4D4DC")
+	}
+	p.Fill(r, c2, 0)
+	for y := r.Y; y < r.Y+r.H; y += cell {
+		row := int((y - r.Y) / cell)
+		h := cell
+		if y+h > r.Y+r.H {
+			h = r.Y + r.H - y
+		}
+		for x := r.X; x < r.X+r.W; x += cell {
+			col := int((x - r.X) / cell)
+			if (row+col)%2 != 0 {
+				continue
+			}
+			w := cell
+			if x+w > r.X+r.W {
+				w = r.X + r.W - x
+			}
+			p.Fill(gui.Rect{X: x, Y: y, W: w, H: h}, c1, 0)
+		}
+	}
+}
+
+// thumbBgSolidColor returns the solid fill for a non-checker thumbnail background.
+func (a *App) thumbBgSolidColor() (gui.Color, bool) {
+	switch a.thumbBg {
+	case "black":
+		return gui.Hex("#09090B"), true
+	case "gray":
+		return gui.Hex("#6B7280"), true
+	case "white":
+		return gui.Hex("#F4F4F5"), true
+	default:
+		return gui.Transparent, false
+	}
+}
+
+// applyThumbBg styles an image container element according to the global
+// Thumbnail Background preference ("", "black", "gray", "white", "checker").
+func (a *App) applyThumbBg(el gui.Element, fallback gui.Color, cell float32) {
+	if a.thumbBg == "checker" {
+		el.Draw(func(p *gui.Painter, r gui.Rect) {
+			a.paintCheckerboard(p, r, cell)
+		})
+		return
+	}
+	if col, ok := a.thumbBgSolidColor(); ok {
+		el.Background(col)
+		return
+	}
+	el.Background(fallback)
+}
+
+// setThumbBg updates the global thumbnail background and refreshes any
+// alpha-capable assets whose cached thumbnail was an opaque JPEG.
+func (a *App) setThumbBg(mode string) {
+	if a.thumbBg == mode {
+		return
+	}
+	a.thumbBg = mode
+	a.syncConfigFromState()
+	if mode != "" {
+		// Evict cached opaque .jpg bitmaps of alpha-capable files so they
+		// reload with real alpha transparency immediately!
+		for _, asset := range a.allAssets {
+			if hasAlphaFormat(asset.Mime, asset.Path) && strings.HasSuffix(strings.ToLower(asset.ThumbnailPath), ".jpg") {
+				delete(a.bitmaps, asset.ID)
+				delete(a.bitmapPaths, asset.ID)
+			}
+		}
+	}
+}
+
+func hasAlphaFormat(mime, path string) bool {
+	ext := strings.ToLower(filepath.Ext(path))
+	switch ext {
+	case ".png", ".webp", ".gif", ".ico", ".svg", ".psd", ".psb", ".tga", ".tif", ".tiff":
+		return true
+	}
+	low := strings.ToLower(mime)
+	return strings.Contains(low, "png") || strings.Contains(low, "webp") || strings.Contains(low, "svg") || strings.Contains(low, "photoshop") || strings.Contains(low, "gif")
+}
+
+func normalizeWebURL(raw string) string {
+	s := strings.TrimSpace(raw)
+	if s == "" {
+		return ""
+	}
+	low := strings.ToLower(s)
+	if strings.HasPrefix(low, "http://") || strings.HasPrefix(low, "https://") {
+		return s
+	}
+	if strings.Contains(s, ".") && !strings.ContainsAny(s, " \t\r\n") {
+		return "https://" + s
+	}
+	return ""
+}
+
+func shortWebHost(raw string) string {
+	u, err := url.Parse(normalizeWebURL(raw))
+	if err != nil || u.Host == "" {
+		return ""
+	}
+	return strings.TrimPrefix(strings.ToLower(u.Host), "www.")
 }

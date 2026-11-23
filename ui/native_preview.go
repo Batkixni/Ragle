@@ -16,15 +16,20 @@ import (
 	"raglex/internal/preview"
 )
 
-func rgbaToBitmap(img *image.RGBA) (*gui.Bitmap, error) {
+func imageToBitmap(img image.Image) (*gui.Bitmap, error) {
 	if img == nil {
 		return nil, os.ErrInvalid
 	}
 	var buf bytes.Buffer
-	if err := png.Encode(&buf, img); err != nil {
+	enc := png.Encoder{CompressionLevel: png.BestSpeed}
+	if err := enc.Encode(&buf, img); err != nil {
 		return nil, err
 	}
 	return gui.DecodeBitmap(buf.Bytes())
+}
+
+func rgbaToBitmap(img *image.RGBA) (*gui.Bitmap, error) {
+	return imageToBitmap(img)
 }
 
 // loadNativeFormatPreview loads Font, Audio, SVG, or PDF preview state when
@@ -40,7 +45,7 @@ func (a *App) loadNativeFormatPreview(asset model.Asset) bool {
 	case model.IsAudio(asset.Mime, asset.Path):
 		a.loadAudioPreview(asset)
 		return true
-	case model.IsPDF(asset.Mime, asset.Path):
+	case model.IsPDF(asset.Mime, asset.Path) || model.IsIllustrator(asset.Mime, asset.Path):
 		a.loadPDFPreview(asset, 0)
 		return true
 	}

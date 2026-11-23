@@ -109,7 +109,8 @@ func (a *App) tagManagerModal(c *gui.Context) {
 			Height(560).
 			Radius(radiusSurface).
 			Clip().
-			Background(a.pal.canvas).
+			Background(a.popoverSurface()).
+			Border(1, a.chromeHairline()).
 			Shadow(0, 22, 54, 0, a.pal.shadowFloating)
 		applyBlurReveal(panel, "tag-manager-modal", 0)
 

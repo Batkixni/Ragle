@@ -17,6 +17,7 @@ import (
 
 	"github.com/egoist/mygo"
 	gui "github.com/egoist/mygo/ui"
+	"github.com/egoist/mygo/ui/video"
 
 	"raglex/internal/ai/laya"
 	"raglex/internal/canvas"
@@ -199,8 +200,13 @@ type App struct {
 	inspectorPlaces   int
 	quickTagName      string
 	inspectorNotes    string
-	inspectorSrcURL   string
-	inspectorMetaID   string
+	inspectorSrcURL    string
+	inspectorMetaID    string
+	inspFileMenuOpen       bool
+	inspFileMenuPinned     bool
+	inspFilePrevMode       bool
+	inspFileSuppressHover  bool
+	inspFileSuppressFrames int
 
 	// Stage 12: Batch Rename & Batch Export modals.
 	renameOpen       bool
@@ -279,6 +285,21 @@ type App struct {
 	previewPDFPage      int
 	previewPDFPages     int
 	previewPDFGen       int
+	previewPanX         float64
+	previewPanY         float64
+	previewDragging     bool
+	previewDragX        float64
+	previewDragY        float64
+	previewDragStartX   float64
+	previewDragStartY   float64
+	previewStageW       float32
+	previewStageH       float32
+	previewMiniDrag     bool
+	previewVideoVol     float64
+	previewVideoMuted   bool
+	previewVideoRate    float64
+	previewScrubbing    bool
+	previewScrubVal     float64
 
 	// Asset Stacks state.
 	stacks             []model.Stack
@@ -287,20 +308,26 @@ type App struct {
 	openStackID        string
 
 	// PureRef-style Always-on-Top Floating Reference Window state.
-	boardAlwaysOnTop bool
-	pureRefWin       *mygo.Window
-	pureRefPinned    bool
-	pureRefOpacity   float64
-	pureRefPanX      float64
-	pureRefPanY      float64
-	pureRefZoom      float64
-	pureRefDragging  bool
-	pureRefDragX     float64
-	pureRefDragY     float64
-	pureRefStartPanX float64
-	pureRefStartPanY float64
-	pureRefViewW     float32
-	pureRefViewH     float32
+	boardAlwaysOnTop    bool
+	pureRefWin          *mygo.Window
+	pureRefPinned       bool
+	pureRefOpacity      float64
+	pureRefBgOpacity    float64
+	pureRefImgOpacity   float64
+	pureRefFlipH        bool
+	pureRefGray         bool
+	pureRefClickThrough bool
+	pureRefBorderless   bool
+	pureRefPanX         float64
+	pureRefPanY         float64
+	pureRefZoom         float64
+	pureRefDragging     bool
+	pureRefDragX        float64
+	pureRefDragY        float64
+	pureRefStartPanX    float64
+	pureRefStartPanY    float64
+	pureRefViewW        float32
+	pureRefViewH        float32
 
 	// Inspector Info / Similar tabs.
 	inspectorTab         int // 0 = Info, 1 = Similar
@@ -316,12 +343,15 @@ type App struct {
 	// Random discovery seed.
 	randomSeed int64
 
-	// Custom theme overrides.
+	// Custom theme overrides & Zeron-style Frosted Glass (Acrylic / Vibrancy).
 	themePreset   string
 	customCanvas  string
 	customSurface string
 	customAccent  string
 	customText    string
+	glassMode     bool
+	glassOpacity  float64
+	glassActive   bool
 
 	// First-run onboarding guide modal state.
 	onboardingDone     bool
@@ -336,6 +366,14 @@ type App struct {
 	showSidebarCounts    bool
 	showTagColors        bool
 	showCardCaption      bool
+	showCardExt          bool
+	showCardRating       bool
+	thumbBg              string // "", "black", "gray", "white", "checker"
+	grayscalePreview     bool
+	displayPopoverOpen   bool
+	webImportOpen        bool
+	webImportURL         string
+	webImportBusy        bool
 	autoSelectImported   bool
 	autoTagOnImport      bool
 	ignoreHiddenOnImport bool
@@ -353,9 +391,11 @@ type App struct {
 	newStandaloneBoardOpen bool
 	newStandaloneBoardName string
 	projectID              string
-	project       model.Project
-	projectAssets []model.Asset
-	boards        []model.Board
+	project                model.Project
+	projectAssets          []model.Asset
+	projSearchQuery        string
+	projKindFilter         int
+	boards                 []model.Board
 	referenceMode bool
 
 	// Inline & modal creation/editing forms.
@@ -377,6 +417,10 @@ type App struct {
 	tray               int
 	boardDrawerOpen    bool
 	boardInspectorOpen bool
+	boardShowMinimap   bool
+	boardStrokeColor   string
+	boardStrokeWidth   float64
+	boardMiniDrag      bool
 	gesture            gesture
 	spaceDown          bool
 	focusBoard         bool
@@ -470,6 +514,16 @@ func NewApp() *App {
 		showSidebarCounts:    true,
 		showTagColors:        true,
 		showCardCaption:      true,
+		showCardExt:          true,
+		showCardRating:       true,
+		previewVideoVol:      1.0,
+		previewVideoRate:     1.0,
+		pureRefBgOpacity:     0.88,
+		pureRefImgOpacity:    1.0,
+		boardShowMinimap:     true,
+		boardStrokeColor:     "#FF5C33",
+		boardStrokeWidth:     3.0,
+		glassOpacity:         0.85,
 		autoSelectImported:   true,
 		autoTagOnImport:      true,
 		ignoreHiddenOnImport: true,
@@ -548,9 +602,11 @@ func Run() error {
 			MinHeight:         640,
 			TitleBarStyle:     mygo.TitleBarHidden,
 			HideWindowButtons: true,
+			Vibrancy:          mygo.VibrancyAcrylic,
 			StateKey:          "main",
 			Content:           gui.View(a.View),
 		})
+		a.syncWindowVibrancy()
 		a.win.OnClosed(func() { a.shutdown() })
 		a.startShare()
 		a.startQuietUpdateCheck()
@@ -578,6 +634,12 @@ func (a *App) applyConfig(cfg config.Config) {
 	a.customSurface = cfg.CustomSurface
 	a.customAccent = cfg.CustomAccent
 	a.customText = cfg.CustomText
+	a.glassMode = config.BoolOr(cfg.GlassMode, cfg.ThemePreset == "glass")
+	if cfg.GlassOpacity != nil && *cfg.GlassOpacity >= 0.25 && *cfg.GlassOpacity <= 0.96 {
+		a.glassOpacity = *cfg.GlassOpacity
+	} else {
+		a.glassOpacity = 0.85
+	}
 	a.onboardingDone = cfg.OnboardingDone
 	if cfg.CardSize >= 120 && cfg.CardSize <= 320 {
 		a.cardSize = cfg.CardSize
@@ -597,6 +659,19 @@ func (a *App) applyConfig(cfg config.Config) {
 	a.showSidebarCounts = config.BoolOr(cfg.ShowSidebarCounts, true)
 	a.showTagColors = config.BoolOr(cfg.ShowTagColors, true)
 	a.showCardCaption = config.BoolOr(cfg.ShowCardCaption, true)
+	a.showCardExt = config.BoolOr(cfg.ShowCardExt, true)
+	a.showCardRating = config.BoolOr(cfg.ShowCardRating, true)
+	switch cfg.ThumbBg {
+	case "", "black", "gray", "white", "checker":
+		a.thumbBg = cfg.ThumbBg
+	}
+	a.grayscalePreview = cfg.GrayscalePreview
+	if cfg.PureRefBgOpacity != nil {
+		v := *cfg.PureRefBgOpacity
+		if v >= 0 && v <= 1 {
+			a.pureRefBgOpacity = v
+		}
+	}
 	a.autoSelectImported = config.BoolOr(cfg.AutoSelectImported, true)
 	a.autoTagOnImport = config.BoolOr(cfg.AutoTagOnImport, true)
 	a.ignoreHiddenOnImport = config.BoolOr(cfg.IgnoreHiddenOnImport, true)
@@ -635,6 +710,9 @@ func (a *App) syncConfigFromState() {
 	a.cfg.CustomSurface = strings.TrimSpace(a.customSurface)
 	a.cfg.CustomAccent = strings.TrimSpace(a.customAccent)
 	a.cfg.CustomText = strings.TrimSpace(a.customText)
+	a.cfg.GlassMode = config.BoolPtr(a.glassMode)
+	goOp := a.glassOpacity
+	a.cfg.GlassOpacity = &goOp
 	a.cfg.OnboardingDone = a.onboardingDone
 	a.cfg.CardSize = a.cardSize
 	a.cfg.DefaultSort = a.sortBy
@@ -645,6 +723,12 @@ func (a *App) syncConfigFromState() {
 	a.cfg.ShowSidebarCounts = config.BoolPtr(a.showSidebarCounts)
 	a.cfg.ShowTagColors = config.BoolPtr(a.showTagColors)
 	a.cfg.ShowCardCaption = config.BoolPtr(a.showCardCaption)
+	a.cfg.ShowCardExt = config.BoolPtr(a.showCardExt)
+	a.cfg.ShowCardRating = config.BoolPtr(a.showCardRating)
+	a.cfg.ThumbBg = a.thumbBg
+	a.cfg.GrayscalePreview = a.grayscalePreview
+	bgOp := a.pureRefBgOpacity
+	a.cfg.PureRefBgOpacity = &bgOp
 	a.cfg.AutoSelectImported = config.BoolPtr(a.autoSelectImported)
 	a.cfg.AutoTagOnImport = config.BoolPtr(a.autoTagOnImport)
 	a.cfg.IgnoreHiddenOnImport = config.BoolPtr(a.ignoreHiddenOnImport)
@@ -687,6 +771,17 @@ func (a *App) setLayoutMode(mode string) {
 	a.syncConfigFromState()
 }
 
+func (a *App) syncWindowVibrancy() {
+	if a.win == nil || a.win.IsDestroyed() {
+		return
+	}
+	if a.glassMode {
+		a.win.SetVibrancy(mygo.VibrancyAcrylic)
+	} else {
+		a.win.SetVibrancy(mygo.VibrancyNone)
+	}
+}
+
 func (a *App) applyThemePreset(preset string) {
 	a.themePreset = preset
 	if preset == "" {
@@ -694,7 +789,9 @@ func (a *App) applyThemePreset(preset string) {
 		a.customSurface = ""
 		a.customAccent = ""
 		a.customText = ""
+		a.glassMode = false
 	} else {
+		a.glassMode = preset == "glass"
 		for _, pr := range themePresets {
 			if pr.id == preset {
 				a.customCanvas = pr.canvas
@@ -705,6 +802,7 @@ func (a *App) applyThemePreset(preset string) {
 			}
 		}
 	}
+	a.syncWindowVibrancy()
 	a.syncConfigFromState()
 }
 
@@ -714,6 +812,9 @@ func (a *App) resetCustomTheme() {
 	a.customSurface = ""
 	a.customAccent = ""
 	a.customText = ""
+	a.glassMode = false
+	a.glassOpacity = 0.85
+	a.syncWindowVibrancy()
 	a.syncConfigFromState()
 }
 
@@ -1340,6 +1441,8 @@ func (a *App) syncInspectorSelection(force bool) {
 		return
 	}
 	a.inspectorAssetID = asset.ID
+	a.inspFileMenuOpen = false
+	a.inspFileMenuPinned = false
 	a.inspectorRating = asset.Rating
 	a.inspectorFileSize = 0
 	if !asset.Missing && asset.Path != "" {
@@ -1566,7 +1669,13 @@ func (a *App) requestCardBitmap(asset model.Asset) *gui.Bitmap {
 		return nil
 	}
 	if asset.ThumbnailPath != "" {
-		a.ensureBitmap(asset.ID, asset.ThumbnailPath)
+		// If Thumbnail Background is active and this alpha-capable asset has a legacy
+		// opaque .jpg thumbnail, load from source path so transparency shows cleanly.
+		p := asset.ThumbnailPath
+		if a.thumbBg != "" && hasAlphaFormat(asset.Mime, asset.Path) && strings.HasSuffix(strings.ToLower(p), ".jpg") && asset.Path != "" {
+			p = asset.Path
+		}
+		a.ensureBitmap(asset.ID, p)
 		return nil
 	}
 	if model.IsSVG(asset.Mime, asset.Path) {
@@ -1701,6 +1810,11 @@ func (a *App) openPreview(asset model.Asset) {
 
 func (a *App) loadPreviewAsset(asset model.Asset) {
 	a.previewZoom = 1.0
+	a.previewPanX = 0
+	a.previewPanY = 0
+	a.previewDragging = false
+	a.previewMiniDrag = false
+	a.previewScrubbing = false
 	if a.previewAssetID == asset.ID && (a.previewBitmap != nil || a.previewVideo != nil || a.previewSVG != nil || a.previewFontBitmap != nil || a.previewPDFBitmap != nil || a.previewAudio != nil || a.previewLoading) {
 		return
 	}
@@ -1739,6 +1853,21 @@ func (a *App) loadPreviewAsset(asset model.Asset) {
 	if kind == model.MediaVideo {
 		if a.win == nil {
 			a.previewBitmap = a.bitmaps[asset.ID]
+			return
+		}
+		// Prefer MyGo's native OS media framework (Media Foundation / AVFoundation / GStreamer)
+		// for GPU-accelerated video + synchronized audio + instant timeline scrubbing!
+		if player, err := video.Open(asset.Path); err == nil && player != nil {
+			player.SetLoop(a.previewLoop)
+			if a.previewVideoVol <= 0 {
+				a.previewVideoVol = 1.0
+			}
+			player.SetVolume(a.previewVideoVol)
+			player.SetMuted(a.previewVideoMuted)
+			if a.previewVideoRate > 0 {
+				player.SetRate(a.previewVideoRate)
+			}
+			a.previewVideo = player
 			return
 		}
 		if !thumbnail.Available() {
@@ -1780,7 +1909,7 @@ func (a *App) loadPreviewAsset(asset model.Asset) {
 		return
 	}
 
-	if kind != model.MediaImage {
+	if kind != model.MediaImage && !model.IsExtraCreativeImage(asset.Mime, asset.Path) {
 		return
 	}
 	if a.win == nil {
@@ -1791,12 +1920,16 @@ func (a *App) loadPreviewAsset(asset model.Asset) {
 	win := a.win
 	targetID := asset.ID
 	path := asset.Path
+	mimeType := asset.Mime
 	loop := a.previewLoop
 	go func() {
-		data, err := os.ReadFile(path)
 		var bm *gui.Bitmap
 		var player *gui.VideoPlayer
-		if err == nil {
+		if model.IsExtraCreativeImage(mimeType, path) {
+			if img, err := preview.DecodeCreativeImage(path, 2400); err == nil && img != nil {
+				bm, _ = imageToBitmap(img)
+			}
+		} else if data, err := os.ReadFile(path); err == nil {
 			if isGIF {
 				if dec, gerr := gui.NewGIFDecoder(data); gerr == nil {
 					if p, perr := gui.NewVideoPlayer(dec); perr == nil {
@@ -1807,6 +1940,11 @@ func (a *App) loadPreviewAsset(asset model.Asset) {
 			}
 			if player == nil {
 				bm, _ = gui.DecodeBitmap(data)
+				if bm == nil {
+					if img, derr := preview.DecodeCreativeImage(path, 2400); derr == nil && img != nil {
+						bm, _ = imageToBitmap(img)
+					}
+				}
 			}
 		}
 		win.Update(func() {
@@ -2369,6 +2507,8 @@ func (a *App) openProject(id string) {
 	a.boardID = ""
 	a.boardProject = ""
 	a.projectID = id
+	a.projSearchQuery = ""
+	a.projKindFilter = 0
 	a.referenceMode = false
 	a.screen = screenProject
 	a.reload()
@@ -2853,6 +2993,14 @@ func (a *App) registerWindowShortcuts(c *gui.Context) {
 			a.selectAllVisible()
 		}
 	})
+	c.OnShortcut(gui.Cmd|gui.Alt, gui.KeyG, func() {
+		a.grayscalePreview = !a.grayscalePreview
+		a.syncConfigFromState()
+	})
+	c.OnShortcut(gui.Cmd|gui.Shift, gui.KeyU, func() {
+		a.webImportOpen = true
+		a.webImportURL = ""
+	})
 	c.OnShortcut(gui.Cmd, gui.KeyG, func() {
 		if a.canRunLibraryShortcut() {
 			if ids := a.selectedAssetIDs(); len(ids) >= 2 {
@@ -2873,8 +3021,22 @@ func (a *App) registerWindowShortcuts(c *gui.Context) {
 		}
 	})
 	c.OnShortcut(gui.Cmd, gui.KeyZ, func() {
+		if a.screen == screenBoard && a.session != nil && !a.askOpen && !a.settingsOpen && !a.gotoOpen && !a.webImportOpen {
+			a.boardUndo()
+			return
+		}
 		if a.canRunLibraryShortcut() && a.lib.HasRenameUndo() {
 			a.undoLastBatchRename()
+		}
+	})
+	c.OnShortcut(gui.Cmd|gui.Shift, gui.KeyZ, func() {
+		if a.screen == screenBoard && a.session != nil && !a.askOpen && !a.settingsOpen && !a.gotoOpen && !a.webImportOpen {
+			a.boardRedo()
+		}
+	})
+	c.OnShortcut(gui.Cmd, gui.KeyY, func() {
+		if a.screen == screenBoard && a.session != nil && !a.askOpen && !a.settingsOpen && !a.gotoOpen && !a.webImportOpen {
+			a.boardRedo()
 		}
 	})
 	c.OnShortcut(0, gui.KeyF2, func() {
@@ -2911,10 +3073,19 @@ func (a *App) registerWindowShortcuts(c *gui.Context) {
 		a.handleSpacePreview()
 	})
 	c.OnShortcut(0, gui.KeyDelete, func() {
+		if a.screen == screenBoard && a.session != nil && !c.FocusTakesText() && !a.askOpen && !a.settingsOpen && !a.gotoOpen {
+			a.deleteBoardSelectionInstant()
+			return
+		}
 		if a.canRunLibraryShortcut() {
 			if ids := a.selectedAssetIDs(); len(ids) > 0 {
 				a.batchDeletePrompt(ids)
 			}
+		}
+	})
+	c.OnShortcut(0, gui.KeyBackspace, func() {
+		if a.screen == screenBoard && a.session != nil && !c.FocusTakesText() && !a.askOpen && !a.settingsOpen && !a.gotoOpen {
+			a.deleteBoardSelectionInstant()
 		}
 	})
 	c.OnShortcut(0, gui.KeyLeft, func() {

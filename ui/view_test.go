@@ -323,6 +323,13 @@ func TestRenderScreenshots(t *testing.T) {
 			Height:      h,
 			Rating:      (i % 5) + 1,
 			CreatedAt:   now.Add(-time.Duration(i) * time.Hour),
+			Palette: []model.PaletteColor{
+				{Hex: "#180A0C", Ratio: 0.30},
+				{Hex: "#C91C22", Ratio: 0.25},
+				{Hex: "#6B0F14", Ratio: 0.20},
+				{Hex: "#F0322E", Ratio: 0.15},
+				{Hex: "#F4A45B", Ratio: 0.10},
+			},
 		}
 		a.allAssets = append(a.allAssets, asset)
 		a.assetByID[id] = asset
@@ -343,6 +350,14 @@ func TestRenderScreenshots(t *testing.T) {
 	a.notify("匯入完成：新增 11，已存在 0，失敗 0")
 	save("library_bento_dark.png", 1360, 860)
 	a.toastVisible = false
+	a.previewOpen = true
+	a.previewAssetID = "art-a"
+	a.inspFileMenuOpen = true
+	a.inspFileMenuPinned = true
+	save("inspector_hover_dark.png", 1360, 860)
+	a.inspFileMenuOpen = false
+	a.inspFileMenuPinned = false
+	a.previewOpen = false
 	save("library_narrow_dark.png", 980, 700)
 	a.multiSelectMode = true
 	a.selectedIDs = map[string]bool{"art-a": true, "art-b": true, "art-c": true}

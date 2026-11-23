@@ -14,26 +14,44 @@ func (a *App) View(c *gui.Context) {
 	// so Ctrl+A, Ctrl+F, Ctrl+I, Ctrl+,, Space, Delete, Arrows, and 0-5 work
 	// even when no specific widget holds keyboard focus.
 	a.registerWindowShortcuts(c)
-	if a.lib == nil || a.screen == screenWelcome {
-		a.welcome(c)
-	} else {
-		a.shell(c)
+	renderBody := func() {
+		if a.lib == nil || a.screen == screenWelcome {
+			a.welcome(c)
+		} else {
+			a.shell(c)
+		}
+		a.gotoModal(c)
+		a.quickLookModal(c)
+		a.settingsModal(c)
+		a.onboardingModal(c)
+		a.tagManagerModal(c)
+		a.renameModal(c)
+		a.exportModal(c)
+		a.newProjectModal(c)
+		a.editProjectModal(c)
+		a.editTagModal(c)
+		a.webImportModal(c)
+		a.shareModal(c)
+		a.receivePairModal(c)
+		a.confirm(c)
+		a.importProgressPopup(c)
+		a.toastOverlay(c)
 	}
-	a.gotoModal(c)
-	a.quickLookModal(c)
-	a.settingsModal(c)
-	a.onboardingModal(c)
-	a.tagManagerModal(c)
-	a.renameModal(c)
-	a.exportModal(c)
-	a.newProjectModal(c)
-	a.editProjectModal(c)
-	a.editTagModal(c)
-	a.shareModal(c)
-	a.receivePairModal(c)
-	a.confirm(c)
-	a.importProgressPopup(c)
-	a.toastOverlay(c)
+	if a.glassActive {
+		// Keep the window root transparent so Windows Acrylic / macOS Vibrancy
+		// blurs the desktop behind our smoked glass chrome, while every built-in
+		// overlay (AlertDialog, PopoverMenu, Popover, Tooltip, Switch) inside
+		// this scope inherits a solid opaque backdrop and crisp hairline border.
+		solid := *c.Theme()
+		solid.Background = a.popoverSurface()
+		solid.Border = a.chromeHairline()
+		gui.Themed(c.Key("glass-theme-scope"), &solid).
+			Fill().
+			Background(gui.Transparent).
+			Children(renderBody)
+	} else {
+		renderBody()
+	}
 }
 
 // importProgressPopup shows a sleek floating progress card at the bottom-center
@@ -62,11 +80,6 @@ func (a *App) importProgressPopup(c *gui.Context) {
 		countText = fmt.Sprintf("%d / %d (%d%%)", a.importDone, a.importTotal, int(pct))
 	}
 
-	borderCol := gui.RGBA(255, 255, 255, 0.12)
-	if !a.dark {
-		borderCol = gui.RGBA(24, 24, 27, 0.12)
-	}
-
 	gui.Row(c.Key("import-progress-wrap")).
 		Absolute().
 		Left(0).
@@ -80,8 +93,8 @@ func (a *App) importProgressPopup(c *gui.Context) {
 				Padding(14, 16).
 				Gap(10).
 				Radius(radiusPanel).
-				Background(a.pal.surfaceRaised).
-				Border(1, borderCol).
+				Background(a.popoverSurface()).
+				Border(1, a.chromeHairline()).
 				Shadow(0, 14, 38, 0, a.pal.shadowFloating).
 				Transition(gui.ElementTransition{
 					Animation: &springSnappy,
@@ -145,7 +158,8 @@ func (a *App) toastOverlay(c *gui.Context) {
 				Padding(10, 14, 10, 16).
 				Gap(10).
 				Radius(radiusPill).
-				Background(a.pal.surfaceRaised).
+				Background(a.popoverSurface()).
+				Border(1, a.chromeHairline()).
 				Shadow(0, 12, 32, 0, a.pal.shadowFloating).
 				AlignItems(gui.Center).
 				Transition(gui.ElementTransition{
@@ -173,12 +187,16 @@ func (a *App) captureTheme(c *gui.Context) {
 	case "dark":
 		dark = true
 	}
+	glassActive := a.glassMode && c.Vibrancy()
+	a.glassActive = glassActive
 	theme, pal, resolvedDark := makeThemeWithOverrides(dark, themeOverrides{
-		preset:  a.themePreset,
-		canvas:  a.customCanvas,
-		surface: a.customSurface,
-		accent:  a.customAccent,
-		text:    a.customText,
+		preset:     a.themePreset,
+		canvas:     a.customCanvas,
+		surface:    a.customSurface,
+		accent:     a.customAccent,
+		text:       a.customText,
+		glass:      glassActive,
+		glassAlpha: float32(a.glassOpacity),
 	})
 	c.SetTheme(theme)
 	a.dark = resolvedDark

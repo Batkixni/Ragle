@@ -2,7 +2,6 @@ package ui
 
 import (
 	"fmt"
-	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -20,7 +19,11 @@ func (a *App) shell(c *gui.Context) {
 	if a.cardSize < 128 || a.cardSize > 300 {
 		a.cardSize = 184
 	}
-	root := gui.Box(c.Key("shell-root")).Fill().Background(a.pal.canvas)
+	shellBg := a.pal.canvas
+	if a.glassActive {
+		shellBg = gui.Transparent
+	}
+	root := gui.Box(c.Key("shell-root")).Fill().Background(shellBg)
 
 	targetSidebarW := float32(0)
 	if a.sidebarOpen {
@@ -40,7 +43,11 @@ func (a *App) shell(c *gui.Context) {
 		}
 
 		renderMain := func() {
-			gui.Column(c).Fill().Background(a.pal.canvas).Children(func() {
+			mainBg := a.pal.canvas
+			if a.glassActive {
+				mainBg = gui.Transparent
+			}
+			gui.Column(c).Fill().Background(mainBg).Children(func() {
 				if a.previewOpen {
 					a.inlinePreviewView(c)
 					return
@@ -82,12 +89,12 @@ func (a *App) shell(c *gui.Context) {
 						})
 					})
 
-				// Sleek draggable splitter handle when sidebar is expanded.
+				// Flush edge-to-edge resize seam when sidebar is expanded.
 				if a.sidebarOpen && animSidebarW >= a.sidebarWidth-1.5 {
 					grip := gui.Box(c.Key("sidebar-resize-grip")).
-						Width(5).
+						Width(1).
 						FillHeight().
-						Center().
+						Background(a.chromeHairline()).
 						Cursor(gui.CursorResizeEW).
 						HandleInput(func(ev gui.InputEvent) bool {
 							winX := a.sidebarGripX + ev.X
@@ -125,17 +132,9 @@ func (a *App) shell(c *gui.Context) {
 							return false
 						})
 					a.sidebarGripX = grip.Bounds().X
-					gripCol := gui.Transparent
 					if a.sidebarResizing || grip.Hovered() {
-						gripCol = a.pal.surfaceActive
+						grip.Width(3).Background(a.pal.surfaceActive)
 					}
-					grip.Children(func() {
-						gui.Box(c).
-							Width(2).
-							Height(44).
-							Radius(radiusPill).
-							Background(grip.AnimateColor("grip-bg", gripCol, animFast))
-					})
 				}
 			}
 
@@ -218,9 +217,9 @@ func (a *App) withAnimatedInspector(c *gui.Context, key string, mainContent func
 		if animW > 0.5 {
 			if a.inspectorOpen && animW >= a.inspectorWidth-1.5 {
 				grip := gui.Box(c.Key(key + "-resize-grip")).
-					Width(5).
+					Width(1).
 					FillHeight().
-					Center().
+					Background(a.chromeHairline()).
 					Cursor(gui.CursorResizeEW).
 					HandleInput(func(ev gui.InputEvent) bool {
 						winX := a.inspectorGripX + ev.X
@@ -258,17 +257,9 @@ func (a *App) withAnimatedInspector(c *gui.Context, key string, mainContent func
 						return false
 					})
 				a.inspectorGripX = grip.Bounds().X
-				gripCol := gui.Transparent
 				if a.inspectorResizing || grip.Hovered() {
-					gripCol = a.pal.surfaceActive
+					grip.Width(3).Background(a.pal.surfaceActive)
 				}
-				grip.Children(func() {
-					gui.Box(c).
-						Width(2).
-						Height(44).
-						Radius(radiusPill).
-						Background(grip.AnimateColor("igrip-bg", gripCol, animFast))
-				})
 			}
 
 			progress := animW / a.inspectorWidth
@@ -300,11 +291,7 @@ func (a *App) withAnimatedInspector(c *gui.Context, key string, mainContent func
 }
 
 func (a *App) libraryTitle() string {
-	title := filepath.Base(a.cfg.LibraryPath)
-	if title == "" || title == "." {
-		return "Raglex"
-	}
-	return title
+	return "Raglex"
 }
 
 func (a *App) currentViewTitle() string {
@@ -433,17 +420,15 @@ func (a *App) sidebar(c *gui.Context) {
 	services := c.Services()
 	sf := strings.ToLower(strings.TrimSpace(a.sidebarFilter))
 
-	gui.Box(c).Fill().Padding(10, 4, 10, 10).Background(a.pal.canvas).Children(func() {
-		gui.Column(c).
-			Fill().
-			Radius(radiusPanel).
-			Clip().
-			Background(a.pal.surface).
-			Children(func() {
+	gui.Column(c).
+		Fill().
+		Clip().
+		Background(a.pal.surface).
+		Children(func() {
 				// Clean top brand header (draggable frameless window region; utilities live at bottom).
 				gui.Row(c).
-					Height(44).
-					Padding(4, 10, 0, 14).
+					Height(48).
+					Padding(0, 10, 0, 14).
 					Gap(8).
 					AlignItems(gui.Center).
 					DragWindow().
@@ -684,7 +669,6 @@ func (a *App) sidebar(c *gui.Context) {
 						}
 					})
 			})
-	})
 }
 
 func (a *App) miniHeaderButton(c *gui.Context, key string, icon *gui.SVG, tip string, active bool) gui.Element {
@@ -721,167 +705,286 @@ func (a *App) deleteTagPrompt(id string) {
 	})
 }
 
-// workspaceBar is the responsive frameless Library top bar: adapts smoothly
-// across wide/medium/narrow window widths so window controls never overflow.
+// workspaceBar is the responsive seamless edge-to-edge Library top bar:
+// fuses cleanly with the window edge (no floating card gap or outer corner radius)
+// and includes the Eagle-style Global Display Options Popover & Web URL import.
 func (a *App) workspaceBar(c *gui.Context) {
-	leftPad := float32(8)
-	if !a.sidebarOpen {
-		leftPad = 12
+	bar := gui.Row(c.Key("floating-navbar")).
+		Height(48).
+		FillWidth().
+		Padding(0, 10, 0, 14).
+		Gap(6).
+		Clip().
+		AlignItems(gui.Center).
+		Background(a.pal.surface).
+		BorderWidth(0, 0, 1, 0).
+		BorderColor(a.chromeHairline())
+
+	barW := bar.LayoutBounds().W
+	compact := barW > 0 && barW < 920
+	tight := barW > 0 && barW < 740
+
+	searchW := float32(220)
+	titleMaxW := float32(140)
+	if tight {
+		searchW = 112
+		titleMaxW = 78
+	} else if compact {
+		searchW = 152
+		titleMaxW = 104
 	}
-	gui.Box(c).Padding(10, 12, 4, leftPad).Children(func() {
-		bar := gui.Row(c.Key("floating-navbar")).
-			Height(48).
-			Padding(0, 10, 0, 10).
-			Gap(6).
-			Radius(radiusPanel).
-			Clip().
-			AlignItems(gui.Center).
-			Background(a.pal.surface)
 
-		barW := bar.LayoutBounds().W
-		compact := barW > 0 && barW < 920
-		tight := barW > 0 && barW < 740
+	bar.Children(func() {
+		gui.Row(c).Gap(8).FillHeight().AlignItems(gui.Center).DragWindow().Children(func() {
+			gui.Text(c, a.currentViewTitle()).Bold().FontSize(14).SingleLine().MaxWidth(titleMaxW)
+			if !tight {
+				a.pillBadge(c, fmt.Sprintf(a.t("common.itemsCount"), len(a.assets)), a.pal.inkSecondary, a.pal.surfaceMuted)
+			}
+		})
 
-		searchW := float32(220)
-		titleMaxW := float32(140)
-		if tight {
-			searchW = 112
-			titleMaxW = 78
-		} else if compact {
-			searchW = 152
-			titleMaxW = 104
+		gui.Box(c).Grow(1).FillHeight().DragWindow()
+
+		gui.SearchField(c.Key("library-search"), &a.searchQuery).
+			Bind(&a.searchHandle).
+			Placeholder(a.t("library.search")).
+			Label(a.t("library.search")).
+			Width(searchW).
+			OnChange(func() {
+				a.applyFilters()
+			})
+
+		gui.Box(c).Grow(1).FillHeight().DragWindow()
+
+		filterActive := a.filterBarOpen || a.kindFilter != 0 || a.minRating != 0
+		if compact {
+			a.iconButton(c, "top-filter", iconFilter, a.t("library.filter"), filterActive).OnClick(func() {
+				a.filterBarOpen = !a.filterBarOpen
+			})
+		} else {
+			filterLabel := a.t("library.filter")
+			if a.kindFilter != 0 || a.minRating != 0 {
+				filterLabel = filterLabel + " ·"
+			}
+			a.toolButton(c, "top-filter", iconFilter, filterLabel, filterActive).OnClick(func() {
+				a.filterBarOpen = !a.filterBarOpen
+			})
 		}
 
-		bar.Children(func() {
-			gui.Row(c).Gap(8).FillHeight().AlignItems(gui.Center).DragWindow().Children(func() {
-				gui.Text(c, a.currentViewTitle()).Bold().FontSize(14).SingleLine().MaxWidth(titleMaxW)
-				if !tight {
-					a.pillBadge(c, fmt.Sprintf(a.t("common.itemsCount"), len(a.assets)), a.pal.inkSecondary, a.pal.surfaceMuted)
+		layoutIcon := iconLayoutBento
+		switch a.layoutMode {
+		case layoutMasonry:
+			layoutIcon = iconLayoutMasonry
+		case layoutGrid:
+			layoutIcon = iconLibrary
+		}
+		layoutBtn := gui.ButtonBase(c.Key("top-layout")).
+			Radius(radiusControl).
+			AlignItems(gui.Center).
+			Label(a.t("library.layout")).
+			Tooltip(a.t("library.layout")).
+			OnClick(func() {
+				a.displayPopoverOpen = !a.displayPopoverOpen
+			})
+		if compact {
+			layoutBtn.Size(32, 32).Center().Radius(radiusPill)
+		} else {
+			layoutBtn.Padding(6, 10).Gap(5)
+		}
+		lbg := gui.Transparent
+		lfg := a.pal.inkSecondary
+		if a.displayPopoverOpen || layoutBtn.Pressed() {
+			lbg = a.pal.surfaceActive
+			lfg = a.pal.ink
+		} else if layoutBtn.Hovered() {
+			lbg = a.pal.surfaceMuted
+			lfg = a.pal.ink
+		}
+		layoutBtn.Background(layoutBtn.AnimateColor("bg", lbg, animFast)).
+			TextColor(layoutBtn.AnimateColor("fg", lfg, animFast)).
+			Children(func() {
+				gui.Icon(c, layoutIcon).Size(14, 14)
+				if !compact {
+					gui.Text(c, a.t("library.layout")).FontSize(12).Bold().SingleLine()
 				}
 			})
 
-			gui.Box(c).Grow(1).FillHeight().DragWindow()
-
-			gui.SearchField(c.Key("library-search"), &a.searchQuery).
-				Bind(&a.searchHandle).
-				Placeholder(a.t("library.search")).
-				Label(a.t("library.search")).
-				Width(searchW).
-				OnChange(func() {
-					a.applyFilters()
-				})
-
-			gui.Box(c).Grow(1).FillHeight().DragWindow()
-
-			filterActive := a.filterBarOpen || a.kindFilter != 0 || a.minRating != 0
-			if compact {
-				a.iconButton(c, "top-filter", iconFilter, a.t("library.filter"), filterActive).OnClick(func() {
-					a.filterBarOpen = !a.filterBarOpen
-				})
-			} else {
-				filterLabel := a.t("library.filter")
-				if a.kindFilter != 0 || a.minRating != 0 {
-					filterLabel = filterLabel + " ·"
-				}
-				a.toolButton(c, "top-filter", iconFilter, filterLabel, filterActive).OnClick(func() {
-					a.filterBarOpen = !a.filterBarOpen
-				})
-			}
-
-			layoutIcon := iconLayoutBento
-			switch a.layoutMode {
-			case layoutMasonry:
-				layoutIcon = iconLayoutMasonry
-			case layoutGrid:
-				layoutIcon = iconLibrary
-			}
-			layoutBtn := gui.ButtonBase(c.Key("top-layout")).
-				Radius(radiusControl).
-				AlignItems(gui.Center).
-				Label(a.t("library.layout")).
-				Tooltip(a.t("library.layout"))
-			if compact {
-				layoutBtn.Size(32, 32).Center().Radius(radiusPill)
-			} else {
-				layoutBtn.Padding(6, 10).Gap(5)
-			}
-			lbg := gui.Transparent
-			lfg := a.pal.inkSecondary
-			if layoutBtn.Pressed() {
-				lbg = a.pal.surfaceActive
-				lfg = a.pal.ink
-			} else if layoutBtn.Hovered() {
-				lbg = a.pal.surfaceMuted
-				lfg = a.pal.ink
-			}
-			layoutBtn.Background(layoutBtn.AnimateColor("bg", lbg, animFast)).
-				TextColor(layoutBtn.AnimateColor("fg", lfg, animFast)).
-				PopoverMenuButton(func(m *gui.Menu) {
-					if m.Item(a.t("library.layout.bento")).Radio(a.layoutMode == layoutBento).Chosen() {
-						a.setLayoutMode(layoutBento)
-					}
-					if m.Item(a.t("library.layout.masonry")).Radio(a.layoutMode == layoutMasonry).Chosen() {
-						a.setLayoutMode(layoutMasonry)
-					}
-					if m.Item(a.t("library.layout.grid")).Radio(a.layoutMode == layoutGrid).Chosen() {
-						a.setLayoutMode(layoutGrid)
-					}
+		// Eagle-style Global View Display Options Popover (Layout, Thumb Bg, Show Titles/Ext/Rating, Grayscale, Glass, Panels).
+		gui.PopoverBase(c.Key("view-display-popover"), layoutBtn, &a.displayPopoverOpen, func(p gui.Element) {
+			p.AttachTo(layoutBtn, gui.AnchorBottomRight, gui.AnchorTopRight).
+				Margin(6, 0, 0, 0).
+				Width(284).
+				Padding(14).
+				Radius(radiusPanel).
+				Background(a.popoverSurface()).
+				Border(1, a.chromeHairline()).
+				Shadow(0, 14, 34, 0, a.pal.shadowFloating).
+				Transition(gui.ElementTransition{
+					Animation: &springSnappy,
+					Enter:     &gui.Motion{Y: -6, Opacity: 0},
+					Exit:      &gui.Motion{Y: -6, Opacity: 0},
 				}).
 				Children(func() {
-					gui.Icon(c, layoutIcon).Size(14, 14)
-					if !compact {
-						gui.Text(c, a.t("library.layout")).FontSize(12).Bold().SingleLine()
-					}
-				})
+					gui.Column(c).FillWidth().Gap(10).Children(func() {
+						// 1. Layout Mode selector.
+						a.sectionLabel(c, a.t("view.layoutMode"))
+						gui.Row(c).FillWidth().Gap(4).Children(func() {
+							modes := []struct {
+								id    string
+								icon  *gui.SVG
+								label string
+							}{
+								{layoutBento, iconLayoutBento, a.t("library.layout.bento")},
+								{layoutMasonry, iconLayoutMasonry, a.t("library.layout.masonry")},
+								{layoutGrid, iconLibrary, a.t("library.layout.grid")},
+							}
+							for _, m := range modes {
+								md := m
+								active := a.layoutMode == md.id
+								a.toolButton(c, "disp-lay-"+md.id, md.icon, md.label, active).
+									Grow(1).
+									Padding(6, 6).
+									Center().
+									OnClick(func() {
+										a.setLayoutMode(md.id)
+										a.displayPopoverOpen = false
+									})
+							}
+						})
 
-			gui.PopoverMenuButton(c.Key("top-sort"), a.t("library.sort"), func(m *gui.Menu) {
-				opts := []struct {
-					id    int
-					label string
-				}{
-					{sortNewest, a.t("library.sortNewest")},
-					{sortOldest, a.t("library.sortOldest")},
-					{sortName, a.t("library.sortName")},
-					{sortRating, a.t("library.sortRating")},
-				}
-				for _, o := range opts {
-					opt := o
-					if m.Item(opt.label).Radio(a.sortBy == opt.id).Chosen() {
-						a.sortBy = opt.id
-						a.applyFilters()
-						a.syncConfigFromState()
-					}
-				}
-			})
+						// 2. Thumbnail Background switcher (None / Black / Gray / White / Checker).
+						gui.Box(c).FillWidth().Height(1).Background(a.chromeHairline())
+						a.sectionLabel(c, a.t("view.thumbBg"))
+						gui.Row(c).FillWidth().Gap(5).Children(func() {
+							bgs := []struct {
+								id    string
+								label string
+								col   gui.Color
+							}{
+								{"", a.t("view.thumbBgNone"), gui.Transparent},
+								{"black", a.t("view.thumbBgBlack"), gui.Hex("#09090B")},
+								{"gray", a.t("view.thumbBgGray"), gui.Hex("#6B7280")},
+								{"white", a.t("view.thumbBgWhite"), gui.Hex("#F4F4F5")},
+								{"checker", a.t("view.thumbBgChecker"), gui.Transparent},
+							}
+							for _, bgOpt := range bgs {
+								opt := bgOpt
+								active := a.thumbBg == opt.id
+								b := gui.ButtonBase(c.Key("disp-bg-"+opt.id)).
+									Grow(1).
+									Padding(5, 4).
+									Gap(4).
+									Radius(radiusControl - 2).
+									Center().
+									Label(opt.label).
+									Tooltip(opt.label).
+									OnClick(func() { a.setThumbBg(opt.id) })
+								bbg := a.pal.surface
+								bfg := a.pal.inkSecondary
+								if active {
+									bbg = a.pal.controlOn
+									bfg = a.pal.controlGlyph
+								} else if b.Hovered() {
+									bbg = a.pal.surfaceMuted
+									bfg = a.pal.ink
+								}
+								b.Background(bbg).TextColor(bfg).Children(func() {
+									sw := gui.Box(c).Size(12, 12).Radius(3).Clip().Border(1, a.chromeHairline())
+									if opt.id == "checker" {
+										sw.Draw(func(pt *gui.Painter, r gui.Rect) { a.paintCheckerboard(pt, r, 4) })
+									} else if opt.id == "" {
+										sw.Background(a.pal.surfaceMuted)
+									} else {
+										sw.Background(opt.col)
+									}
+									gui.Text(c, opt.label).FontSize(11).Bold().SingleLine()
+								})
+							}
+						})
 
-			gui.PopoverMenuButton(c.Key("top-import"), "+ "+a.t("library.import"), func(m *gui.Menu) {
-				if m.Item(a.t("library.files")).Shortcut(gui.Cmd, gui.KeyI).Chosen() {
-					a.startImport(false)
-				}
-				if m.Item(a.t("library.folder")).Chosen() {
-					a.startImport(true)
-				}
-			})
-
-			a.iconButton(c, "top-multiselect", iconCheckSquare, a.t("batch.multiMode"), a.multiSelectMode || len(a.selectedIDs) > 1).OnClick(func() {
-				a.multiSelectMode = !a.multiSelectMode
-				if !a.multiSelectMode && len(a.selectedIDs) > 1 {
-					a.selectedIDs = map[string]bool{}
-				}
-			})
-
-			if !compact {
-				gui.Row(c).Gap(6).AlignItems(gui.Center).Children(func() {
-					gui.Icon(c, iconZoomIn).Size(13, 13).TextColor(a.pal.inkMuted)
-					gui.Slider(c.Key("card-zoom"), &a.cardSize, 128, 300).Width(64).OnChange(func() {
-						a.syncConfigFromState()
+						// 3. Global Card Display Toggles (Show Title, Ext, Rating, Grayscale, Panels).
+						gui.Box(c).FillWidth().Height(1).Background(a.chromeHairline())
+						switchRow := func(key, lbl string, val *bool, onChange func()) {
+							gui.Row(c).FillWidth().Padding(2, 0).AlignItems(gui.Center).Children(func() {
+								gui.Text(c, lbl).FontSize(12).TextColor(a.pal.ink).Grow(1).SingleLine()
+								a.arcSwitch(c, key, val, onChange)
+							})
+						}
+						switchRow("disp-sw-title", a.t("view.showTitle"), &a.showCardCaption, func() {
+							a.layoutGen++
+							a.syncConfigFromState()
+						})
+						switchRow("disp-sw-ext", a.t("view.showExt"), &a.showCardExt, func() {
+							a.syncConfigFromState()
+						})
+						switchRow("disp-sw-rating", a.t("view.showRating"), &a.showCardRating, func() {
+							a.syncConfigFromState()
+						})
+						switchRow("disp-sw-gray", a.t("view.grayscale"), &a.grayscalePreview, func() {
+							a.syncConfigFromState()
+						})
+						switchRow("disp-sw-glass", a.t("view.glassMode"), &a.glassMode, func() {
+							a.syncWindowVibrancy()
+							a.syncConfigFromState()
+						})
+						gui.Box(c).FillWidth().Height(1).Background(a.chromeHairline())
+						switchRow("disp-sw-sb", a.t("view.showSidebar"), &a.sidebarOpen, nil)
+						switchRow("disp-sw-insp", a.t("view.showInspector"), &a.inspectorOpen, nil)
 					})
 				})
-			}
-
-			gui.Box(c).Width(1).Height(18).Background(a.pal.surfaceMuted)
-
-			a.windowControls(c)
 		})
+
+		gui.PopoverMenuButton(c.Key("top-sort"), a.t("library.sort"), func(m *gui.Menu) {
+			opts := []struct {
+				id    int
+				label string
+			}{
+				{sortNewest, a.t("library.sortNewest")},
+				{sortOldest, a.t("library.sortOldest")},
+				{sortName, a.t("library.sortName")},
+				{sortRating, a.t("library.sortRating")},
+			}
+			for _, o := range opts {
+				opt := o
+				if m.Item(opt.label).Radio(a.sortBy == opt.id).Chosen() {
+					a.sortBy = opt.id
+					a.applyFilters()
+					a.syncConfigFromState()
+				}
+			}
+		})
+
+		gui.PopoverMenuButton(c.Key("top-import"), "+ "+a.t("library.import"), func(m *gui.Menu) {
+			if m.Item(a.t("library.files")).Shortcut(gui.Cmd, gui.KeyI).Chosen() {
+				a.startImport(false)
+			}
+			if m.Item(a.t("library.folder")).Chosen() {
+				a.startImport(true)
+			}
+			m.Separator()
+			if m.Item(a.t("webimport.menu")).Chosen() {
+				a.webImportOpen = true
+				a.webImportURL = ""
+			}
+		})
+
+		a.iconButton(c, "top-multiselect", iconCheckSquare, a.t("batch.multiMode"), a.multiSelectMode || len(a.selectedIDs) > 1).OnClick(func() {
+			a.multiSelectMode = !a.multiSelectMode
+			if !a.multiSelectMode && len(a.selectedIDs) > 1 {
+				a.selectedIDs = map[string]bool{}
+			}
+		})
+
+		if !compact {
+			gui.Row(c).Gap(6).AlignItems(gui.Center).Children(func() {
+				gui.Icon(c, iconZoomIn).Size(13, 13).TextColor(a.pal.inkMuted)
+				gui.Slider(c.Key("card-zoom"), &a.cardSize, 128, 300).Width(64).OnChange(func() {
+					a.syncConfigFromState()
+				})
+			})
+		}
+
+		gui.Box(c).Width(1).Height(18).Background(a.pal.surfaceMuted)
+
+		a.windowControls(c)
 	})
 }

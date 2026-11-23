@@ -1071,6 +1071,11 @@ func (a *App) assetCard(c *gui.Context, index int, asset model.Asset, selected b
 			}
 		}
 		if !multi {
+			if u := normalizeWebURL(asset.SourceURL); u != "" {
+				if m.Item(a.t("webimport.openPage")).Chosen() {
+					services.OpenURL(u)
+				}
+			}
 			if m.Item(a.t("library.preview")).Chosen() {
 				a.openPreview(asset)
 			}
@@ -1190,6 +1195,29 @@ func (a *App) assetCard(c *gui.Context, index int, asset model.Asset, selected b
 			}
 		}
 		m.Separator()
+		m.Submenu(a.t("view.thumbBg"), func(sm *gui.Menu) {
+			if sm.Item(a.t("view.thumbBgNone")).Radio(a.thumbBg == "").Chosen() {
+				a.setThumbBg("")
+			}
+			sm.Separator()
+			if sm.Item(a.t("view.thumbBgBlack")).Radio(a.thumbBg == "black").Chosen() {
+				a.setThumbBg("black")
+			}
+			if sm.Item(a.t("view.thumbBgGray")).Radio(a.thumbBg == "gray").Chosen() {
+				a.setThumbBg("gray")
+			}
+			if sm.Item(a.t("view.thumbBgWhite")).Radio(a.thumbBg == "white").Chosen() {
+				a.setThumbBg("white")
+			}
+			if sm.Item(a.t("view.thumbBgChecker")).Radio(a.thumbBg == "checker").Chosen() {
+				a.setThumbBg("checker")
+			}
+		})
+		if m.Item(a.t("view.grayscale") + " (Ctrl+Alt+G)").Checked(a.grayscalePreview).Chosen() {
+			a.grayscalePreview = !a.grayscalePreview
+			a.syncConfigFromState()
+		}
+		m.Separator()
 		if multi {
 			if m.Item(fmt.Sprintf("%s (%d)", a.t("rename.batchAction"), len(batchIDs))).Chosen() {
 				a.openRenameModal(batchIDs)
@@ -1228,7 +1256,11 @@ func (a *App) assetCard(c *gui.Context, index int, asset model.Asset, selected b
 	})
 	if card.DoubleClicked() {
 		a.selectCard(index, 0)
-		a.openPreview(asset)
+		if u := normalizeWebURL(asset.SourceURL); asset.IsBookmark && u != "" {
+			services.OpenURL(u)
+		} else {
+			a.openPreview(asset)
+		}
 	}
 
 	hovered := card.Hovered()
@@ -1287,13 +1319,18 @@ func (a *App) assetCard(c *gui.Context, index int, asset model.Asset, selected b
 	}
 
 	card.Children(func() {
-		// Full-bleed edge-to-edge media slot with subtle hover zoom & optional stack badge.
-		gui.Box(c).Grow(1).FillWidth().Clip().Background(a.pal.surfaceMuted).Center().Children(func() {
+		// Full-bleed edge-to-edge media slot with thumbnail background, optional grayscale & stack badge.
+		mediaBox := gui.Box(c).Grow(1).FillWidth().Clip().Center()
+		a.applyThumbBg(mediaBox, a.pal.surfaceMuted, 10)
+		mediaBox.Children(func() {
 			if bm := a.requestCardBitmap(asset); bm != nil {
-				gui.Image(c, bm).
+				imgEl := gui.Image(c, bm).
 					Fit(gui.Cover).
 					Fill().
 					AnimatePose(gui.Pose{Scale: imgScale}, springGentle)
+				if a.grayscalePreview {
+					imgEl.Grayscale()
+				}
 			} else {
 				gui.Column(c).Center().Gap(6).Children(func() {
 					ic := iconFile
@@ -1312,6 +1349,51 @@ func (a *App) assetCard(c *gui.Context, index int, asset model.Asset, selected b
 					gui.Icon(c, ic).Size(24, 24).TextColor(a.pal.inkFaint)
 					gui.Text(c, ext).FontSize(11).Bold().TextColor(a.pal.inkMuted)
 				})
+			}
+
+			// Floating selection check badge when caption strip is hidden (only when selected or in multi-select mode).
+			if !a.showCardCaption && (selected || a.multiSelectMode) {
+				chkBg := gui.RGBA(24, 24, 27, 0.72)
+				if selected {
+					chkBg = a.pal.controlOn
+				}
+				gui.ButtonBase(c.Key("card-chk-"+asset.ID)).
+					Absolute().
+					Top(8).
+					Left(8).
+					Size(18, 18).
+					Radius(radiusPill).
+					Background(chkBg).
+					Center().
+					OnClick(func() {
+						a.toggleCardSelection(index)
+					}).
+					Children(func() {
+						if selected {
+							gui.Icon(c, iconCheck).Size(10, 10).TextColor(a.pal.controlGlyph)
+						}
+					})
+			}
+
+			// Web Bookmark floating domain badge (bottom-left).
+			if asset.IsBookmark && asset.SourceURL != "" {
+				host := shortWebHost(asset.SourceURL)
+				if host == "" {
+					host = a.t("webimport.badge")
+				}
+				gui.Row(c).
+					Absolute().
+					Bottom(8).
+					Left(8).
+					Padding(3, 8).
+					Gap(4).
+					Radius(radiusPill).
+					Background(gui.RGBA(18, 18, 22, 0.84)).
+					AlignItems(gui.Center).
+					Children(func() {
+						gui.Icon(c, iconGlobe).Size(11, 11).TextColor(gui.Hex("#FAFAFA"))
+						gui.Text(c, host).FontSize(10).Bold().TextColor(gui.Hex("#FAFAFA")).SingleLine().MaxWidth(130)
+					})
 			}
 
 			// Collapsed Asset Stack floating version-count pill (click to expand versions!).
@@ -1339,10 +1421,10 @@ func (a *App) assetCard(c *gui.Context, index int, asset model.Asset, selected b
 			}
 		})
 
-		// Clean frameless caption strip (pure monochrome; toggleable in Preferences).
+		// Clean frameless caption strip (pure monochrome; toggleable globally in Display Options).
 		if a.showCardCaption {
 			gui.Row(c).FillWidth().Padding(8, 11).Gap(6).AlignItems(gui.Center).Children(func() {
-				if selected || a.multiSelectMode || hovered {
+				if selected || a.multiSelectMode {
 					chkBg := a.pal.surfaceActive
 					if selected {
 						chkBg = a.pal.controlOn
@@ -1370,9 +1452,9 @@ func (a *App) assetCard(c *gui.Context, index int, asset model.Asset, selected b
 						vidLbl = "▶ " + formatDuration(asset.Duration)
 					}
 					gui.Text(c, vidLbl).FontSize(10).Bold().TextColor(a.pal.inkSecondary).SingleLine()
-				} else if asset.Rating > 0 {
+				} else if a.showCardRating && asset.Rating > 0 {
 					gui.Text(c, fmt.Sprintf("★%d", asset.Rating)).FontSize(11).TextColor(a.pal.inkSecondary).SingleLine()
-				} else {
+				} else if a.showCardExt {
 					gui.Text(c, ext).FontSize(10).TextColor(a.pal.inkMuted).SingleLine()
 				}
 			})
@@ -1391,17 +1473,15 @@ func (a *App) inspector(c *gui.Context) {
 	}
 	a.syncInspectorSelection(false)
 
-	gui.Box(c).Fill().Padding(6, 12, 10, 4).Background(a.pal.canvas).Children(func() {
-		gui.Column(c.Key("arc-inspector")).
-			Fill().
-			Radius(radiusPanel).
-			Clip().
-			Background(a.pal.surface).
-			Transition(gui.ElementTransition{
-				Animation: &springSmooth,
-				Enter:     &gui.Motion{X: 18, Opacity: 0},
-			}).
-			Children(func() {
+	gui.Column(c.Key("arc-inspector")).
+		Fill().
+		Clip().
+		Background(a.pal.surface).
+		Transition(gui.ElementTransition{
+			Animation: &springSmooth,
+			Enter:     &gui.Motion{X: 18, Opacity: 0},
+		}).
+		Children(func() {
 				if !ok {
 					gui.Column(c).Grow(1).FillWidth().Center().Padding(24).Gap(12).Children(func() {
 						gui.Box(c).Size(46, 46).Radius(radiusControl).Background(a.pal.surfaceMuted).Center().Children(func() {
@@ -1485,24 +1565,72 @@ func (a *App) inspector(c *gui.Context) {
 							})
 						})
 					} else {
+						hairline := gui.RGBA(255, 255, 255, 0.06)
+						swatchBorder := gui.RGBA(255, 255, 255, 0.16)
+						dangerHover := gui.RGBA(224, 122, 122, 0.14)
+						if !a.dark {
+							hairline = gui.RGBA(0, 0, 0, 0.07)
+							swatchBorder = gui.RGBA(0, 0, 0, 0.12)
+							dangerHover = gui.RGBA(185, 28, 28, 0.10)
+						}
+						inspectorCard := func(key string, gap float32, fn func()) {
+							gui.Column(c.Key(key)).
+								FillWidth().
+								Padding(12).
+								Gap(gap).
+								Radius(radiusControl).
+								Background(a.pal.surfaceRaised).
+								Border(1, hairline).
+								Children(fn)
+						}
+						detailRow := func(label, value string) {
+							gui.Row(c).FillWidth().Gap(8).AlignItems(gui.Center).Children(func() {
+								gui.Text(c, label).FontSize(11).TextColor(a.pal.inkMuted).SingleLine()
+								gui.Spacer(c)
+								gui.Text(c, value).FontSize(11).TextColor(a.pal.ink).SingleLine().MinWidth(0)
+							})
+						}
+
 						gui.Scroll(c).Grow(1).FillWidth().Children(func() {
-							body := gui.Column(c.Key("insp-body-" + asset.ID)).Padding(10, 16, 16, 16).Gap(14)
+							body := gui.Column(c.Key("insp-body-" + asset.ID)).Padding(8, 14, 16, 14).Gap(10)
 							applyBlurReveal(body, asset.ID, 0)
 							body.Children(func() {
-								// Full uncropped hero preview when browsing grid (omitted in inline viewer).
+								// Adaptive aspect-ratio uncropped hero preview when browsing grid (omitted in inline viewer).
 								if !a.previewOpen {
+									heroTip := a.t("library.preview")
+									if asset.IsBookmark && normalizeWebURL(asset.SourceURL) != "" {
+										heroTip = a.t("webimport.openPage")
+									}
+									heroW := a.inspectorWidth - 28
+									if heroW < 200 {
+										heroW = 240
+									}
+									heroH := float32(168)
+									if asset.Width > 0 && asset.Height > 0 {
+										heroH = heroW * float32(asset.Height) / float32(asset.Width)
+										if heroH < 108 {
+											heroH = 108
+										} else if heroH > 340 {
+											heroH = 340
+										}
+									}
 									hero := gui.ButtonBase(c.Key("insp-hero-" + asset.ID)).
 										FillWidth().
-										Height(176).
+										Height(heroH).
 										Radius(radiusControl).
 										Clip().
-										Background(a.pal.surfaceRaised).
+										Border(1, hairline).
 										Center().
 										Label(a.t("library.preview")).
-										Tooltip(a.t("library.preview")).
+										Tooltip(heroTip).
 										OnClick(func() {
-											a.openPreview(asset)
+											if u := normalizeWebURL(asset.SourceURL); asset.IsBookmark && u != "" {
+												services.OpenURL(u)
+											} else {
+												a.openPreview(asset)
+											}
 										})
+									a.applyThumbBg(hero, a.pal.surfaceRaised, 10)
 									heroScale := float32(1)
 									if hero.Pressed() {
 										heroScale = 0.985
@@ -1512,7 +1640,10 @@ func (a *App) inspector(c *gui.Context) {
 									hero.AnimatePose(gui.Pose{Scale: heroScale}, springGentle)
 									hero.Children(func() {
 										if bm := a.requestCardBitmap(asset); bm != nil {
-											gui.Image(c, bm).Fit(gui.Contain).Grow(1).Padding(6).Radius(radiusControl)
+											imgEl := gui.Image(c, bm).Fit(gui.Contain).Fill().Radius(radiusControl)
+											if a.grayscalePreview {
+												imgEl.Grayscale()
+											}
 										} else {
 											gui.Column(c).Center().Gap(6).Children(func() {
 												ic := iconFile
@@ -1529,290 +1660,501 @@ func (a *App) inspector(c *gui.Context) {
 									})
 								}
 
-						// Quick action bar right below preview.
-						gui.Row(c).Gap(6).AlignItems(gui.Center).Children(func() {
-							a.toolButton(c, "insp-preview-btn", iconEye, a.t("library.preview"), false).
-								Grow(1).
-								OnClick(func() { a.openPreview(asset) })
-							if !asset.Missing && asset.Path != "" {
-								a.iconButton(c, "insp-open-btn", iconExternal, a.t("common.openFile"), false).OnClick(func() {
-									_ = openLocalFile(asset.Path)
-								})
-								a.iconButton(c, "insp-reveal-btn", iconFolder, a.t("common.revealFile"), false).OnClick(func() {
-									_ = revealLocalFile(asset.Path)
-								})
-							}
-							a.iconButton(c, "insp-copy-path", iconCopy, a.t("common.copyPath"), false).OnClick(func() {
-								services.WriteClipboard(asset.Path)
-								a.notify(a.t("common.copied"))
-							})
-						})
-
-						// Extracted 5-color OKLab dominant palette strip (Eagle-style).
-						if len(asset.Palette) > 0 {
-							gui.Row(c).FillWidth().Gap(8).AlignItems(gui.Center).Children(func() {
-								gui.Row(c).Gap(6).AlignItems(gui.Center).Children(func() {
-									for i, pc := range asset.Palette {
-										hex := pc.Hex
-										col, ok := parseHexColor(hex)
-										if !ok {
-											continue
-										}
-										gui.ButtonBase(c.Key(fmt.Sprintf("insp-pal-%s-%d", asset.ID, i))).
-											Size(16, 16).
-											Radius(radiusPill).
-											Background(col).
-											Tooltip(fmt.Sprintf(a.t("visual.copyHex"), hex)).
+								// Title + compact Rename/Export actions + quiet metadata chain.
+								gui.Column(c).FillWidth().Gap(3).Padding(2, 2, 0, 2).Children(func() {
+									gui.Row(c).FillWidth().Gap(4).AlignItems(gui.Center).Children(func() {
+										gui.Text(c, a.assetName(asset)).
+											FontSize(14).
+											Bold().
+											SingleLine().
+											MinWidth(0).
+											Grow(1).
+											Tooltip(a.assetName(asset))
+										a.iconButton(c, "insp-rename-btn", iconEdit, a.t("rename.action")+" (F2)", false).
+											Size(28, 28).
 											OnClick(func() {
-												services.WriteClipboard(hex)
-												a.notify(fmt.Sprintf("%s %s", a.t("common.copied"), hex))
-											}).
-											ContextMenu(func(m *gui.Menu) {
-												if m.Item(a.t("visual.searchColor")).Chosen() {
-													a.setColorFilter(hex)
+												a.openRenameModal([]string{asset.ID})
+											})
+										a.iconButton(c, "insp-export-btn", iconExport, a.t("export.action"), false).
+											Size(28, 28).
+											OnClick(func() {
+												a.openExportModal([]string{asset.ID})
+											})
+									})
+									parts := []string{a.assetExt(asset), a.modeLabel(asset.StorageMode)}
+									if asset.Width > 0 && asset.Height > 0 {
+										parts = append(parts, fmt.Sprintf("%d × %d", asset.Width, asset.Height))
+									}
+									gui.Text(c, strings.Join(parts, "  ·  ")).
+										FontSize(11).
+										TextColor(a.pal.inkMuted).
+										SingleLine().
+										MinWidth(0)
+								})
+
+								// Consolidated hover-to-select file actions button (Open / Reveal / Copy Path / Copy File).
+								trigger := gui.ButtonBase(c.Key("insp-file-act-btn-" + asset.ID)).
+									FillWidth().
+									Height(34).
+									Padding(0, 12).
+									Gap(8).
+									Radius(radiusControl).
+									AlignItems(gui.Center).
+									Border(1, hairline).
+									Label(a.t("inspector.fileActions")).
+									OnClick(func() {
+										a.inspFileMenuPinned = !a.inspFileMenuPinned
+										a.inspFileMenuOpen = a.inspFileMenuPinned
+									})
+								btnHovered := trigger.Hovered()
+								if a.inspFilePrevMode != a.previewOpen {
+									a.inspFilePrevMode = a.previewOpen
+									a.inspFileMenuOpen = false
+									a.inspFileMenuPinned = false
+									a.inspFileSuppressHover = true
+									a.inspFileSuppressFrames = 2
+								}
+								if a.inspFileSuppressFrames > 0 {
+									a.inspFileSuppressFrames--
+								} else if !btnHovered {
+									a.inspFileSuppressHover = false
+								} else if !a.inspFileSuppressHover {
+									a.inspFileMenuOpen = true
+								}
+								actExpanded := a.inspFileMenuOpen
+								trigBg := a.pal.surfaceRaised
+								if trigger.Pressed() {
+									trigBg = a.pal.surfaceActive
+								} else if actExpanded || btnHovered {
+									trigBg = a.pal.surfaceMuted
+								}
+								chevTarget := float32(0)
+								if actExpanded {
+									chevTarget = 180
+								}
+								chevRot := trigger.AnimateTo("chev-rot", chevTarget, springSnappy)
+								trigger.
+									Background(trigger.AnimateColor("bg", trigBg, animFast)).
+									TextColor(a.pal.ink).
+									Children(func() {
+										gui.Icon(c, iconExternal).Size(14, 14).TextColor(a.pal.inkSecondary)
+										gui.Text(c, a.t("inspector.fileActions")).FontSize(12).Bold().SingleLine()
+										gui.Spacer(c)
+										gui.Icon(c, iconChevronDown).Size(13, 13).TextColor(a.pal.inkMuted).Rotate(chevRot)
+									})
+
+								popW := a.inspectorWidth - 28
+								if popW < 200 {
+									popW = 240
+								}
+								panelRendered := false
+								panelHovered := false
+								panelDismissed := false
+								gui.PopoverBase(c.Key("insp-file-act-pop-"+asset.ID), trigger, &a.inspFileMenuOpen, func(p gui.Element) {
+									panelRendered = true
+									panelHovered = p.Hovered()
+									panelDismissed = p.Dismissed()
+									p.AttachTo(trigger, gui.AnchorBottomLeft, gui.AnchorTopLeft).
+										Margin(0).
+										Width(popW).
+										Padding(4, 0, 0, 0).
+										Transition(gui.ElementTransition{
+											Animation: &springSnappy,
+											Enter:     &gui.Motion{Y: -4, Opacity: 0},
+											Exit:      &gui.Motion{Y: -4, Opacity: 0},
+										}).
+										Children(func() {
+											gui.Column(c).
+												FillWidth().
+												Padding(4).
+												Gap(2).
+												Radius(radiusControl).
+												Background(a.popoverSurface()).
+												Border(1, swatchBorder).
+												Shadow(0, 10, 24, 0, a.pal.shadowFloating).
+												Children(func() {
+													menuRow := func(key string, ic *gui.SVG, label string, onClick func()) {
+														row := gui.ButtonBase(c.Key(key)).
+															FillWidth().
+															Height(30).
+															Padding(0, 10).
+															Gap(8).
+															Radius(radiusControl - 3).
+															AlignItems(gui.Center).
+															Label(label).
+															OnClick(func() {
+																a.inspFileMenuOpen = false
+																a.inspFileMenuPinned = false
+																onClick()
+															})
+														rBg := gui.Transparent
+														rFg := a.pal.inkSecondary
+														if row.Pressed() {
+															rBg = a.pal.surfaceActive
+															rFg = a.pal.ink
+														} else if row.Hovered() {
+															rBg = a.pal.surfaceMuted
+															rFg = a.pal.ink
+														}
+														row.Background(row.AnimateColor("bg", rBg, animFast)).
+															TextColor(row.AnimateColor("fg", rFg, animFast)).
+															Children(func() {
+																gui.Icon(c, ic).Size(14, 14)
+																gui.Text(c, label).FontSize(12).SingleLine()
+															})
+													}
+													if u := normalizeWebURL(asset.SourceURL); u != "" {
+														menuRow("insp-open-web", iconGlobe, a.t("webimport.openPage"), func() {
+															services.OpenURL(u)
+														})
+														menuRow("insp-copy-web", iconLink, a.t("webimport.copyURL"), func() {
+															services.WriteClipboard(u)
+															a.notify(a.t("common.copied"))
+														})
+													}
+													if !asset.Missing && asset.Path != "" {
+														menuRow("insp-open-btn", iconExternal, a.t("common.openFile"), func() {
+															_ = openLocalFile(asset.Path)
+														})
+														menuRow("insp-reveal-btn", iconFolder, a.t("common.revealFile"), func() {
+															_ = revealLocalFile(asset.Path)
+														})
+													}
+													menuRow("insp-copy-path", iconCopy, a.t("common.copyPath"), func() {
+														services.WriteClipboard(asset.Path)
+														a.notify(a.t("common.copied"))
+													})
+													if !asset.Missing && asset.Path != "" {
+														menuRow("insp-copy-file", iconFile, a.t("clipboard.copyFiles"), func() {
+															a.copySelectedFilesToClipboard([]string{asset.ID})
+														})
+													}
+												})
+										})
+								})
+								if panelRendered {
+									if panelDismissed {
+										a.inspFileMenuPinned = false
+									} else if !btnHovered && !panelHovered && !a.inspFileMenuPinned {
+										a.inspFileMenuOpen = false
+										c.Invalidate()
+									}
+								}
+
+								// Extracted 5-color OKLab dominant palette bar.
+								if len(asset.Palette) > 0 {
+									gui.Row(c.Key("insp-pal-bar-" + asset.ID)).
+										FillWidth().
+										Padding(7, 10).
+										Gap(6).
+										Radius(radiusControl).
+										Background(a.pal.surfaceRaised).
+										Border(1, hairline).
+										AlignItems(gui.Center).
+										Children(func() {
+											gui.Row(c).Gap(6).AlignItems(gui.Center).Children(func() {
+												for i, pc := range asset.Palette {
+													hex := pc.Hex
+													col, ok := parseHexColor(hex)
+													if !ok {
+														continue
+													}
+													gui.ButtonBase(c.Key(fmt.Sprintf("insp-pal-%s-%d", asset.ID, i))).
+														Size(18, 18).
+														Radius(radiusPill).
+														Background(col).
+														Border(1, swatchBorder).
+														Tooltip(fmt.Sprintf(a.t("visual.copyHex"), hex)).
+														OnClick(func() {
+															services.WriteClipboard(hex)
+															a.notify(fmt.Sprintf("%s %s", a.t("common.copied"), hex))
+														}).
+														ContextMenu(func(m *gui.Menu) {
+															if m.Item(a.t("visual.searchColor")).Chosen() {
+																a.setColorFilter(hex)
+															}
+														})
 												}
 											})
-									}
-								})
-								gui.Spacer(c)
-								a.iconButton(c, "insp-pal-search", iconPalette, a.t("visual.searchColor"), strings.EqualFold(a.colorFilter, asset.Palette[0].Hex)).
-									OnClick(func() { a.setColorFilter(asset.Palette[0].Hex) })
-								if model.MediaKind(asset.Mime) == model.MediaImage && !asset.Missing {
-									a.iconButton(c, "insp-sim-btn", iconImage, a.t("visual.findSimilar"), false).
-										OnClick(func() { a.searchSimilarByAsset(asset) })
+											gui.Spacer(c)
+											a.iconButton(c, "insp-pal-search", iconPalette, a.t("visual.searchColor"), strings.EqualFold(a.colorFilter, asset.Palette[0].Hex)).
+												Size(26, 26).
+												OnClick(func() { a.setColorFilter(asset.Palette[0].Hex) })
+											if model.MediaKind(asset.Mime) == model.MediaImage && !asset.Missing {
+												a.iconButton(c, "insp-sim-btn", iconImage, a.t("visual.findSimilar"), false).
+													Size(26, 26).
+													OnClick(func() { a.searchSimilarByAsset(asset) })
+											}
+										})
 								}
-							})
-						}
 
-						// Title + quiet monochrome metadata chain (design.md §13 inspired).
-						gui.Column(c).Gap(6).Children(func() {
-							gui.Row(c).FillWidth().Gap(6).AlignItems(gui.Center).Children(func() {
-								gui.Text(c, a.assetName(asset)).FontSize(14).Bold().LineHeight(1.3).Grow(1)
-								a.iconButton(c, "insp-rename-btn", iconEdit, a.t("rename.action")+" (F2)", false).OnClick(func() {
-									a.openRenameModal([]string{asset.ID})
-								})
-								a.iconButton(c, "insp-export-btn", iconExport, a.t("export.action"), false).OnClick(func() {
-									a.openExportModal([]string{asset.ID})
-								})
-							})
-							parts := []string{a.assetExt(asset), a.modeLabel(asset.StorageMode)}
-							if asset.Width > 0 && asset.Height > 0 {
-								parts = append(parts, fmt.Sprintf("%d × %d", asset.Width, asset.Height))
-							}
-							gui.Text(c, strings.Join(parts, "  ·  ")).FontSize(11).TextColor(a.pal.inkMuted).SingleLine()
-						})
+								// Missing file alert & relink CTAs.
+								if asset.Missing {
+									gui.Column(c).FillWidth().Padding(12).Gap(8).Radius(radiusControl).Background(a.pal.surfaceRaised).Border(1, dangerHover).Children(func() {
+										gui.Row(c).Gap(6).AlignItems(gui.Center).Children(func() {
+											gui.Icon(c, iconAlert).Size(14, 14).TextColor(a.pal.danger)
+											gui.Text(c, a.t("library.missing")).FontSize(12).Bold().TextColor(a.pal.danger)
+										})
+										gui.Row(c).Gap(6).Children(func() {
+											a.arcButton(c, "insp-relink-file", a.t("inspector.relinkFile"), false).Grow(1).OnClick(func() {
+												a.relinkMissing(false)
+											})
+											a.arcButton(c, "insp-relink-dir", a.t("inspector.relink"), true).Grow(1).OnClick(func() {
+												a.relinkMissing(true)
+											})
+										})
+									})
+								}
 
-						// Editable notes & source URL.
-						if a.inspectorMetaID != asset.ID {
-							a.inspectorMetaID = asset.ID
-							a.inspectorNotes = asset.Notes
-							a.inspectorSrcURL = asset.SourceURL
-						}
-						gui.Column(c).Gap(6).Children(func() {
-							gui.Row(c).FillWidth().AlignItems(gui.Center).Children(func() {
-								a.sectionLabel(c, a.t("inspector.notes"))
-								gui.Spacer(c)
-								if a.inspectorNotes != asset.Notes || a.inspectorSrcURL != asset.SourceURL {
-									a.toolButton(c, "insp-save-meta", iconCheck, a.t("inspector.saveMeta"), true).
-										Padding(3, 8).
-										OnClick(func() {
+								// Card 1: Rating & Tags grouped cleanly.
+								inspectorCard("insp-card-org-"+asset.ID, 10, func() {
+									gui.Row(c).FillWidth().AlignItems(gui.Center).Children(func() {
+										a.sectionLabel(c, a.t("library.rating"))
+										gui.Spacer(c)
+										gui.Rating(c.Key("rating-"+asset.ID), &a.inspectorRating, 5).OnChange(func() {
+											a.setAssetRatingFast(asset.ID, a.inspectorRating)
+										})
+									})
+									gui.Box(c).FillWidth().Height(1).Background(hairline)
+									gui.Column(c).FillWidth().Gap(8).Children(func() {
+										owned := map[string]bool{}
+										applied := a.assetTags[asset.ID]
+										for _, tg := range applied {
+											owned[tg.ID] = true
+										}
+										var available []model.Tag
+										for _, tg := range a.tags {
+											if !owned[tg.ID] {
+												available = append(available, tg)
+											}
+										}
+										gui.Row(c).FillWidth().AlignItems(gui.Center).Children(func() {
+											a.sectionLabel(c, a.t("library.tags"))
+											gui.Spacer(c)
+											if len(available) > 0 {
+												addBtn := gui.ButtonBase(c.Key("insp-add-tag-pop-" + asset.ID)).
+													Size(24, 24).
+													Radius(7).
+													Center().
+													Label(a.t("inspector.addTag")).
+													Tooltip(a.t("inspector.addTag")).
+													PopoverMenuButton(func(m *gui.Menu) {
+														for _, cand := range available {
+															tg := cand
+															if m.Item(tg.Name).Chosen() {
+																a.setAssetTagFast(asset.ID, tg.ID, true)
+															}
+														}
+													})
+												abg := gui.Transparent
+												afg := a.pal.inkMuted
+												if addBtn.Hovered() || addBtn.Pressed() {
+													abg = a.pal.surfaceMuted
+													afg = a.pal.ink
+												}
+												addBtn.Background(addBtn.AnimateColor("abg", abg, animFast)).
+													TextColor(addBtn.AnimateColor("afg", afg, animFast)).
+													Children(func() {
+														gui.Icon(c, iconPlus).Size(13, 13)
+													})
+											}
+										})
+										if len(applied) > 0 {
+											gui.Row(c).FillWidth().Gap(6).Wrap().AlignItems(gui.Center).Children(func() {
+												for _, tag := range applied {
+													tg := tag
+													a.tintedTagChip(c, "insp-tag-"+asset.ID+"-"+tg.ID, tg, func() {
+														a.setAssetTagFast(asset.ID, tg.ID, false)
+													})
+												}
+											})
+										}
+										gui.Row(c).FillWidth().Gap(4).AlignItems(gui.Center).Children(func() {
+											gui.TextInput(c.Key("insp-quick-tag"), &a.quickTagName).
+												Placeholder(a.t("inspector.quickTag")).
+												Background(a.pal.surface).
+												Grow(1).
+												OnSubmit(func() { a.quickAddAssetTag(asset.ID) })
+											a.iconButton(c, "insp-quick-tag-add", iconPlus, a.t("tag.create"), false).
+												Size(28, 28).
+												OnClick(func() {
+													a.quickAddAssetTag(asset.ID)
+												})
+											a.iconButton(c, "insp-laya-btn", iconSparkle, a.t("laya.classify"), false).
+												Size(28, 28).
+												OnClick(func() {
+													a.classifyAssetsWithLaya([]string{asset.ID})
+												})
+										})
+										if sugs := a.layaSuggestions[asset.ID]; len(sugs) > 0 {
+											gui.Column(c).FillWidth().Gap(5).Padding(2, 0, 0, 0).Children(func() {
+												gui.Text(c, a.t("laya.suggestions")).FontSize(10).TextColor(a.pal.inkMuted)
+												gui.Row(c).Gap(5).Wrap().Children(func() {
+													for _, sg := range sugs {
+														sug := sg
+														lbl := fmt.Sprintf("+ %s %.0f%%", sug.Tag.Name, sug.Probability*100)
+														a.toolButton(c, "laya-sug-"+asset.ID+"-"+sug.Tag.ID, nil, lbl, false).
+															Padding(3, 8).
+															Border(1, a.pal.controlOn).
+															OnClick(func() { a.applyLayaSuggestion(asset.ID, sug.Tag.ID) })
+													}
+												})
+											})
+										}
+									})
+								})
+
+								// Card 2: Editable notes & source URL.
+								if a.inspectorMetaID != asset.ID {
+									a.inspectorMetaID = asset.ID
+									a.inspectorNotes = asset.Notes
+									a.inspectorSrcURL = asset.SourceURL
+								}
+								inspectorCard("insp-card-meta-"+asset.ID, 8, func() {
+									gui.Row(c).FillWidth().AlignItems(gui.Center).Children(func() {
+										a.sectionLabel(c, a.t("inspector.notes"))
+										gui.Spacer(c)
+										if a.inspectorNotes != asset.Notes || a.inspectorSrcURL != asset.SourceURL {
+											a.toolButton(c, "insp-save-meta", iconCheck, a.t("inspector.saveMeta"), true).
+												Padding(3, 8).
+												OnClick(func() {
+													if _, err := a.lib.UpdateAssetMeta(asset.ID, a.inspectorNotes, a.inspectorSrcURL, asset.SourceTitle); err == nil {
+														a.reload()
+														a.notify(a.t("inspector.metaSaved"))
+													}
+												})
+										}
+									})
+									gui.TextInput(c.Key("insp-notes-"+asset.ID), &a.inspectorNotes).
+										Placeholder(a.t("inspector.notesPlaceholder")).
+										Background(a.pal.surface).
+										FillWidth().
+										OnSubmit(func() {
 											if _, err := a.lib.UpdateAssetMeta(asset.ID, a.inspectorNotes, a.inspectorSrcURL, asset.SourceTitle); err == nil {
 												a.reload()
 												a.notify(a.t("inspector.metaSaved"))
 											}
 										})
-								}
-							})
-							gui.TextInput(c.Key("insp-notes-"+asset.ID), &a.inspectorNotes).
-								Placeholder(a.t("inspector.notesPlaceholder")).
-								FillWidth().
-								OnSubmit(func() {
-									if _, err := a.lib.UpdateAssetMeta(asset.ID, a.inspectorNotes, a.inspectorSrcURL, asset.SourceTitle); err == nil {
-										a.reload()
-										a.notify(a.t("inspector.metaSaved"))
-									}
-								})
-							gui.Row(c).FillWidth().Gap(6).AlignItems(gui.Center).Children(func() {
-								gui.TextInput(c.Key("insp-srcurl-"+asset.ID), &a.inspectorSrcURL).
-									Placeholder(a.t("inspector.source")).
-									Grow(1).
-									OnSubmit(func() {
-										if _, err := a.lib.UpdateAssetMeta(asset.ID, a.inspectorNotes, a.inspectorSrcURL, asset.SourceTitle); err == nil {
-											a.reload()
-											a.notify(a.t("inspector.metaSaved"))
+									gui.Row(c).FillWidth().Gap(4).AlignItems(gui.Center).Children(func() {
+										gui.TextInput(c.Key("insp-srcurl-"+asset.ID), &a.inspectorSrcURL).
+											Placeholder(a.t("inspector.source")).
+											Background(a.pal.surface).
+											Grow(1).
+											OnSubmit(func() {
+												if _, err := a.lib.UpdateAssetMeta(asset.ID, a.inspectorNotes, a.inspectorSrcURL, asset.SourceTitle); err == nil {
+													a.reload()
+													a.notify(a.t("inspector.metaSaved"))
+												}
+											})
+										if openURL := normalizeWebURL(a.inspectorSrcURL); openURL != "" {
+											a.iconButton(c, "insp-open-url", iconExternal, a.t("webimport.openPage"), false).
+												Size(28, 28).
+												OnClick(func() {
+													services.OpenURL(openURL)
+												})
 										}
 									})
-								if strings.HasPrefix(asset.SourceURL, "http://") || strings.HasPrefix(asset.SourceURL, "https://") {
-									a.iconButton(c, "insp-open-url", iconLink, a.t("inspector.source"), false).OnClick(func() {
-										services.OpenURL(asset.SourceURL)
-									})
-								}
-							})
-						})
-
-						// Missing file alert & relink CTAs.
-						if asset.Missing {
-							gui.Column(c).Padding(12).Gap(8).Radius(radiusControl).Background(a.pal.surfaceRaised).Children(func() {
-								gui.Row(c).Gap(6).AlignItems(gui.Center).Children(func() {
-									gui.Icon(c, iconAlert).Size(14, 14).TextColor(a.pal.danger)
-									gui.Text(c, a.t("library.missing")).FontSize(12).Bold().TextColor(a.pal.danger)
 								})
-								gui.Row(c).Gap(6).Children(func() {
-									a.arcButton(c, "insp-relink-file", a.t("inspector.relinkFile"), false).Grow(1).OnClick(func() {
-										a.relinkMissing(false)
-									})
-									a.arcButton(c, "insp-relink-dir", a.t("inspector.relink"), true).Grow(1).OnClick(func() {
-										a.relinkMissing(true)
-									})
-								})
-							})
-						}
 
-						// Interactive Rating.
-						gui.Column(c).Gap(6).Children(func() {
-							a.sectionLabel(c, a.t("library.rating"))
-							gui.Rating(c.Key("rating-"+asset.ID), &a.inspectorRating, 5).OnChange(func() {
-								a.setAssetRatingFast(asset.ID, a.inspectorRating)
-							})
-						})
-
-						// Applied translucent tinted tag badges (Eagle-style) + "+" tag picker + quick-add.
-						gui.Column(c).Gap(8).Children(func() {
-							a.sectionLabel(c, a.t("library.tags"))
-							owned := map[string]bool{}
-							applied := a.assetTags[asset.ID]
-							for _, tg := range applied {
-								owned[tg.ID] = true
-							}
-							var available []model.Tag
-							for _, tg := range a.tags {
-								if !owned[tg.ID] {
-									available = append(available, tg)
-								}
-							}
-							gui.Row(c).Gap(6).Wrap().AlignItems(gui.Center).Children(func() {
-								for _, tag := range applied {
-									tg := tag
-									a.tintedTagChip(c, "insp-tag-"+asset.ID+"-"+tg.ID, tg, func() {
-										a.setAssetTagFast(asset.ID, tg.ID, false)
-									})
-								}
-								if len(available) > 0 {
-									addBtn := gui.ButtonBase(c.Key("insp-add-tag-pop-" + asset.ID)).
-										Size(26, 26).
-										Radius(8).
-										Center().
-										Label(a.t("inspector.addTag")).
-										Tooltip(a.t("inspector.addTag")).
-										PopoverMenuButton(func(m *gui.Menu) {
-											for _, cand := range available {
-												tg := cand
-												if m.Item(tg.Name).Chosen() {
-													a.setAssetTagFast(asset.ID, tg.ID, true)
+								// Card 3: Used in Projects.
+								inspectorCard("insp-card-proj-"+asset.ID, 8, func() {
+									gui.Row(c).FillWidth().Gap(6).AlignItems(gui.Center).Children(func() {
+										a.sectionLabel(c, a.t("inspector.usedIn"))
+										if a.inspectorPlaces > 0 {
+											gui.Text(c, fmt.Sprintf("· %d", a.inspectorPlaces)).
+												FontSize(10).
+												TextColor(a.pal.inkMuted).
+												Tooltip(fmt.Sprintf(a.t("inspector.placements"), a.inspectorPlaces))
+										}
+										gui.Spacer(c)
+										if len(a.projectList) > 0 {
+											gui.PopoverMenuButton(c.Key("insp-add-proj"), "+ "+a.t("library.addToProject"), func(m *gui.Menu) {
+												for _, p := range a.projectList {
+													proj := p
+													if m.Item(proj.Name).Chosen() {
+														a.referenceAssetToProject(asset.ID, proj.ID)
+													}
 												}
+											}).Padding(3, 8).FontSize(11)
+										}
+									})
+									if len(a.inspectorProjects) == 0 {
+										gui.Text(c, a.t("inspector.usedNone")).FontSize(11).TextColor(a.pal.inkMuted)
+									} else {
+										gui.Row(c).FillWidth().Gap(6).Wrap().Children(func() {
+											for _, p := range a.inspectorProjects {
+												proj := p
+												a.tagChip(c, "insp-used-"+proj.ID, proj.Name, true).OnClick(func() {
+													a.openProject(proj.ID)
+												})
 											}
 										})
-									abg := gui.Transparent
-									afg := a.pal.inkMuted
-									if addBtn.Hovered() || addBtn.Pressed() {
-										abg = a.pal.surfaceMuted
-										afg = a.pal.ink
 									}
-									addBtn.Background(addBtn.AnimateColor("abg", abg, animFast)).
-										TextColor(addBtn.AnimateColor("afg", afg, animFast)).
-										Children(func() {
-											gui.Icon(c, iconPlus).Size(14, 14)
-										})
-								}
-							})
-							gui.Row(c).Gap(6).AlignItems(gui.Center).Children(func() {
-								gui.TextInput(c.Key("insp-quick-tag"), &a.quickTagName).
-									Placeholder(a.t("inspector.quickTag")).
-									Grow(1).
-									OnSubmit(func() { a.quickAddAssetTag(asset.ID) })
-								a.iconButton(c, "insp-quick-tag-add", iconPlus, a.t("tag.create"), false).OnClick(func() {
-									a.quickAddAssetTag(asset.ID)
 								})
-								a.iconButton(c, "insp-laya-btn", iconSparkle, a.t("laya.classify"), false).OnClick(func() {
-									a.classifyAssetsWithLaya([]string{asset.ID})
-								})
-							})
-							if sugs := a.layaSuggestions[asset.ID]; len(sugs) > 0 {
-								gui.Column(c).FillWidth().Gap(5).Padding(4, 0, 0, 0).Children(func() {
-									gui.Text(c, a.t("laya.suggestions")).FontSize(10).TextColor(a.pal.inkMuted)
-									gui.Row(c).Gap(5).Wrap().Children(func() {
-										for _, sg := range sugs {
-											sug := sg
-											lbl := fmt.Sprintf("+ %s %.0f%%", sug.Tag.Name, sug.Probability*100)
-											a.toolButton(c, "laya-sug-"+asset.ID+"-"+sug.Tag.ID, nil, lbl, false).
-												Padding(3, 8).
-												Border(1, a.pal.controlOn).
-												OnClick(func() { a.applyLayaSuggestion(asset.ID, sug.Tag.ID) })
+
+								// Card 4: Compact key-value file details + single-line clickable path.
+								inspectorCard("insp-card-details-"+asset.ID, 6, func() {
+									a.sectionLabel(c, a.t("inspector.details"))
+									if asset.Width > 0 && asset.Height > 0 {
+										detailRow(a.t("inspector.dimensions"), fmt.Sprintf("%d × %d px", asset.Width, asset.Height))
+										detailRow(a.t("inspector.aspect"), aspectRatioLabel(asset.Width, asset.Height))
+									}
+									if a.inspectorFileSize > 0 {
+										detailRow(a.t("inspector.size"), formatBytes(a.inspectorFileSize))
+									}
+									if asset.Mime != "" {
+										detailRow(a.t("library.mime"), asset.Mime)
+									}
+									if len(asset.Hash) >= 12 {
+										detailRow(a.t("inspector.hash"), asset.Hash[:12]+"…")
+									}
+									if !asset.CreatedAt.IsZero() {
+										detailRow(a.t("inspector.added"), asset.CreatedAt.Local().Format("2006-01-02 15:04"))
+									}
+									if asset.Path != "" {
+										gui.Box(c).FillWidth().Height(1).MarginY(2).Background(hairline)
+										pathBtn := gui.ButtonBase(c.Key("insp-path-copy-" + asset.ID)).
+											FillWidth().
+											Padding(4, 6).
+											Gap(6).
+											Radius(radiusControl - 4).
+											AlignItems(gui.Center).
+											Tooltip(asset.Path + " — " + a.t("common.copyPath")).
+											OnClick(func() {
+												services.WriteClipboard(asset.Path)
+												a.notify(a.t("common.copied"))
+											})
+										pBg := gui.Transparent
+										if pathBtn.Hovered() {
+											pBg = a.pal.surfaceMuted
 										}
+										pathBtn.Background(pathBtn.AnimateColor("bg", pBg, animFast)).Children(func() {
+											gui.Icon(c, iconFolder).Size(12, 12).TextColor(a.pal.inkMuted)
+											gui.Text(c, asset.Path).FontSize(10).TextColor(a.pal.inkMuted).SingleLine().MinWidth(0).Grow(1)
+										})
+									}
+								})
+
+								// Quiet destructive delete button.
+								delBtn := gui.ButtonBase(c.Key("insp-delete")).
+									FillWidth().
+									Height(34).
+									Gap(6).
+									Radius(radiusControl).
+									Center().
+									Border(1, hairline).
+									Label(a.t("library.delete")).
+									OnClick(func() { a.deleteAssetPrompt(asset) })
+								delBg := a.pal.surfaceRaised
+								if delBtn.Pressed() || delBtn.Hovered() {
+									delBg = dangerHover
+								}
+								delBtn.Background(delBtn.AnimateColor("bg", delBg, animFast)).
+									TextColor(a.pal.danger).
+									Children(func() {
+										gui.Icon(c, iconTrash).Size(13, 13)
+										gui.Text(c, a.t("library.delete")).FontSize(12).Bold().SingleLine()
 									})
-								})
-							}
-						})
-
-						// Used in Projects.
-						gui.Column(c).Gap(8).Children(func() {
-							gui.Row(c).AlignItems(gui.Center).Children(func() {
-								a.sectionLabel(c, a.t("inspector.usedIn"))
-								gui.Spacer(c)
-								if a.inspectorPlaces > 0 {
-									gui.Text(c, fmt.Sprintf(a.t("inspector.placements"), a.inspectorPlaces)).FontSize(10).TextColor(a.pal.inkMuted)
-								}
-							})
-							if len(a.inspectorProjects) == 0 {
-								gui.Text(c, a.t("inspector.usedNone")).FontSize(11).TextColor(a.pal.inkMuted)
-							} else {
-								gui.Row(c).Gap(6).Wrap().Children(func() {
-									for _, p := range a.inspectorProjects {
-										proj := p
-										a.tagChip(c, "insp-used-"+proj.ID, proj.Name, true).OnClick(func() {
-											a.openProject(proj.ID)
-										})
-									}
-								})
-							}
-							if len(a.projectList) > 0 {
-								gui.PopoverMenuButton(c.Key("insp-add-proj"), "+ "+a.t("library.addToProject"), func(m *gui.Menu) {
-									for _, p := range a.projectList {
-										proj := p
-										if m.Item(proj.Name).Chosen() {
-											a.referenceAssetToProject(asset.ID, proj.ID)
-										}
-									}
-								}).FillWidth()
-							}
-						})
-
-						// Clean key-value metadata (no noisy nested card boxes).
-						gui.Column(c).Gap(5).Children(func() {
-							a.sectionLabel(c, a.t("inspector.details"))
-							if asset.Width > 0 && asset.Height > 0 {
-								a.metaRow(c, a.t("inspector.dimensions"), fmt.Sprintf("%d × %d px", asset.Width, asset.Height))
-								a.metaRow(c, a.t("inspector.aspect"), aspectRatioLabel(asset.Width, asset.Height))
-							}
-							if a.inspectorFileSize > 0 {
-								a.metaRow(c, a.t("inspector.size"), formatBytes(a.inspectorFileSize))
-							}
-							if asset.Mime != "" {
-								a.metaRow(c, a.t("library.mime"), asset.Mime)
-							}
-							if len(asset.Hash) >= 12 {
-								a.metaRow(c, a.t("inspector.hash"), asset.Hash[:12]+"…")
-							}
-							if !asset.CreatedAt.IsZero() {
-								a.metaRow(c, a.t("inspector.added"), asset.CreatedAt.Local().Format("2006-01-02 15:04"))
-							}
-							gui.Text(c, asset.Path).FontSize(11).TextColor(a.pal.inkMuted).LineHeight(1.4)
-						})
-
-						a.arcButton(c, "insp-delete", a.t("library.delete"), false).
-							FillWidth().
-							TextColor(a.pal.danger).
-							OnClick(func() { a.deleteAssetPrompt(asset) })
 							})
 						})
 					}
@@ -1825,12 +2167,11 @@ func (a *App) inspector(c *gui.Context) {
 					AlignItems(gui.Center).
 					Children(func() {
 						gui.Spacer(c)
-						if a.inspectorOpen {
-							a.iconButton(c, "insp-collapse-btn", iconPanelRight, a.t("inspector.toggle"), false).OnClick(func() {
-								a.inspectorOpen = false
-							})
-						}
-					})
-			})
-	})
+					if a.inspectorOpen {
+						a.iconButton(c, "insp-collapse-btn", iconPanelRight, a.t("inspector.toggle"), false).OnClick(func() {
+							a.inspectorOpen = false
+						})
+					}
+				})
+		})
 }
