@@ -1672,6 +1672,9 @@ func (a *App) settingsSyncTab(c *gui.Context) {
 					a.toolButton(c, "sync-e2ee-regen", iconRefresh, a.t("sync.e2eeRegen"), false).OnClick(func() {
 						a.regenerateSyncE2EEKeyPrompt()
 					})
+					a.toolButton(c, "sync-reset-remote", iconTrash, a.t("sync.resetBtn"), false).
+						Disabled(a.syncBusy).
+						OnClick(func() { a.resetRemoteSyncPrompt() })
 				})
 				gui.Text(c, a.t("sync.e2eeBackupHint")).FontSize(11).TextColor(a.pal.inkMuted).LineHeight(1.4)
 			})

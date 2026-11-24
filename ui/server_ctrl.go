@@ -142,6 +142,49 @@ func (a *App) regenerateSyncE2EEKeyPrompt() {
 	})
 }
 
+func (a *App) resetRemoteSyncPrompt() {
+	serverURL, token := a.effectiveSyncEndpoint()
+	if serverURL == "" || a.syncBusy {
+		return
+	}
+	a.ask(a.t("sync.resetTitle"), a.t("sync.resetBody"), a.t("sync.resetBtn"), func() {
+		a.syncBusy = true
+		a.syncStatusMsg = a.t("sync.syncing")
+		lib := a.lib
+		win := a.win
+		cfg := rsync.ClientConfig{
+			ServerURL:      serverURL,
+			Token:          token,
+			E2EEPassphrase: a.effectiveSyncE2EEKey(),
+		}
+		go func() {
+			removed, err := rsync.ResetRemoteSync(context.Background(), cfg, lib)
+			finish := func() {
+				a.syncBusy = false
+				if err != nil {
+					a.syncStatusMsg = err.Error()
+					a.notify(err.Error())
+					return
+				}
+				a.accountUsedBytes = 0
+				msg := fmt.Sprintf(a.t("sync.resetDone"), removed)
+				a.syncStatusMsg = msg
+				a.notify(msg)
+				a.refreshAccountProfile()
+			}
+			if win == nil {
+				finish()
+				return
+			}
+			win.Update(func() {
+				if !a.isClosed() {
+					finish()
+				}
+			})
+		}()
+	})
+}
+
 func (a *App) startBuiltInServer() {
 	if a.lib == nil {
 		return

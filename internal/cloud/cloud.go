@@ -7,6 +7,7 @@
 package cloud
 
 import (
+	"bytes"
 	"context"
 	"crypto/pbkdf2"
 	"crypto/rand"
@@ -224,6 +225,7 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/v1/sync/status", s.withUser(s.handleSyncStatus))
 	s.mux.HandleFunc("/v1/sync/pull", s.withUser(s.handleSyncPull))
 	s.mux.HandleFunc("/v1/sync/push", s.withUser(s.handleSyncPush))
+	s.mux.HandleFunc("/v1/sync/reset", s.withUser(s.handleSyncReset))
 	s.mux.HandleFunc("/v1/blobs/check", s.withUser(s.handleBlobCheck))
 	s.mux.HandleFunc("/v1/blobs/presign", s.withUser(s.handleBlobPresign))
 	s.mux.HandleFunc("/v1/blobs/", s.withUser(s.handleBlobObject))
@@ -1287,6 +1289,101 @@ func (s *Server) handleSyncPush(w http.ResponseWriter, r *http.Request, user Use
 	writeJSON(w, http.StatusOK, map[string]any{
 		"latest_seq": latest,
 		"accepted":   accepted,
+	})
+}
+
+// handleSyncReset clears the authenticated user's personal sync oplog and
+// unlinks all of their personal blobs, reclaiming storage quota and deleting
+// unreferenced blob files from disk (preserving blobs used by other users,
+// active public shares, or collab spaces).
+func (s *Server) handleSyncReset(w http.ResponseWriter, r *http.Request, user User) {
+	if r.Method != http.MethodPost {
+		writeErr(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	st, err := s.userSyncStore(user.ID)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if err := st.ResetOps(); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	var removedHashes []string
+	stillReferenced := map[string]bool{}
+	err = s.db.Update(func(tx *bbolt.Tx) error {
+		ub := tx.Bucket(bucketUserBlobs)
+		prefix := []byte(user.ID + ":")
+		var delKeys [][]byte
+		c := ub.Cursor()
+		for k, _ := c.Seek(prefix); k != nil && bytes.HasPrefix(k, prefix); k, _ = c.Next() {
+			delKeys = append(delKeys, append([]byte(nil), k...))
+			h := string(k[len(prefix):])
+			if h != "" {
+				removedHashes = append(removedHashes, h)
+			}
+		}
+		for _, k := range delKeys {
+			if err := ub.Delete(k); err != nil {
+				return err
+			}
+		}
+		var zeroBuf [8]byte
+		if err := tx.Bucket(bucketUserUsage).Put([]byte(user.ID), zeroBuf[:]); err != nil {
+			return err
+		}
+
+		// Collect any blob hashes still referenced by other users, public shares, or collabs.
+		_ = ub.ForEach(func(k, _ []byte) error {
+			if idx := bytes.IndexByte(k, ':'); idx >= 0 && idx+1 < len(k) {
+				stillReferenced[string(k[idx+1:])] = true
+			}
+			return nil
+		})
+		_ = tx.Bucket(bucketPublicShares).ForEach(func(_, v []byte) error {
+			var rec PublicShareRecord
+			if json.Unmarshal(v, &rec) == nil {
+				for h := range rec.AllowedHashes {
+					stillReferenced[strings.ToLower(strings.TrimSpace(h))] = true
+				}
+			}
+			return nil
+		})
+		_ = tx.Bucket(bucketCollabs).ForEach(func(_, v []byte) error {
+			var cs CollabSpace
+			if json.Unmarshal(v, &cs) == nil {
+				for h := range cs.AllowedHashes {
+					if nh := strings.ToLower(strings.TrimSpace(h)); nh != "" {
+						stillReferenced[nh] = true
+					}
+				}
+			}
+			return nil
+		})
+		return nil
+	})
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	deletedBlobs := 0
+	for _, h := range removedHashes {
+		if stillReferenced[h] {
+			continue
+		}
+		if s.blobs.Delete(r.Context(), h) == nil {
+			deletedBlobs++
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":            true,
+		"removed_links": len(removedHashes),
+		"deleted_blobs": deletedBlobs,
+		"used_bytes":    0,
 	})
 }
 

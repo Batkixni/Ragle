@@ -132,6 +132,19 @@ func (l *LocalBlobStore) Open(_ context.Context, hash string) (io.ReadCloser, in
 	return f, fi.Size(), nil
 }
 
+// Delete removes a single content-addressed blob from local disk if present.
+func (l *LocalBlobStore) Delete(_ context.Context, hash string) error {
+	h, err := ValidateSHA256(hash)
+	if err != nil {
+		return err
+	}
+	err = os.Remove(l.blobPath(h))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	return err
+}
+
 func (l *LocalBlobStore) PresignURL(method, hash string, expires time.Duration) (string, bool) {
 	if l.r2 == nil || !l.r2.Enabled() {
 		return "", false

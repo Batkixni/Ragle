@@ -30,6 +30,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/v1/sync/status", h.requireAuth(h.handleStatus))
 	mux.HandleFunc("/v1/sync/pull", h.requireAuth(h.handlePull))
 	mux.HandleFunc("/v1/sync/push", h.requireAuth(h.handlePush))
+	mux.HandleFunc("/v1/sync/reset", h.requireAuth(h.handleReset))
 	mux.HandleFunc("/v1/blobs/check", h.requireAuth(h.handleBlobCheck))
 	mux.HandleFunc("/v1/blobs/presign", h.requireAuth(h.handleBlobPresign))
 	mux.HandleFunc("/v1/blobs/", h.requireAuth(h.handleBlobObject))
@@ -55,6 +56,21 @@ func (h *Handler) handleStatus(w http.ResponseWriter, _ *http.Request) {
 		"latest_seq":   h.Store.LatestSeq(),
 		"blob_backend": h.Blobs.BackendName(),
 		"share_count":  len(h.Store.ListShares()),
+	})
+}
+
+func (h *Handler) handleReset(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if err := h.Store.ResetOps(); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeSyncJSON(w, http.StatusOK, map[string]any{
+		"ok":         true,
+		"latest_seq": 0,
 	})
 }
 

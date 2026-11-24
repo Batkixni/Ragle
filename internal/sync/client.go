@@ -757,3 +757,49 @@ func SyncNowWithProgress(ctx context.Context, cfg ClientConfig, lib *library.Lib
 	emit(SyncProgress{Stage: "done", Done: rep.UploadedBlobs + rep.DownloadedBlobs, Total: rep.UploadedBlobs + rep.DownloadedBlobs})
 	return rep, nil
 }
+
+// ResetRemoteSync clears the authenticated user's remote sync oplog and blobs
+// via POST /v1/sync/reset and wipes local cached cursors/known-sets for that
+// endpoint so the next sync starts cleanly from scratch (without touching any
+// local library files).
+func ResetRemoteSync(ctx context.Context, cfg ClientConfig, lib *library.Library) (int, error) {
+	base := strings.TrimRight(strings.TrimSpace(cfg.ServerURL), "/")
+	if base == "" {
+		return 0, fmt.Errorf("sync server URL is empty")
+	}
+	reqCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, base+"/v1/sync/reset", nil)
+	if err != nil {
+		return 0, err
+	}
+	if cfg.Token != "" {
+		req.Header.Set("Authorization", "Bearer "+cfg.Token)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		msg := strings.TrimSpace(string(body))
+		if msg == "" {
+			msg = fmt.Sprintf("HTTP %d", resp.StatusCode)
+		}
+		return 0, fmt.Errorf("reset remote sync failed: %s", msg)
+	}
+	var out struct {
+		RemovedLinks int `json:"removed_links"`
+		DeletedBlobs int `json:"deleted_blobs"`
+	}
+	_ = json.NewDecoder(resp.Body).Decode(&out)
+	if lib != nil {
+		if st, err := OpenStore(lib.DB.Root()); err == nil {
+			scope := remoteScopeKey(base, cfg.Token, cfg.E2EEPassphrase)
+			_ = st.ResetRemoteState(scope, base)
+			_ = st.Close()
+		}
+	}
+	return out.RemovedLinks, nil
+}

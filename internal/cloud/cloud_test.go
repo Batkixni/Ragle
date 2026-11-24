@@ -321,3 +321,90 @@ func TestCloudEmailVerificationPasswordResetAndInviteMail(t *testing.T) {
 	}
 	_ = loginNew.Body.Close()
 }
+
+func TestCloudSyncResetClearsUserQuotaAndBlobs(t *testing.T) {
+	srv, err := Open(Options{
+		DataDir:       t.TempDir(),
+		BlobDir:       t.TempDir(),
+		PublicHost:    "cloud.raglex.sorai.tw",
+		AllowRegister: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer srv.Close()
+	ts := httptest.NewServer(srv)
+	defer ts.Close()
+
+	reg := func(email string) string {
+		b, _ := json.Marshal(map[string]string{"email": email, "password": "password123"})
+		resp, err := http.Post(ts.URL+"/api/v1/auth/register", "application/json", bytes.NewReader(b))
+		if err != nil || resp.StatusCode != http.StatusCreated {
+			t.Fatalf("register %s failed: %v", email, err)
+		}
+		var out struct{ Token string `json:"token"` }
+		_ = json.NewDecoder(resp.Body).Decode(&out)
+		_ = resp.Body.Close()
+		return out.Token
+	}
+	tokA := reg("reset-a@sorai.tw")
+	tokB := reg("reset-b@sorai.tw")
+
+	blobA := []byte("old-plaintext-blob-from-user-a")
+	sumA := sha256.Sum256(blobA)
+	hashA := hex.EncodeToString(sumA[:])
+	putA, _ := http.NewRequest(http.MethodPut, ts.URL+"/v1/blobs/"+hashA, bytes.NewReader(blobA))
+	putA.Header.Set("Authorization", "Bearer "+tokA)
+	resp, err := http.DefaultClient.Do(putA)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("putA failed: %v", err)
+	}
+	_ = resp.Body.Close()
+
+	blobB := []byte("important-blob-from-user-b")
+	sumB := sha256.Sum256(blobB)
+	hashB := hex.EncodeToString(sumB[:])
+	putB, _ := http.NewRequest(http.MethodPut, ts.URL+"/v1/blobs/"+hashB, bytes.NewReader(blobB))
+	putB.Header.Set("Authorization", "Bearer "+tokB)
+	resp, err = http.DefaultClient.Do(putB)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("putB failed: %v", err)
+	}
+	_ = resp.Body.Close()
+
+	// Reset user A's remote sync storage.
+	resetReq, _ := http.NewRequest(http.MethodPost, ts.URL+"/v1/sync/reset", nil)
+	resetReq.Header.Set("Authorization", "Bearer "+tokA)
+	resetResp, err := http.DefaultClient.Do(resetReq)
+	if err != nil || resetResp.StatusCode != http.StatusOK {
+		t.Fatalf("sync reset failed: %v", err)
+	}
+	var resetOut struct {
+		OK           bool `json:"ok"`
+		RemovedLinks int  `json:"removed_links"`
+		DeletedBlobs int  `json:"deleted_blobs"`
+		UsedBytes    int  `json:"used_bytes"`
+	}
+	_ = json.NewDecoder(resetResp.Body).Decode(&resetOut)
+	_ = resetResp.Body.Close()
+	if !resetOut.OK || resetOut.RemovedLinks != 1 || resetOut.DeletedBlobs != 1 || resetOut.UsedBytes != 0 {
+		t.Fatalf("unexpected reset output: %+v", resetOut)
+	}
+
+	// User A's blob is gone (404), while User B's blob is still intact (200)!
+	getA, _ := http.NewRequest(http.MethodGet, ts.URL+"/v1/blobs/"+hashA, nil)
+	getA.Header.Set("Authorization", "Bearer "+tokA)
+	rA, _ := http.DefaultClient.Do(getA)
+	if rA.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected user A blob 404 after reset, got %d", rA.StatusCode)
+	}
+	_ = rA.Body.Close()
+
+	getB, _ := http.NewRequest(http.MethodGet, ts.URL+"/v1/blobs/"+hashB, nil)
+	getB.Header.Set("Authorization", "Bearer "+tokB)
+	rB, _ := http.DefaultClient.Do(getB)
+	if rB.StatusCode != http.StatusOK {
+		t.Fatalf("expected user B blob still 200 after user A reset, got %d", rB.StatusCode)
+	}
+	_ = rB.Body.Close()
+}

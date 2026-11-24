@@ -389,6 +389,50 @@ func (s *Store) SetCursor(key string, seq uint64) error {
 	})
 }
 
+// ResetOps wipes all recorded sync operations and resets latest_seq to 0.
+func (s *Store) ResetOps() error {
+	return s.db.Update(func(tx *bbolt.Tx) error {
+		for _, name := range [][]byte{bucketOps, bucketOpIDs} {
+			if err := tx.DeleteBucket(name); err != nil && !errors.Is(err, bbolt.ErrBucketNotFound) {
+				return err
+			}
+			if _, err := tx.CreateBucket(name); err != nil {
+				return err
+			}
+		}
+		return tx.Bucket(bucketMeta).Put([]byte("latest_seq"), seqKey(0))
+	})
+}
+
+// ResetRemoteState clears locally cached cursors and confirmed op/hash entries
+// for the given server/scope after a remote sync reset.
+func (s *Store) ResetRemoteState(scope, base string) error {
+	return s.db.Update(func(tx *bbolt.Tx) error {
+		meta := tx.Bucket(bucketMeta)
+		if base != "" {
+			_ = meta.Delete([]byte("cursor:" + base))
+		}
+		if scope != "" {
+			_ = meta.Delete([]byte("cursor:v2:" + scope))
+		}
+		rk := tx.Bucket(bucketRemoteKnown)
+		if rk != nil && scope != "" {
+			prefix := []byte(scope + ":")
+			var delKeys [][]byte
+			c := rk.Cursor()
+			for k, _ := c.Seek(prefix); k != nil && bytes.HasPrefix(k, prefix); k, _ = c.Next() {
+				delKeys = append(delKeys, append([]byte(nil), k...))
+			}
+			for _, k := range delKeys {
+				if err := rk.Delete(k); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	})
+}
+
 // EnsureDeviceID returns a stable, unique random device ID persisted inside
 // this library's sync.db so two separate devices (e.g. Windows + macOS) signed
 // into the same account never collide on a shared default device name.

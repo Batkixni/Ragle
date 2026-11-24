@@ -1159,6 +1159,10 @@ var pairs = []pair{
 	{"sync.e2eeLoadErr", "檔案中找不到有效的加密金鑰", "No valid encryption key found in the selected file", "選択したファイルに有効な暗号化キーが見つかりませんでした"},
 	{"sync.e2eeRegenDone", "已產生新的隨機 AES-256 金鑰，請記得另存備份。", "Generated a new random AES-256 key. Remember to save a backup.", "新しいランダム AES-256 キーを生成しました。バックアップを保存してください。"},
 	{"sync.e2eeDecryptFailed", "有 %d 筆加密素材無法解密：請在「偏好設定 → 同步與協作」載入另一台裝置匯出的 AES-256 金鑰檔。", "%d encrypted asset(s) could not be decrypted. Load the AES-256 key file from your other device in Preferences → Sync & Collab.", "%d 件の暗号化アセットを復号できませんでした。「環境設定 → 同期とコラボ」で他端末の AES-256 キーファイルを読み込んでください。"},
+	{"sync.resetBtn", "清空遠端同步資料", "Clear Remote Sync Data", "リモート同期データを消去"},
+	{"sync.resetTitle", "清空遠端伺服器上的同步資料？", "Clear Remote Sync Storage?", "リモート同期データをすべて消去しますか？"},
+	{"sync.resetBody", "將會清除雲端／自架伺服器上此帳號的同步紀錄與備份檔（包含舊版未加密檔案並釋放空間配額）。你的本機檔案與帳號完全不受影響，清除後可乾淨重新加密同步。", "Clears your personal sync history and uploaded blobs on the remote server (reclaiming quota from old unencrypted uploads). Your local files and account are untouched.", "リモートサーバー上の個人同期履歴とアップロード済みファイルを消去し、容量を解放します。ローカルファイルとアカウントには一切影響しません。"},
+	{"sync.resetDone", "已清空遠端同步空間（釋放 %d 筆檔案紀錄），點擊「立即同步」即可乾淨重新加密上傳。", "Cleared remote sync storage (%d file record(s) removed). Click Sync Now to upload fresh encrypted data.", "リモート同期データを消去しました（%d 件解放）。「今すぐ同期」で新しく暗号化アップロードできます。"},
 
 	{"collab.title", "好友協作空間", "Collaboration Spaces", "コラボスペース"},
 	{"collab.sub", "與好友共同維護參考資料夾與專案；每個人的白板獨立擁有，只能編輯自己的白板、可檢視對方的白板。", "Collaborate on shared reference folders and projects. Each member owns their own whiteboards and can view others' boards without conflict.", "フレンドとリファレンスフォルダやプロジェクトを共有できます。ボードは個人所有制のため、他人のボードは閲覧のみ・自分のボードのみ編集できます。"},
