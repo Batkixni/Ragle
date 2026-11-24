@@ -28,14 +28,17 @@ type Entry struct {
 	Version          string   `json:"version"`
 	Author           string   `json:"author"`
 	Description      string   `json:"description"`
+	Icon             string   `json:"icon,omitempty"`
+	Accent           string   `json:"accent,omitempty"`
 	Category         string   `json:"category,omitempty"`
 	Repository       string   `json:"repository,omitempty"`
-	DownloadURL      string   `json:"download_url"`
-	SHA256           string   `json:"sha256"`
+	DownloadURL      string   `json:"download_url,omitempty"`
+	SHA256           string   `json:"sha256,omitempty"`
 	MinRaglexVersion string   `json:"min_raglex_version,omitempty"`
 	Hooks            []string `json:"hooks,omitempty"`
 	Permissions      []string `json:"permissions,omitempty"`
 	Official         bool     `json:"official,omitempty"`
+	Builtin          bool     `json:"builtin,omitempty"`
 }
 
 type Catalog struct {
@@ -75,23 +78,25 @@ func main() {
 		if strings.TrimSpace(e.Name) == "" || strings.TrimSpace(e.Version) == "" {
 			fatalf("%s: name and version are required", p)
 		}
-		if !strings.HasPrefix(e.DownloadURL, "https://") {
-			fatalf("%s: download_url must use https://", p)
-		}
-		if len(strings.TrimSpace(e.SHA256)) != 64 {
-			fatalf("%s: sha256 must be 64 hex chars", p)
-		}
-		if *verifyDL {
-			resp, err := http.Get(e.DownloadURL)
-			if err != nil || resp.StatusCode != 200 {
-				fatalf("%s: download failed (%v)", p, err)
+		if !e.Builtin {
+			if !strings.HasPrefix(e.DownloadURL, "https://") {
+				fatalf("%s: download_url must use https://", p)
 			}
-			h := sha256.New()
-			_, _ = io.Copy(h, resp.Body)
-			_ = resp.Body.Close()
-			got := hex.EncodeToString(h.Sum(nil))
-			if !strings.EqualFold(got, e.SHA256) {
-				fatalf("%s: sha256 mismatch: got %s, want %s", p, got, e.SHA256)
+			if len(strings.TrimSpace(e.SHA256)) != 64 {
+				fatalf("%s: sha256 must be 64 hex chars", p)
+			}
+			if *verifyDL {
+				resp, err := http.Get(e.DownloadURL)
+				if err != nil || resp.StatusCode != 200 {
+					fatalf("%s: download failed (%v)", p, err)
+				}
+				h := sha256.New()
+				_, _ = io.Copy(h, resp.Body)
+				_ = resp.Body.Close()
+				got := hex.EncodeToString(h.Sum(nil))
+				if !strings.EqualFold(got, e.SHA256) {
+					fatalf("%s: sha256 mismatch: got %s, want %s", p, got, e.SHA256)
+				}
 			}
 		}
 		entries = append(entries, e)
