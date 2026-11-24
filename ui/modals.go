@@ -57,6 +57,7 @@ func (a *App) quickLookModal(c *gui.Context) {
 	isFont := model.IsFont(asset.Mime, asset.Path)
 	isAudio := model.IsAudio(asset.Mime, asset.Path)
 	isPDF := model.IsPDF(asset.Mime, asset.Path)
+	isDoc := a.isPluginDocPreview(asset)
 
 	a.styledDialog(c, "quicklook-modal", &a.quickLookOpen, 920, 660, func(panel gui.Element) {
 		panel.OnShortcut(0, gui.KeyLeft, func() { a.stepPreview(-1) })
@@ -121,6 +122,8 @@ func (a *App) quickLookModal(c *gui.Context) {
 					a.renderAudioStage(c, asset)
 				case isPDF:
 					a.renderPDFStage(c, asset)
+				case isDoc:
+					a.renderDocumentStage(c, asset)
 				case a.previewVideo != nil:
 					gui.Box(c).Grow(1).FillWidth().Center().Children(func() {
 						gui.Video(c.Key("ql-video-"+asset.ID), a.previewVideo).

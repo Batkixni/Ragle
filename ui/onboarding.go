@@ -104,14 +104,20 @@ func (a *App) onboardingModal(c *gui.Context) {
 						gui.Spacer(c)
 
 						sel := 0
-						if a.lang == i18nEn {
+						switch a.lang {
+						case i18nEn:
 							sel = 1
+						case i18nJa:
+							sel = 2
 						}
-						a.arcPillTabs(c, "ob-lang", sel, []string{"中文", "EN"}, func(idx int) {
-							if idx == 0 {
+						a.arcPillTabs(c, "ob-lang", sel, []string{"中文", "EN", "日本語"}, func(idx int) {
+							switch idx {
+							case 0:
 								a.setLang(i18nZh)
-							} else {
+							case 1:
 								a.setLang(i18nEn)
+							case 2:
+								a.setLang(i18nJa)
 							}
 						})
 

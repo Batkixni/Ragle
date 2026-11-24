@@ -751,7 +751,7 @@ func (a *App) boardInspector(c *gui.Context) {
 								}
 								if item.Kind == model.KindRect || item.Kind == model.KindArrow || item.Kind == model.KindFrame {
 									gui.Row(c).FillWidth().AlignItems(gui.Center).Children(func() {
-										gui.Text(c, "虛線 / Dashed").FontSize(12).TextColor(a.pal.ink).Grow(1)
+										gui.Text(c, a.t("board.dashed")).FontSize(12).TextColor(a.pal.ink).Grow(1)
 										dashed := item.Dashed
 										a.arcSwitch(c, "binsp-dashed-"+item.ID, &dashed, func() {
 											a.session.RecordUndo()

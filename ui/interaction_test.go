@@ -16,6 +16,7 @@ import (
 	"raglex/internal/i18n"
 	"raglex/internal/library"
 	"raglex/internal/model"
+	"raglex/internal/plugin"
 	"raglex/internal/project"
 	"raglex/internal/updater"
 )
@@ -997,4 +998,253 @@ func TestStacksNativePreviewsAndRefWindowUI(t *testing.T) {
 	if err != nil || len(refAssets) != wantRefCount {
 		t.Fatalf("expected all %d selected assets referenced into project, got %d err=%v", wantRefCount, len(refAssets), err)
 	}
+}
+
+// TestFoldersSidebarSwitcherAndSyncBar verifies the parallel hierarchical Folder
+// system, left-sidebar Folders <-> Tags toggle, recursive subfolder filtering,
+// Inspector folder chips, and the live Cloud Sync progress bar pinned above the
+// sidebar bottom footer.
+func TestFoldersSidebarSwitcherAndSyncBar(t *testing.T) {
+	root := t.TempDir()
+	srcDir := t.TempDir()
+	subDir := filepath.Join(srcDir, "Brand", "Icons")
+	if err := os.MkdirAll(subDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	img1 := filepath.Join(subDir, "logo_mark.png")
+	img2 := filepath.Join(srcDir, "loose_note.png")
+	writeSamplePNG(t, img1, 120, 120, color.RGBA{255, 92, 51, 255})
+	writeSamplePNG(t, img2, 120, 120, color.RGBA{59, 130, 246, 255})
+
+	lib, err := library.Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lib.Close()
+
+	// Import Brand/ tree preserving subfolders -> creates Folders "Brand" -> "Icons"
+	if _, err := lib.ImportWithFolders(context.Background(), []string{filepath.Join(srcDir, "Brand")}, model.StorageCopy, nil, nil, true, nil); err != nil {
+		t.Fatal(err)
+	}
+	// Import loose file with a Tag only (uncategorized by Folder)
+	tg, err := lib.CreateTag("Sketch")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := lib.ImportWithFolders(context.Background(), []string{img2}, model.StorageCopy, []string{tg.ID}, nil, false, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	a := NewApp()
+	a.lib = lib
+	a.projects = project.New(lib.DB)
+	a.lang = i18n.ZhHant
+	a.cfg.LibraryPath = root
+	a.screen = screenLibrary
+	a.reload()
+
+	tt := gui.NewTester(a.View, 1360, 860)
+	tt.Advance(400 * time.Millisecond)
+
+	// 1. Because Folders exist, sidebar defaults to "folders" mode and shows "Brand".
+	if a.effectiveBrowseMode() != "folders" {
+		t.Fatalf("expected default browse mode 'folders' when folders exist, got %q", a.effectiveBrowseMode())
+	}
+	if !tt.HasText("Brand") {
+		t.Fatalf("expected root folder 'Brand' visible in sidebar, texts=%v", tt.Texts())
+	}
+
+	// 2. Clicking "Brand" filters recursively to include nested Icons/logo_mark.png (1 asset).
+	if err := tt.Click("Brand"); err != nil {
+		t.Fatalf("clicking Brand folder failed: %v", err)
+	}
+	tt.Advance(200 * time.Millisecond)
+	if len(a.assets) != 1 || a.assetName(a.assets[0]) != "logo_mark.png" {
+		t.Fatalf("expected Brand folder to filter to logo_mark.png, got %d assets", len(a.assets))
+	}
+	// Clicking Brand also expands it, revealing subfolder "Icons".
+	if !tt.HasText("Icons") {
+		t.Fatalf("expected nested subfolder 'Icons' expanded under Brand, texts=%v", tt.Texts())
+	}
+
+	// 3. Selecting logo_mark.png shows "所屬資料夾" and "Brand / Icons" in the Right Inspector.
+	if err := tt.Click("logo_mark.png"); err != nil {
+		t.Fatalf("clicking logo_mark.png failed: %v", err)
+	}
+	tt.Advance(200 * time.Millisecond)
+	if !tt.HasText("所屬資料夾") || !tt.HasText("Brand / Icons") {
+		t.Fatalf("expected Inspector to show 所屬資料夾 & Brand / Icons chip, texts=%v", tt.Texts())
+	}
+
+	// 4. Switching left sidebar to "標籤" mode shows the parallel Tag tree ("Sketch").
+	if err := tt.Click("標籤"); err != nil {
+		t.Fatalf("clicking Tags switcher button failed: %v", err)
+	}
+	tt.Advance(200 * time.Millisecond)
+	if a.effectiveBrowseMode() != "tags" {
+		t.Fatalf("expected browse mode 'tags' after toggle, got %q", a.effectiveBrowseMode())
+	}
+	if !tt.HasText("Sketch") {
+		t.Fatalf("expected tag 'Sketch' visible in Tags mode, texts=%v", tt.Texts())
+	}
+
+	// 5. Clicking "未分類" shows only logo_mark.png (which has no Tag).
+	if err := tt.Click("未分類"); err != nil {
+		t.Fatalf("clicking Untagged filter failed: %v", err)
+	}
+	tt.Advance(200 * time.Millisecond)
+	if len(a.assets) != 1 || a.assetName(a.assets[0]) != "logo_mark.png" {
+		t.Fatalf("expected Untagged filter to show logo_mark.png, got %d assets", len(a.assets))
+	}
+
+	// 6. Live Sync Progress Bar in left sidebar appears when syncBusy is true and opens Account settings on click.
+	a.syncBusy = true
+	a.syncStage = "uploading"
+	a.syncDone = 4
+	a.syncTotal = 10
+	a.syncCurrent = "logo_mark.png"
+	tt.Advance(250 * time.Millisecond)
+	if !tt.HasText("上傳素材中…") || !tt.HasText("4 / 10") {
+		t.Fatalf("expected sidebar sync bar to render stage & counter, texts=%v", tt.Texts())
+	}
+	if err := tt.Click("上傳素材中…"); err != nil {
+		t.Fatalf("clicking sidebar sync bar failed: %v", err)
+	}
+	tt.Advance(200 * time.Millisecond)
+	if !a.settingsOpen || a.settingsTab != settingsTabAccount {
+		t.Fatalf("expected clicking sidebar sync bar to open Account settings, open=%v tab=%d", a.settingsOpen, a.settingsTab)
+	}
+	a.settingsOpen = false
+	a.syncBusy = false
+
+	// 7. Folder Share modal opens from active folder and displays Raglex Cloud Public Share card.
+	a.setSidebarBrowseMode("folders")
+	a.handleNav("folder:" + a.folders[0].ID)
+	a.accountToken = "test-cloud-token"
+	a.openShareFolder(a.folders[0].ID)
+	tt.Advance(250 * time.Millisecond)
+	if !tt.HasText("Raglex Cloud 公開分享碼") || !tt.HasText("產生公開分享碼") {
+		t.Fatalf("expected Folder Share modal with Cloud Public Share section, texts=%v", tt.Texts())
+	}
+	a.shareOpen = false
+
+	// 8. Universal Receive modal recognizes SHR-XXXX-XXXX public codes without needing login.
+	a.accountToken = ""
+	a.pairRecvOpen = true
+	a.pairRecvCode = "SHR-K7M2-9P4Q"
+	tt.Advance(250 * time.Millisecond)
+	if !tt.HasText("下載 / 連線") {
+		t.Fatalf("expected Receive modal to switch button to 下載 / 連線 for SHR code, texts=%v", tt.Texts())
+	}
+	a.pairRecvOpen = false
+
+	// 9. Markdown preview via raglex.markdown-notes plugin renders formatted headings & body text!
+	mdPath := filepath.Join(srcDir, "esports.md")
+	if err := os.WriteFile(mdPath, []byte("# Esports Notes\n\n- Team Alpha\n- Team Beta\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := lib.ImportWithFolders(context.Background(), []string{mdPath}, model.StorageCopy, nil, nil, false, nil); err != nil {
+		t.Fatal(err)
+	}
+	pm := plugin.NewManager(root)
+	if err := pm.Install(context.Background(), plugin.RegistryEntry{
+		ID:          "raglex.markdown-notes",
+		Name:        "Markdown 筆記與靈感簡報",
+		Version:     "1.0.0",
+		Hooks:       []string{"preview_renderer", "context_menu"},
+		Permissions: []string{"read_library"},
+		Builtin:     true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	a.plugins = pm
+	a.reload()
+	var mdAsset model.Asset
+	for _, it := range a.allAssets {
+		if a.assetName(it) == "esports.md" {
+			mdAsset = it
+			break
+		}
+	}
+	if mdAsset.ID == "" {
+		t.Fatal("esports.md not imported")
+	}
+	a.openPreview(mdAsset)
+	tt.Advance(250 * time.Millisecond)
+	if !tt.HasText("Esports Notes") || !tt.HasText("Team Alpha") {
+		t.Fatalf("expected Markdown preview to render parsed headings & list items, texts=%v", tt.Texts())
+	}
+	// Editing & saving Markdown persists directly to disk and updates hash cleanly.
+	a.previewDocMode = "edit"
+	a.previewDocDraft = "# Esports Notes Updated\n\n- [x] Done task\n"
+	a.saveDocumentPreview(mdAsset)
+	savedBytes, err := os.ReadFile(mdAsset.Path)
+	if err != nil || string(savedBytes) != a.previewDocDraft {
+		t.Fatalf("expected edited markdown saved to disk, got err=%v content=%q", err, string(savedBytes))
+	}
+	a.closePreview()
+	tt.Frame()
+
+	// 10. Sidebar top buttons customization: "全部素材" is always visible, others can be toggled off.
+	if !tt.HasText("隨機探索") {
+		t.Fatalf("expected 隨機探索 visible in sidebar by default, texts=%v", tt.Texts())
+	}
+	a.showSidebarRandom = false
+	a.showSidebarRecent = false
+	tt.Frame()
+	if tt.HasText("隨機探索") || tt.HasText("近期新增") {
+		t.Fatalf("expected toggled-off sidebar buttons to be hidden, texts=%v", tt.Texts())
+	}
+	if !tt.HasText("全部素材") {
+		t.Fatalf("expected 全部素材 to remain permanently visible, texts=%v", tt.Texts())
+	}
+	a.showSidebarRandom = true
+	a.showSidebarRecent = true
+
+	// 11. Sync & Collab tab is locked when signed out, and unlocks when signed in (plus 20 GB quota bar in Account tab).
+	a.accountToken = ""
+	a.accountEmail = ""
+	a.syncProvider = "cloud"
+	a.openSettings(settingsTabSync)
+	tt.Advance(250 * time.Millisecond)
+	if !tt.HasText("前往帳號與雲端設定") {
+		t.Fatalf("expected Sync & Collab tab to show locked notice when disconnected, texts=%v", tt.Texts())
+	}
+
+	a.accountToken = "tok-demo"
+	a.accountEmail = "artist@sorai.tw"
+	a.accountVerified = true
+	a.accountUsedBytes = 2 << 30
+	a.accountQuotaBytes = 20 << 30
+	a.setSettingsTab(settingsTabAccount)
+	tt.Advance(250 * time.Millisecond)
+	if !tt.HasText("雲端儲存空間") || !tt.HasText("2.00 GB") || !tt.HasText("20.00 GB") {
+		t.Fatalf("expected Account tab to render 20 GB storage quota meter, texts=%v", tt.Texts())
+	}
+
+	a.setSettingsTab(settingsTabSync)
+	tt.Advance(250 * time.Millisecond)
+	if !tt.HasText("選擇性資料夾同步") || !tt.HasText("好友協作空間") {
+		t.Fatalf("expected unlocked Sync & Collab tab to show selective folder sync & collab spaces, texts=%v", tt.Texts())
+	}
+	a.settingsOpen = false
+
+	// 12. Receive modal detects CLB-XXXX-XXXX collaboration invite codes cleanly.
+	a.pairRecvOpen = true
+	a.pairRecvCode = "CLB-9A2B-7C4D"
+	tt.Advance(250 * time.Millisecond)
+	if !tt.HasText("加入協作") {
+		t.Fatalf("expected Receive modal to switch action button to 加入協作 for CLB code, texts=%v", tt.Texts())
+	}
+	a.pairRecvOpen = false
+
+	// 13. Full Japanese localization switches sidebar & settings cleanly.
+	a.setLang(i18n.Ja)
+	a.openSettings(settingsTabSync)
+	tt.Advance(250 * time.Millisecond)
+	if !tt.HasText("すべてのアセット") || !tt.HasText("環境設定") || !tt.HasText("同期とコラボ") || !tt.HasText("フォルダ選択同期") {
+		t.Fatalf("expected Japanese UI across sidebar and Sync & Collab settings, texts=%v", tt.Texts())
+	}
+	a.settingsOpen = false
+	a.setLang(i18n.ZhHant)
 }

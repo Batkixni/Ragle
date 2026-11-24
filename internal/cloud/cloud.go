@@ -44,8 +44,11 @@ var (
 	bucketTokens       = []byte("tokens")
 	bucketUserBlobs    = []byte("user_blobs") // key: userID + ":" + sha256 -> uint64 size
 	bucketUserUsage    = []byte("user_usage") // key: userID -> uint64 total bytes
-	bucketInvites      = []byte("invites")    // key: uppercase invite code -> InviteCode JSON
-	bucketAuthCodes    = []byte("auth_codes") // key: kind + ":" + email -> authCodeRecord JSON
+	bucketInvites      = []byte("invites")       // key: uppercase invite code -> InviteCode JSON
+	bucketAuthCodes    = []byte("auth_codes")    // key: kind + ":" + email -> authCodeRecord JSON
+	bucketPublicShares = []byte("public_shares") // key: uppercase share code -> PublicShareRecord JSON
+	bucketCollabs      = []byte("collabs")       // key: collabID -> CollabSpace JSON
+	bucketCollabCodes  = []byte("collab_codes")  // key: uppercase CLB-XXXX-XXXX -> collabID
 )
 
 const (
@@ -149,7 +152,7 @@ func Open(opts Options) (*Server, error) {
 		return nil, fmt.Errorf("open accounts db: %w", err)
 	}
 	err = db.Update(func(tx *bbolt.Tx) error {
-		for _, b := range [][]byte{bucketUsersByID, bucketUsersByEmail, bucketTokens, bucketUserBlobs, bucketUserUsage, bucketInvites, bucketAuthCodes} {
+		for _, b := range [][]byte{bucketUsersByID, bucketUsersByEmail, bucketTokens, bucketUserBlobs, bucketUserUsage, bucketInvites, bucketAuthCodes, bucketPublicShares, bucketCollabs, bucketCollabCodes} {
 			if _, err := tx.CreateBucketIfNotExists(b); err != nil {
 				return err
 			}
@@ -224,6 +227,16 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/v1/blobs/check", s.withUser(s.handleBlobCheck))
 	s.mux.HandleFunc("/v1/blobs/presign", s.withUser(s.handleBlobPresign))
 	s.mux.HandleFunc("/v1/blobs/", s.withUser(s.handleBlobObject))
+
+	// Public Cloud Share Codes (owner creates/revokes; ANYONE can download by code without registering).
+	s.mux.HandleFunc("/api/v1/public-shares", s.withUser(s.handlePublicSharesCollection))
+	s.mux.HandleFunc("/api/v1/public-shares/", s.handlePublicShareByCode)
+	s.mux.HandleFunc("/s/", s.handlePublicShareLanding)
+
+	// Multi-user Collaboration Spaces (shared Projects + Whiteboards & shared Reference Folders).
+	s.mux.HandleFunc("/api/v1/collabs", s.withUser(s.handleCollabsCollection))
+	s.mux.HandleFunc("/api/v1/collabs/join", s.withUser(s.handleCollabJoin))
+	s.mux.HandleFunc("/api/v1/collabs/", s.withUser(s.handleCollabByID))
 
 	// Embedded WebRTC Pairing Signaling.
 	s.mux.Handle("/signal/", http.StripPrefix("/signal", s.signal))

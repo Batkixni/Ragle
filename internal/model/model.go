@@ -121,6 +121,17 @@ type Tag struct {
 	CreatedAt time.Time `msgpack:"created_at"`
 }
 
+// Folder is a hierarchical folder/category on assets running in parallel with
+// Tags. ParentID nests subfolders under a parent folder (empty for root).
+type Folder struct {
+	ID        string    `msgpack:"id"`
+	Name      string    `msgpack:"name"`
+	ParentID  string    `msgpack:"parent_id,omitempty"`
+	Color     string    `msgpack:"color,omitempty"`
+	Order     int       `msgpack:"order,omitempty"`
+	CreatedAt time.Time `msgpack:"created_at"`
+}
+
 // Project is a working context. It references library assets and does not
 // own their files.
 type Project struct {

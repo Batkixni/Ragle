@@ -34,6 +34,7 @@ import (
 	"raglex/internal/project"
 	"raglex/internal/server"
 	"raglex/internal/share"
+	rsync "raglex/internal/sync"
 	"raglex/internal/thumbnail"
 	"raglex/internal/updater"
 	"raglex/internal/watcher"
@@ -111,19 +112,26 @@ type App struct {
 	ffmpegInstalling      bool
 	ffmpegInstallProgress string
 
-	node          *share.Node
-	shareDB       atomic.Pointer[db.DB]
-	shareOpen     bool
-	shareFiles    bool
-	shareDown     bool
-	shareSending  bool
-	shareAsking   bool
-	signalURL     string
-	pairCode      string
-	pairCancel    context.CancelFunc
-	pairRecvOpen  bool
-	pairRecvCode  string
-	pairReceiving bool
+	node               *share.Node
+	shareDB            atomic.Pointer[db.DB]
+	shareOpen          bool
+	shareKind          string // "project" or "folder"
+	shareTargetID      string
+	shareTargetTitle   string
+	shareFiles         bool
+	shareDown          bool
+	shareSending       bool
+	shareAsking        bool
+	signalURL          string
+	pairCode           string
+	pairCancel         context.CancelFunc
+	pairRecvOpen       bool
+	pairRecvCode       string
+	pairReceiving      bool
+	cloudShareBusy     bool
+	cloudShareCode     string
+	cloudShareURL      string
+	cloudShareProgress string
 
 	openErr     error
 	pendingRoot string
@@ -137,22 +145,32 @@ type App struct {
 	expandedTags       map[string]bool
 	allAssets          []model.Asset
 	allAssetIdx        map[string]int
-	assets             []model.Asset
-	assetIdx           map[string]int
-	assetByID          map[string]model.Asset
-	assetSearchKey     map[string]string
-	assetTags          map[string][]model.Tag
-	tagCounts          map[string]int
-	allAssetsCount     int
-	untaggedCount      int
-	missingCount       int
-	projectTags        map[string]bool
-	boardCounts        map[string]int
-	boardPlacements    map[string][]model.Placement
+	assets                []model.Asset
+	assetIdx              map[string]int
+	assetByID             map[string]model.Asset
+	assetSearchKey        map[string]string
+	assetTags             map[string][]model.Tag
+	tagCounts             map[string]int
+	folders               []model.Folder
+	folderByID            map[string]model.Folder
+	folderChildren        map[string][]model.Folder
+	folderCounts          map[string]int
+	folderRecursiveCounts map[string]int
+	assetFolders          map[string][]model.Folder
+	expandedFolders       map[string]bool
+	allAssetsCount        int
+	untaggedCount         int
+	uncategorizedCount    int
+	missingCount          int
+	projectTags           map[string]bool
+	boardCounts           map[string]int
+	boardPlacements       map[string][]model.Placement
 
 	// Navigation, search, sort, multi-select & library display state.
-	tagID           string
-	navFilter       string // "", "untagged", "missing"
+	sidebarBrowseMode string // "", "folders", "tags"
+	tagID             string
+	folderID          string
+	navFilter         string // "", "untagged", "uncategorized", "recent", "random", "missing"
 	searchQuery     string
 	searchHandle    gui.Handle
 	kindFilter      int
@@ -165,6 +183,15 @@ type App struct {
 	layoutGen       uint64
 	masonryCache    masonryLayoutCache
 	bentoCache      bentoLayoutCache
+	reflowAnchorID      string
+	reflowAnchorOffsetY float32
+	reflowAnchorViewH   float32
+	reflowAnchorValid   bool
+	reflowAnchorGen     uint64
+	reflowLastScrollY   float32
+	gridLastCols        int
+	gridLastGen         uint64
+	gridReflowGrace     int
 	assetIndex      int
 	anchorIndex     int
 	selectedIDs     map[string]bool
@@ -202,11 +229,22 @@ type App struct {
 	newRootTagColor  string
 	newChildParentID string
 	newChildTagName  string
-	editTagOpen      bool
-	editTagID        string
-	editTagName      string
-	editTagParentID  string
-	editTagColor     string
+	editTagOpen        bool
+	editTagID          string
+	editTagName        string
+	editTagParentID    string
+	editTagColor       string
+	newFolderOpen      bool
+	newFolderName      string
+	newFolderParentID  string
+	editFolderOpen         bool
+	editFolderID           string
+	editFolderName         string
+	editFolderParentID     string
+	editFolderColor        string
+	batchDelFoldersOpen    bool
+	batchDelFolderIDs      map[string]bool
+	batchDelIncludeSubs    bool
 
 	// Inspector persistent bound state (avoids local-variable loss on rebuild).
 	inspectorAssetID  string
@@ -301,6 +339,13 @@ type App struct {
 	previewPDFPage      int
 	previewPDFPages     int
 	previewPDFGen       int
+	previewDocTitle     string
+	previewDocText      string
+	previewDocDraft     string
+	previewDocMode      string // "read", "split", "edit"
+	previewDocFocus     bool   // Liubai-style paragraph focus dimming
+	previewDocMarkdown  bool
+	previewDocErr       string
 	previewPanX         float64
 	previewPanY         float64
 	previewDragging     bool
@@ -391,8 +436,13 @@ type App struct {
 	settingsPrevTab      int
 	shortcuts            map[string]string
 	recordingShortcutID  string
-	showSidebarCounts    bool
-	showTagColors        bool
+	showSidebarCounts   bool
+	showSidebarUntagged bool
+	showSidebarRecent   bool
+	showSidebarRandom   bool
+	showSidebarMissing  bool
+	showSidebarTagMgr   bool
+	showTagColors       bool
 	showCardCaption      bool
 	showCardExt          bool
 	showCardRating       bool
@@ -435,10 +485,24 @@ type App struct {
 	syncToken            string
 	syncBusy             bool
 	syncStatusMsg        string
+	syncStage            string
+	syncDone             int
+	syncTotal            int
+	syncCurrent          string
 	accountEmail         string
 	accountName          string
 	accountToken         string
 	accountVerified      bool
+	accountUsedBytes     uint64
+	accountQuotaBytes    int64
+	syncExcludeFolders   map[string]bool
+	syncIncludeUncat     bool
+	collabList           []rsync.CollabSummary
+	collabLoaded         bool
+	collabBusy           bool
+	collabJoinCode       string
+	collabLocalMap       map[string]string
+	collabLastCode       string
 	authEmailBuf         string
 	authPassBuf          string
 	authInviteBuf        string
@@ -587,7 +651,16 @@ func NewApp() *App {
 		screen:               screenWelcome,
 		shareFiles:           true,
 		showSidebarCounts:    true,
+		showSidebarUntagged:  true,
+		showSidebarRecent:    true,
+		showSidebarRandom:    true,
+		showSidebarMissing:   true,
+		showSidebarTagMgr:    true,
 		showTagColors:        true,
+		syncIncludeUncat:     true,
+		syncExcludeFolders:   map[string]bool{},
+		collabLocalMap:       map[string]string{},
+		accountQuotaBytes:    20 << 30,
 		showCardCaption:      true,
 		showCardExt:          true,
 		showCardRating:       true,
@@ -628,11 +701,17 @@ func NewApp() *App {
 		allAssetIdx:          map[string]int{},
 		assetIdx:             map[string]int{},
 		assetSearchKey:       map[string]string{},
-		tagByID:              map[string]model.Tag{},
-		tagChildren:          map[string][]model.Tag{},
-		tagRecursiveCounts:   map[string]int{},
-		expandedTags:         map[string]bool{},
-		assetByID:            map[string]model.Asset{},
+		tagByID:               map[string]model.Tag{},
+		tagChildren:           map[string][]model.Tag{},
+		tagRecursiveCounts:    map[string]int{},
+		expandedTags:          map[string]bool{},
+		folderByID:            map[string]model.Folder{},
+		folderChildren:        map[string][]model.Folder{},
+		folderCounts:          map[string]int{},
+		folderRecursiveCounts: map[string]int{},
+		assetFolders:          map[string][]model.Folder{},
+		expandedFolders:       map[string]bool{},
+		assetByID:             map[string]model.Asset{},
 		assetTags:            map[string][]model.Tag{},
 		tagCounts:            map[string]int{},
 		projectTags:          map[string]bool{},
@@ -691,6 +770,7 @@ func Run() error {
 		a.win.OnClosed(func() { a.shutdown() })
 		a.startShare()
 		a.startQuietUpdateCheck()
+		a.refreshAccountProfile()
 		if a.cfg.LibraryPath != "" {
 			root := a.cfg.LibraryPath
 			go a.openRoot(root)
@@ -701,7 +781,7 @@ func Run() error {
 
 func (a *App) applyConfig(cfg config.Config) {
 	a.cfg = cfg
-	if cfg.Language == i18n.ZhHant || cfg.Language == i18n.En {
+	if cfg.Language == i18n.ZhHant || cfg.Language == i18n.En || cfg.Language == i18n.Ja {
 		a.lang = cfg.Language
 	}
 	if cfg.SignalingURL != "" {
@@ -731,6 +811,9 @@ func (a *App) applyConfig(cfg config.Config) {
 	if cfg.LayoutMode == layoutBento || cfg.LayoutMode == layoutMasonry || cfg.LayoutMode == layoutGrid {
 		a.layoutMode = cfg.LayoutMode
 	}
+	if cfg.SidebarBrowseMode == "folders" || cfg.SidebarBrowseMode == "tags" {
+		a.sidebarBrowseMode = cfg.SidebarBrowseMode
+	}
 	for i, m := range storageModes {
 		if m == cfg.DefaultStorageMode {
 			a.storageMode = i
@@ -738,6 +821,11 @@ func (a *App) applyConfig(cfg config.Config) {
 		}
 	}
 	a.showSidebarCounts = config.BoolOr(cfg.ShowSidebarCounts, true)
+	a.showSidebarUntagged = config.BoolOr(cfg.ShowSidebarUntagged, true)
+	a.showSidebarRecent = config.BoolOr(cfg.ShowSidebarRecent, true)
+	a.showSidebarRandom = config.BoolOr(cfg.ShowSidebarRandom, true)
+	a.showSidebarMissing = config.BoolOr(cfg.ShowSidebarMissing, true)
+	a.showSidebarTagMgr = config.BoolOr(cfg.ShowSidebarTagMgr, true)
 	a.showTagColors = config.BoolOr(cfg.ShowTagColors, true)
 	a.showCardCaption = config.BoolOr(cfg.ShowCardCaption, true)
 	a.showCardExt = config.BoolOr(cfg.ShowCardExt, true)
@@ -793,6 +881,20 @@ func (a *App) applyConfig(cfg config.Config) {
 	a.accountEmail = strings.TrimSpace(cfg.AccountEmail)
 	a.accountName = strings.TrimSpace(cfg.AccountName)
 	a.accountToken = strings.TrimSpace(cfg.AccountToken)
+	a.accountVerified = cfg.AccountVerified
+	a.syncIncludeUncat = config.BoolOr(cfg.SyncIncludeUncat, true)
+	a.syncExcludeFolders = map[string]bool{}
+	for _, id := range cfg.SyncExcludeFolders {
+		if strings.TrimSpace(id) != "" {
+			a.syncExcludeFolders[strings.TrimSpace(id)] = true
+		}
+	}
+	a.collabLocalMap = map[string]string{}
+	for k, v := range cfg.CollabLinks {
+		if strings.TrimSpace(k) != "" && strings.TrimSpace(v) != "" {
+			a.collabLocalMap[k] = v
+		}
+	}
 	a.authEmailBuf = a.accountEmail
 	a.pairForceRelay = cfg.PairForceRelay
 	a.autoCheckUpdates = config.BoolOr(cfg.AutoCheckUpdates, true)
@@ -824,10 +926,16 @@ func (a *App) syncConfigFromState() {
 	a.cfg.CardSize = a.cardSize
 	a.cfg.DefaultSort = a.sortBy
 	a.cfg.LayoutMode = a.layoutMode
+	a.cfg.SidebarBrowseMode = a.sidebarBrowseMode
 	if a.storageMode >= 0 && a.storageMode < len(storageModes) {
 		a.cfg.DefaultStorageMode = storageModes[a.storageMode]
 	}
 	a.cfg.ShowSidebarCounts = config.BoolPtr(a.showSidebarCounts)
+	a.cfg.ShowSidebarUntagged = config.BoolPtr(a.showSidebarUntagged)
+	a.cfg.ShowSidebarRecent = config.BoolPtr(a.showSidebarRecent)
+	a.cfg.ShowSidebarRandom = config.BoolPtr(a.showSidebarRandom)
+	a.cfg.ShowSidebarMissing = config.BoolPtr(a.showSidebarMissing)
+	a.cfg.ShowSidebarTagMgr = config.BoolPtr(a.showSidebarTagMgr)
 	a.cfg.ShowTagColors = config.BoolPtr(a.showTagColors)
 	a.cfg.ShowCardCaption = config.BoolPtr(a.showCardCaption)
 	a.cfg.ShowCardExt = config.BoolPtr(a.showCardExt)
@@ -861,6 +969,31 @@ func (a *App) syncConfigFromState() {
 	a.cfg.AccountEmail = strings.TrimSpace(a.accountEmail)
 	a.cfg.AccountName = strings.TrimSpace(a.accountName)
 	a.cfg.AccountToken = strings.TrimSpace(a.accountToken)
+	a.cfg.AccountVerified = a.accountVerified
+	a.cfg.SyncIncludeUncat = config.BoolPtr(a.syncIncludeUncat)
+	if len(a.syncExcludeFolders) > 0 {
+		ex := make([]string, 0, len(a.syncExcludeFolders))
+		for id, off := range a.syncExcludeFolders {
+			if off && id != "" {
+				ex = append(ex, id)
+			}
+		}
+		sort.Strings(ex)
+		a.cfg.SyncExcludeFolders = ex
+	} else {
+		a.cfg.SyncExcludeFolders = nil
+	}
+	if len(a.collabLocalMap) > 0 {
+		cm := make(map[string]string, len(a.collabLocalMap))
+		for k, v := range a.collabLocalMap {
+			if k != "" && v != "" {
+				cm[k] = v
+			}
+		}
+		a.cfg.CollabLinks = cm
+	} else {
+		a.cfg.CollabLinks = nil
+	}
 	if len(a.shortcuts) > 0 {
 		sc := make(map[string]string, len(a.shortcuts))
 		for k, v := range a.shortcuts {
@@ -894,6 +1027,8 @@ func (a *App) setLayoutMode(mode string) {
 		return
 	}
 	a.layoutMode = mode
+	a.reflowAnchorValid = false
+	a.gridLastCols = 0
 	a.revealGen++
 	a.syncConfigFromState()
 }
@@ -948,7 +1083,7 @@ func (a *App) resetCustomTheme() {
 func (a *App) t(key string) string { return i18n.T(a.lang, key) }
 
 func (a *App) setLang(lang string) {
-	if lang != i18n.ZhHant && lang != i18n.En {
+	if lang != i18n.ZhHant && lang != i18n.En && lang != i18n.Ja {
 		return
 	}
 	a.lang = lang
@@ -1169,6 +1304,8 @@ func (a *App) reload() {
 	}
 	a.tags = snap.Tags
 	a.rebuildTagTree()
+	a.folders = snap.Folders
+	a.rebuildFolderTree()
 
 	all := snap.Assets
 	a.allAssets = all
@@ -1180,9 +1317,16 @@ func (a *App) reload() {
 	if a.assetTags == nil {
 		a.assetTags = make(map[string][]model.Tag)
 	}
+	a.assetFolders = snap.AssetFolders
+	if a.assetFolders == nil {
+		a.assetFolders = make(map[string][]model.Folder)
+	}
 	a.tagCounts = make(map[string]int, len(a.tags))
 	a.tagRecursiveCounts = make(map[string]int, len(a.tags))
+	a.folderCounts = make(map[string]int, len(a.folders))
+	a.folderRecursiveCounts = make(map[string]int, len(a.folders))
 	a.untaggedCount = 0
+	a.uncategorizedCount = 0
 	a.missingCount = 0
 
 	for i, asset := range all {
@@ -1192,9 +1336,13 @@ func (a *App) reload() {
 			a.missingCount++
 		}
 		atags := a.assetTags[asset.ID]
-		a.assetSearchKey[asset.ID] = a.buildAssetSearchKey(asset, atags)
+		afolders := a.assetFolders[asset.ID]
+		a.assetSearchKey[asset.ID] = a.buildAssetSearchKey(asset, atags, afolders)
 		if len(atags) == 0 {
 			a.untaggedCount++
+		}
+		if len(afolders) == 0 {
+			a.uncategorizedCount++
 		}
 		countedAncestors := map[string]bool{}
 		for _, tg := range atags {
@@ -1204,6 +1352,16 @@ func (a *App) reload() {
 				countedAncestors[walk] = true
 				a.tagRecursiveCounts[walk]++
 				walk = a.tagByID[walk].ParentID
+			}
+		}
+		countedFolderAnc := map[string]bool{}
+		for _, f := range afolders {
+			a.folderCounts[f.ID]++
+			walk := f.ID
+			for walk != "" && !countedFolderAnc[walk] {
+				countedFolderAnc[walk] = true
+				a.folderRecursiveCounts[walk]++
+				walk = a.folderByID[walk].ParentID
 			}
 		}
 		// Only queue background thumbnail generation for assets missing a thumbnail
@@ -1319,6 +1477,10 @@ func (a *App) applyFilters() {
 	if a.tagID != "" {
 		tagSet = a.tagDescendantSet(a.tagID)
 	}
+	var folderSet map[string]bool
+	if a.folderID != "" {
+		folderSet = a.folderDescendantSet(a.folderID)
+	}
 
 	colorDists := map[string]float64{}
 	recentCutoff := time.Now().Add(-14 * 24 * time.Hour)
@@ -1329,10 +1491,16 @@ func (a *App) applyFilters() {
 		if a.navFilter == "untagged" && len(a.assetTags[asset.ID]) > 0 {
 			continue
 		}
+		if a.navFilter == "uncategorized" && len(a.assetFolders[asset.ID]) > 0 {
+			continue
+		}
 		if a.navFilter == "recent" && !asset.CreatedAt.IsZero() && asset.CreatedAt.Before(recentCutoff) {
 			continue
 		}
 		if tagSet != nil && !a.hasAnyTag(asset.ID, tagSet) {
+			continue
+		}
+		if folderSet != nil && !a.hasAnyFolder(asset.ID, folderSet) {
 			continue
 		}
 		if a.minRating > 0 && asset.Rating < a.minRating {
@@ -1457,6 +1625,7 @@ func (a *App) applyFilters() {
 
 	a.assets = out
 	a.layoutGen++
+	a.reflowAnchorValid = false
 	a.assetIdx = make(map[string]int, len(out))
 	for i, item := range out {
 		a.assetIdx[item.ID] = i
@@ -1758,9 +1927,9 @@ func (a *App) tagDisplayCount(tagID string) int {
 	return a.tagCounts[tagID]
 }
 
-func (a *App) buildAssetSearchKey(asset model.Asset, tags []model.Tag) string {
+func (a *App) buildAssetSearchKey(asset model.Asset, tags []model.Tag, folders []model.Folder) string {
 	var sb strings.Builder
-	sb.Grow(len(asset.Path) + len(asset.Mime) + len(asset.Notes) + 24)
+	sb.Grow(len(asset.Path) + len(asset.Mime) + len(asset.Notes) + 32)
 	sb.WriteString(strings.ToLower(filepath.Base(asset.Path)))
 	sb.WriteByte('\n')
 	sb.WriteString(strings.ToLower(asset.Mime))
@@ -1771,6 +1940,10 @@ func (a *App) buildAssetSearchKey(asset model.Asset, tags []model.Tag) string {
 	for _, tg := range tags {
 		sb.WriteByte('\n')
 		sb.WriteString(strings.ToLower(tg.Name))
+	}
+	for _, f := range folders {
+		sb.WriteByte('\n')
+		sb.WriteString(strings.ToLower(f.Name))
 	}
 	return sb.String()
 }
@@ -1791,6 +1964,11 @@ func (a *App) matchesQuery(asset model.Asset, q string) bool {
 	}
 	for _, tg := range a.assetTags[asset.ID] {
 		if strings.Contains(strings.ToLower(tg.Name), q) {
+			return true
+		}
+	}
+	for _, f := range a.assetFolders[asset.ID] {
+		if strings.Contains(strings.ToLower(f.Name), q) {
 			return true
 		}
 	}
@@ -1988,7 +2166,7 @@ func (a *App) updateAssetInMemory(asset model.Asset) {
 			break
 		}
 	}
-	a.assetSearchKey[asset.ID] = a.buildAssetSearchKey(asset, a.assetTags[asset.ID])
+	a.assetSearchKey[asset.ID] = a.buildAssetSearchKey(asset, a.assetTags[asset.ID], a.assetFolders[asset.ID])
 }
 
 // setAssetRatingFast updates an asset's star rating in bbolt and in memory in O(1).
@@ -2055,7 +2233,7 @@ func (a *App) setAssetTagFast(assetID, tagID string, on bool) {
 	}
 	a.recomputeTagCountsForAsset(assetID)
 	if cur, ok := a.assetByID[assetID]; ok {
-		a.assetSearchKey[assetID] = a.buildAssetSearchKey(cur, a.assetTags[assetID])
+		a.assetSearchKey[assetID] = a.buildAssetSearchKey(cur, a.assetTags[assetID], a.assetFolders[assetID])
 	}
 	if a.tagID != "" || a.navFilter == "untagged" || a.searchQuery != "" {
 		a.applyFilters()
@@ -2565,7 +2743,8 @@ func (a *App) startImport(directory bool) {
 	}()
 }
 
-// importPaths imports files or directories from either the file picker or OS drag-and-drop.
+// importPaths imports files, directories (mirroring subfolders into Raglex Folders),
+// or external archive/library packages from file pickers or OS drag-and-drop.
 func (a *App) importPaths(paths []string) {
 	if a.importing || a.lib == nil || len(paths) == 0 {
 		return
@@ -2587,6 +2766,10 @@ func (a *App) importPaths(paths []string) {
 	if a.autoTagOnImport && a.tagID != "" {
 		tags = []string{a.tagID}
 	}
+	var folderIDs []string
+	if a.folderID != "" {
+		folderIDs = []string{a.folderID}
+	}
 	ignoreHidden := a.ignoreHiddenOnImport
 	recursive := a.importRecursive
 	autoSelect := a.autoSelectImported
@@ -2594,52 +2777,118 @@ func (a *App) importPaths(paths []string) {
 	win := a.win
 	go func() {
 		defer cancel()
-		resolved := expandImportPaths(paths, recursive, ignoreHidden)
-		if len(resolved) == 0 || ctx.Err() != nil {
-			if win != nil {
+
+		var pkgPaths []string
+		var normalPaths []string
+		for _, p := range paths {
+			lower := strings.ToLower(strings.TrimSpace(p))
+			if strings.HasSuffix(lower, ".eaglepack") {
+				pkgPaths = append(pkgPaths, p)
+				continue
+			}
+			if strings.HasSuffix(lower, ".library") {
+				if fi, err := os.Stat(p); err == nil && fi.IsDir() {
+					pkgPaths = append(pkgPaths, p)
+					continue
+				}
+			}
+			normalPaths = append(normalPaths, p)
+		}
+
+		var pkgAssets, pkgFolders, pkgTags int
+		var pkgErr error
+		var lastPkgPush time.Time
+		for _, pp := range pkgPaths {
+			if ctx.Err() != nil {
+				break
+			}
+			mres, err := lib.ImportExternalPackageWithProgress(ctx, pp, mode, func(p library.ImportProgress) {
+				if win == nil {
+					return
+				}
+				now := time.Now()
+				if p.Total > 0 && p.Done < p.Total && now.Sub(lastPkgPush) < 70*time.Millisecond {
+					return
+				}
+				lastPkgPush = now
+				prog := p
 				win.Update(func() {
-					a.importing = false
-					a.importCancel = nil
-					a.importStage = ""
+					if a.isClosed() {
+						return
+					}
+					if a.importStage != "canceling" {
+						a.importStage = "importing"
+					}
+					a.importDone = prog.Done
+					a.importTotal = prog.Total
+					a.importAdded = pkgAssets + prog.Added
+					a.importExisting = prog.Existing
+					a.importFailed = prog.Failed
+					if prog.Current != "" {
+						a.importCurrent = prog.Current
+					}
+				})
+			})
+			if err != nil {
+				pkgErr = err
+				continue
+			}
+			pkgAssets += mres.AssetsImported
+			pkgFolders += mres.FoldersMapped
+			pkgTags += mres.TagsMapped
+		}
+
+		var res library.Result
+		var importErr error
+		if len(normalPaths) > 0 && ctx.Err() == nil {
+			inputPaths := normalPaths
+			preserveSubfolders := true
+			if !recursive {
+				inputPaths = expandImportPaths(normalPaths, false, ignoreHidden)
+				preserveSubfolders = false
+			} else if ignoreHidden {
+				// Filter out top-level ignored files while keeping directories intact
+				// so ImportWithFolders can mirror every subfolder into Raglex Folders.
+				filtered := make([]string, 0, len(normalPaths))
+				for _, p := range normalPaths {
+					fi, err := os.Stat(p)
+					if err != nil {
+						continue
+					}
+					if !fi.IsDir() && isIgnoredImportFile(filepath.Base(p)) {
+						continue
+					}
+					filtered = append(filtered, p)
+				}
+				inputPaths = filtered
+			}
+			if len(inputPaths) > 0 {
+				res, importErr = lib.ImportWithFolders(ctx, inputPaths, mode, tags, folderIDs, preserveSubfolders, func(p library.ImportProgress) {
+					if win == nil {
+						return
+					}
+					prog := p
+					win.Update(func() {
+						if a.isClosed() {
+							return
+						}
+						if a.importStage != "canceling" {
+							a.importStage = "importing"
+						}
+						a.importDone = prog.Done
+						a.importTotal = prog.Total
+						a.importAdded = prog.Added
+						a.importExisting = prog.Existing
+						a.importFailed = prog.Failed
+						if prog.Current != "" {
+							a.importCurrent = prog.Current
+						}
+						a.status = fmt.Sprintf(a.t("library.importing"), prog.Done, prog.Total)
+					})
 				})
 			}
-			return
 		}
-		if win != nil {
-			totalFiles := len(resolved)
-			firstFile := filepath.Base(resolved[0])
-			win.Update(func() {
-				if a.isClosed() {
-					return
-				}
-				a.importStage = "importing"
-				a.importTotal = totalFiles
-				a.importCurrent = firstFile
-			})
-		}
-		res, importErr := lib.ImportWithProgress(ctx, resolved, mode, tags, func(p library.ImportProgress) {
-			if win == nil {
-				return
-			}
-			prog := p
-			win.Update(func() {
-				if a.isClosed() {
-					return
-				}
-				if a.importStage != "canceling" {
-					a.importStage = "importing"
-				}
-				a.importDone = prog.Done
-				a.importTotal = prog.Total
-				a.importAdded = prog.Added
-				a.importExisting = prog.Existing
-				a.importFailed = prog.Failed
-				if prog.Current != "" {
-					a.importCurrent = prog.Current
-				}
-				a.status = fmt.Sprintf(a.t("library.importing"), prog.Done, prog.Total)
-			})
-		})
+
 		if win == nil {
 			return
 		}
@@ -2651,14 +2900,27 @@ func (a *App) importPaths(paths []string) {
 				return
 			}
 			var firstAddedID string
-			if importErr != nil && errors.Is(importErr, context.Canceled) {
-				a.notify(fmt.Sprintf(a.t("import.canceled"), res.Added, res.Existing))
-			} else if importErr != nil {
-				a.status = importErr.Error()
-				a.notify(importErr.Error())
-			} else {
-				if notifyDup || res.Added > 0 || res.Failed > 0 {
-					a.notify(fmt.Sprintf(a.t("library.imported"), res.Added, res.Existing, res.Failed))
+			if len(pkgPaths) > 0 {
+				if pkgErr != nil && pkgAssets == 0 {
+					a.status = pkgErr.Error()
+					a.notify(pkgErr.Error())
+				} else {
+					a.notify(fmt.Sprintf(a.t("plugins.migrateDone"), pkgAssets, pkgFolders, pkgTags))
+					if pkgFolders > 0 {
+						a.sidebarBrowseMode = "folders"
+					}
+				}
+			}
+			if len(normalPaths) > 0 {
+				if importErr != nil && errors.Is(importErr, context.Canceled) {
+					a.notify(fmt.Sprintf(a.t("import.canceled"), res.Added, res.Existing))
+				} else if importErr != nil {
+					a.status = importErr.Error()
+					a.notify(importErr.Error())
+				} else {
+					if notifyDup || res.Added > 0 || res.Failed > 0 {
+						a.notify(fmt.Sprintf(a.t("library.imported"), res.Added, res.Existing, res.Failed))
+					}
 				}
 			}
 			for _, item := range res.Items {
@@ -3140,6 +3402,7 @@ func (a *App) handleNav(nav string) {
 		a.session = nil
 		a.referenceMode = false
 		a.tagID = ""
+		a.folderID = ""
 		a.navFilter = ""
 		a.assetIndex = -1
 		a.screen = screenLibrary
@@ -3150,7 +3413,19 @@ func (a *App) handleNav(nav string) {
 		a.session = nil
 		a.referenceMode = false
 		a.tagID = ""
+		a.folderID = ""
 		a.navFilter = "untagged"
+		a.assetIndex = -1
+		a.screen = screenLibrary
+		a.reload()
+	case nav == "filter-uncategorized":
+		a.closePreview()
+		a.flushBoard(true)
+		a.session = nil
+		a.referenceMode = false
+		a.tagID = ""
+		a.folderID = ""
+		a.navFilter = "uncategorized"
 		a.assetIndex = -1
 		a.screen = screenLibrary
 		a.reload()
@@ -3160,6 +3435,7 @@ func (a *App) handleNav(nav string) {
 		a.session = nil
 		a.referenceMode = false
 		a.tagID = ""
+		a.folderID = ""
 		a.navFilter = "recent"
 		a.assetIndex = -1
 		a.screen = screenLibrary
@@ -3170,6 +3446,7 @@ func (a *App) handleNav(nav string) {
 		a.session = nil
 		a.referenceMode = false
 		a.tagID = ""
+		a.folderID = ""
 		a.navFilter = "random"
 		a.randomSeed = time.Now().UnixNano()
 		a.assetIndex = -1
@@ -3181,7 +3458,28 @@ func (a *App) handleNav(nav string) {
 		a.session = nil
 		a.referenceMode = false
 		a.tagID = ""
+		a.folderID = ""
 		a.navFilter = "missing"
+		a.assetIndex = -1
+		a.screen = screenLibrary
+		a.reload()
+	case strings.HasPrefix(nav, "folder:"):
+		a.closePreview()
+		a.flushBoard(true)
+		a.session = nil
+		a.referenceMode = false
+		fid := strings.TrimPrefix(nav, "folder:")
+		if a.screen == screenLibrary && a.folderID == fid && len(a.folderChildren[fid]) > 0 {
+			a.toggleFolderExpand(fid)
+		} else if len(a.folderChildren[fid]) > 0 {
+			if a.expandedFolders == nil {
+				a.expandedFolders = map[string]bool{}
+			}
+			a.expandedFolders[fid] = true
+		}
+		a.folderID = fid
+		a.tagID = ""
+		a.navFilter = ""
 		a.assetIndex = -1
 		a.screen = screenLibrary
 		a.reload()
@@ -3197,6 +3495,7 @@ func (a *App) handleNav(nav string) {
 			a.expandedTags[tid] = true
 		}
 		a.tagID = tid
+		a.folderID = ""
 		a.navFilter = ""
 		a.assetIndex = -1
 		a.screen = screenLibrary
@@ -3227,12 +3526,16 @@ func (a *App) syncNavSelection() {
 		switch {
 		case a.navFilter == "untagged":
 			a.selectedNav = "filter-untagged"
+		case a.navFilter == "uncategorized":
+			a.selectedNav = "filter-uncategorized"
 		case a.navFilter == "recent":
 			a.selectedNav = "filter-recent"
 		case a.navFilter == "random":
 			a.selectedNav = "filter-random"
 		case a.navFilter == "missing":
 			a.selectedNav = "filter-missing"
+		case a.folderID != "":
+			a.selectedNav = "folder:" + a.folderID
 		case a.tagID != "":
 			a.selectedNav = "tag:" + a.tagID
 		default:
@@ -3280,6 +3583,7 @@ func (a *App) selectCard(index int, mods gui.Modifiers) {
 		a.assetIndex = index
 		a.anchorIndex = index
 	}
+	a.captureScrollAnchor(id)
 	a.inspectorOpen = true
 	a.syncInspectorSelection(false)
 }

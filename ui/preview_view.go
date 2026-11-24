@@ -25,13 +25,18 @@ func (a *App) inlinePreviewView(c *gui.Context) {
 	isFont := model.IsFont(asset.Mime, asset.Path)
 	isAudio := model.IsAudio(asset.Mime, asset.Path)
 	isPDF := model.IsPDF(asset.Mime, asset.Path) || model.IsIllustrator(asset.Mime, asset.Path)
-	supportsZoom := !isVideo && !isFont && !isAudio
+	isDoc := a.isPluginDocPreview(asset)
+	supportsZoom := !isVideo && !isFont && !isAudio && !isDoc
 	if a.previewZoom <= 0 {
 		a.previewZoom = 1.0
 	}
 
-	// Viewer zoom keyboard shortcuts.
-	if supportsZoom {
+	// Viewer keyboard shortcuts.
+	if isDoc {
+		c.OnShortcut(gui.Cmd, gui.KeyS, func() {
+			a.saveDocumentPreview(asset)
+		})
+	} else if supportsZoom {
 		c.OnShortcut(0, gui.KeyEqual, func() {
 			a.setPreviewZoom(a.previewZoom * 1.25)
 		})
@@ -79,12 +84,71 @@ func (a *App) inlinePreviewView(c *gui.Context) {
 
 				gui.Row(c).Gap(8).FillHeight().Grow(1).Justify(gui.Center).AlignItems(gui.Center).DragWindow().Children(func() {
 					gui.Text(c, a.assetName(asset)).FontSize(13).Bold().TextColor(a.pal.ink).SingleLine().MaxWidth(360)
-					if asset.Width > 0 && asset.Height > 0 {
+					if isDoc {
+						if chars := countDocChars(a.previewDocDraft); chars > 0 {
+							gui.Text(c, fmt.Sprintf(a.t("doc.words"), chars)).FontSize(11).TextColor(a.pal.inkMuted).SingleLine()
+						}
+						if a.docHasUnsavedChanges() {
+							gui.Box(c).Size(6, 6).Radius(radiusPill).Background(a.pal.controlOn)
+						}
+					} else if asset.Width > 0 && asset.Height > 0 {
 						gui.Text(c, fmt.Sprintf("%d × %d", asset.Width, asset.Height)).FontSize(11).TextColor(a.pal.inkMuted).SingleLine()
 					}
 				})
 
-				if supportsZoom {
+				if isDoc {
+					docMode := a.previewDocMode
+					if docMode == "" {
+						docMode = "read"
+					}
+					seg := gui.Row(c.Key("doc-mode-seg")).
+						Padding(2).
+						Gap(2).
+						Radius(radiusControl - 2).
+						Background(a.pal.surfaceMuted).
+						AlignItems(gui.Center)
+					var activeModeBtn gui.Element
+					var hasActiveMode bool
+					seg.Children(func() {
+						addMode := func(m, lbl string) {
+							active := docMode == m
+							b := gui.ButtonBase(c.Key("doc-m-"+m)).
+								Padding(4, 9).
+								Radius(radiusControl - 4).
+								OnClick(func() { a.previewDocMode = m })
+							fg := a.pal.inkMuted
+							if active || b.Hovered() {
+								fg = a.pal.ink
+							}
+							b.TextColor(b.AnimateColor("fg", fg, animFast)).Children(func() {
+								gui.Text(c, lbl).FontSize(11.5).Bold().SingleLine()
+							})
+							if active {
+								activeModeBtn = b
+								hasActiveMode = true
+							}
+						}
+						addMode("read", a.t("doc.modeRead"))
+						addMode("split", a.t("doc.modeSplit"))
+						addMode("edit", a.t("doc.modeEdit"))
+					})
+					attachGlidingPill(seg, activeModeBtn, hasActiveMode, radiusControl-4, a.pal.pillActive, a.pal.shadowResting)
+
+					if docMode != "edit" {
+						a.toolButton(c, "doc-focus-btn", nil, a.t("doc.focus"), a.previewDocFocus).
+							Padding(4, 8).
+							OnClick(func() { a.previewDocFocus = !a.previewDocFocus })
+					}
+					if a.docHasUnsavedChanges() {
+						a.arcButton(c, "doc-save-btn", a.t("doc.save"), true).
+							Padding(4, 10).
+							OnClick(func() { a.saveDocumentPreview(asset) })
+					}
+					a.iconButton(c, "doc-copy-btn", iconCopy, a.t("doc.copyText"), false).OnClick(func() {
+						services.WriteClipboard(a.previewDocDraft)
+						a.notify(a.t("common.copied"))
+					})
+				} else if supportsZoom {
 					a.iconButton(c, "viewer-zout", iconZoomOut, "-", false).OnClick(func() {
 						a.setPreviewZoom(a.previewZoom / 1.25)
 					})
@@ -134,6 +198,8 @@ func (a *App) inlinePreviewView(c *gui.Context) {
 					gui.Column(c).Fill().Padding(18).Gap(12).Center().Children(func() {
 						a.renderPDFStage(c, asset)
 					})
+				case isDoc:
+					a.renderDocumentStage(c, asset)
 				case a.previewVideo != nil:
 					a.renderVideoStage(c, asset)
 				case isVideo && a.previewVideoErr != "":

@@ -30,6 +30,8 @@ func (a *App) View(c *gui.Context) {
 		a.newProjectModal(c)
 		a.editProjectModal(c)
 		a.editTagModal(c)
+		a.editFolderModal(c)
+		a.batchDeleteFoldersModal(c)
 		a.webImportModal(c)
 		a.watchFoldersModal(c)
 		a.shareModal(c)
@@ -290,14 +292,20 @@ func (a *App) welcome(c *gui.Context) {
 
 func (a *App) langButtons(c *gui.Context) {
 	sel := 0
-	if a.lang == i18nEn {
+	switch a.lang {
+	case i18nEn:
 		sel = 1
+	case i18nJa:
+		sel = 2
 	}
-	a.arcPillTabs(c, "welcome-lang", sel, []string{"中文", "EN"}, func(idx int) {
-		if idx == 0 {
+	a.arcPillTabs(c, "welcome-lang", sel, []string{"中文", "EN", "日本語"}, func(idx int) {
+		switch idx {
+		case 0:
 			a.setLang(i18nZh)
-		} else {
+		case 1:
 			a.setLang(i18nEn)
+		case 2:
+			a.setLang(i18nJa)
 		}
 	})
 }

@@ -19,6 +19,12 @@ type masonryEntry struct {
 	h     float32
 }
 
+const (
+	libraryScrollTopPad    float32 = 8
+	libraryScrollBottomPad float32 = 72
+	libraryGridFitGap      float32 = 8
+)
+
 type masonryLayoutCache struct {
 	gen        uint64
 	count      int
@@ -27,6 +33,9 @@ type masonryLayoutCache struct {
 	capH       float32
 	buckets    [][]masonryEntry
 	colHeights []float32
+	itemY      []float32
+	itemH      []float32
+	maxH       float32
 }
 
 type bentoBlockKind uint8
@@ -349,6 +358,17 @@ func (a *App) batchActionBar(c *gui.Context) {
 				}, a.popoverMenuBtnOpts())
 			}
 
+			if len(ids) > 0 && len(a.folders) > 0 {
+				gui.PopoverMenuButton(c.Key("batch-apply-folder"), a.t("folder.addTo"), func(m *gui.Menu) {
+					for _, f := range a.folders {
+						folder := f
+						if a.menuItem(m, iconFolder, a.folderFullPath(folder.ID), "", false).Chosen() {
+							a.batchApplyFolder(ids, folder.ID)
+						}
+					}
+				}, a.popoverMenuBtnOpts())
+			}
+
 			if len(ids) > 0 && len(a.tags) > 0 {
 				gui.PopoverMenuButton(c.Key("batch-apply-tag"), a.t("batch.applyTag"), func(m *gui.Menu) {
 					for _, tg := range a.tags {
@@ -436,6 +456,17 @@ func (a *App) libraryEmptyState(c *gui.Context) {
 // native rubber-band marquee box selection (hold left mouse button on empty
 // space, gaps, or margins and drag a rectangle to multi-select cards live).
 func (a *App) libraryAssetStage(c *gui.Context) {
+	if a.layoutMode == layoutGrid && a.reflowAnchorValid {
+		if a.reflowAnchorGen != a.layoutGen {
+			a.reflowAnchorValid = false
+		} else if a.gridReflowGrace > 0 {
+			a.gridReflowGrace--
+		} else if len(a.cardBounds) > 0 {
+			if _, visible := a.cardBounds[a.reflowAnchorID]; !visible {
+				a.reflowAnchorValid = false
+			}
+		}
+	}
 	a.cardBounds = make(map[string]gui.Rect, 64)
 	stage := gui.Box(c.Key("library-stage")).
 		Grow(1).
@@ -625,6 +656,30 @@ func (a *App) assetGrid(c *gui.Context) {
 		Gap(16).
 		Grow(1)
 
+	gvBounds := gv.LayoutBounds()
+	availW := gvBounds.W
+	if availW <= 0 {
+		availW = a.stageBounds.W
+	}
+	viewH := gvBounds.H
+	if viewH <= 0 {
+		viewH = a.stageBounds.H
+	}
+	if availW > 0 {
+		curCols := int((availW + libraryGridFitGap) / (cellW + libraryGridFitGap))
+		if curCols < 1 {
+			curCols = 1
+		}
+		if a.gridLastGen == a.layoutGen && a.gridLastCols > 0 && a.gridLastCols != curCols && a.reflowAnchorValid && a.reflowAnchorGen == a.layoutGen {
+			if idx := a.findAssetIndex(a.reflowAnchorID); idx >= 0 {
+				a.grid.ScrollTo(idx, gridAlignForOffset(a.reflowAnchorOffsetY, viewH))
+				a.gridReflowGrace = 2
+			}
+		}
+		a.gridLastCols = curCols
+		a.gridLastGen = a.layoutGen
+	}
+
 	gv.OnShortcut(0, gui.KeySpace, func() {
 		a.handleSpacePreview()
 	})
@@ -634,6 +689,316 @@ func (a *App) assetGrid(c *gui.Context) {
 			a.batchDeletePrompt(ids)
 		}
 	})
+}
+
+func (a *App) findAssetIndex(id string) int {
+	if id == "" {
+		return -1
+	}
+	if a.assetIdx != nil {
+		if idx, ok := a.assetIdx[id]; ok && idx >= 0 && idx < len(a.assets) && a.assets[idx].ID == id {
+			return idx
+		}
+	}
+	for i := range a.assets {
+		if a.assets[i].ID == id {
+			return i
+		}
+	}
+	return -1
+}
+
+func gridAlignForOffset(offsetY, viewH float32) gui.Align {
+	if viewH <= 0 {
+		return gui.Center
+	}
+	ratio := offsetY / viewH
+	switch {
+	case ratio < 0.28:
+		return gui.Start
+	case ratio > 0.68:
+		return gui.End
+	default:
+		return gui.Center
+	}
+}
+
+func bentoItemRect(cache *bentoLayoutCache, idx int, gap float32) (float32, float32, bool) {
+	if cache == nil || idx < 0 || idx >= cache.count || len(cache.blocks) == 0 {
+		return 0, 0, false
+	}
+	bIdx := sort.Search(len(cache.blocks), func(k int) bool {
+		return cache.blocks[k].startIdx+cache.blocks[k].count > idx
+	})
+	if bIdx >= len(cache.blocks) {
+		return 0, 0, false
+	}
+	blk := cache.blocks[bIdx]
+	if idx < blk.startIdx || idx >= blk.startIdx+blk.count {
+		return 0, 0, false
+	}
+	if blk.kind == bentoBlockHero {
+		rel := idx - blk.startIdx
+		if rel == 0 {
+			return libraryScrollTopPad + blk.y, blk.h, true
+		}
+		sideCols := cache.cols - 2
+		if rel <= sideCols {
+			return libraryScrollTopPad + blk.y, cache.unitH, true
+		}
+		return libraryScrollTopPad + blk.y + cache.unitH + gap, cache.unitH, true
+	}
+	return libraryScrollTopPad + blk.y, blk.h, true
+}
+
+func bentoAnchorIndexAtY(cache *bentoLayoutCache, contentY float32) int {
+	if cache == nil || len(cache.blocks) == 0 {
+		return -1
+	}
+	localY := contentY - libraryScrollTopPad
+	if localY < 0 {
+		localY = 0
+	}
+	bIdx := sort.Search(len(cache.blocks), func(k int) bool {
+		return cache.blocks[k].y+cache.blocks[k].h >= localY
+	})
+	if bIdx >= len(cache.blocks) {
+		bIdx = len(cache.blocks) - 1
+	}
+	return cache.blocks[bIdx].startIdx
+}
+
+func masonryItemRect(cache *masonryLayoutCache, idx int) (float32, float32, bool) {
+	if cache == nil || idx < 0 || idx >= len(cache.itemY) || idx >= len(cache.itemH) {
+		return 0, 0, false
+	}
+	return libraryScrollTopPad + cache.itemY[idx], cache.itemH[idx], true
+}
+
+func masonryAnchorIndexAtY(cache *masonryLayoutCache, contentY float32) int {
+	if cache == nil || len(cache.buckets) == 0 {
+		return -1
+	}
+	localY := contentY - libraryScrollTopPad
+	if localY < 0 {
+		localY = 0
+	}
+	bestIdx := -1
+	bestDist := float32(1e30)
+	for _, entries := range cache.buckets {
+		if len(entries) == 0 {
+			continue
+		}
+		pos := sort.Search(len(entries), func(k int) bool {
+			return entries[k].y+entries[k].h >= localY
+		})
+		if pos >= len(entries) {
+			pos = len(entries) - 1
+		}
+		ent := entries[pos]
+		mid := ent.y + ent.h*0.5
+		d := mid - localY
+		if d < 0 {
+			d = -d
+		}
+		if d < bestDist {
+			bestDist = d
+			bestIdx = ent.index
+		}
+	}
+	return bestIdx
+}
+
+// captureScrollAnchor records the clicked asset's current vertical offset inside
+// the library viewport so subsequent width reflows (e.g. opening or resizing the
+// right Inspector panel) keep the clicked image anchored in place.
+func (a *App) captureScrollAnchor(assetID string) {
+	idx := a.findAssetIndex(assetID)
+	if idx < 0 {
+		return
+	}
+	viewH := a.stageBounds.H
+	if viewH < 240 {
+		viewH = 820
+	}
+	var (
+		offsetY float32
+		cardH   float32
+		scrollY float32
+		found   bool
+	)
+	switch a.layoutMode {
+	case layoutMasonry:
+		scrollY = a.masonryScroll.Y
+		if a.masonryCache.gen == a.layoutGen && a.masonryCache.count == len(a.assets) {
+			if y, h, ok := masonryItemRect(&a.masonryCache, idx); ok {
+				offsetY = y - scrollY
+				cardH = h
+				found = true
+			}
+		}
+	case layoutGrid:
+		if cb, ok := a.cardBounds[assetID]; ok && cb.H > 0 && a.stageBounds.H > 0 {
+			offsetY = cb.Y - a.stageBounds.Y
+			cardH = cb.H
+			found = true
+		}
+	default:
+		scrollY = a.bentoScroll.Y
+		if a.bentoCache.gen == a.layoutGen && a.bentoCache.count == len(a.assets) {
+			if y, h, ok := bentoItemRect(&a.bentoCache, idx, 14); ok {
+				offsetY = y - scrollY
+				cardH = h
+				found = true
+			}
+		}
+	}
+	if !found {
+		if cb, ok := a.cardBounds[assetID]; ok && cb.H > 0 && a.stageBounds.H > 0 {
+			offsetY = cb.Y - a.stageBounds.Y
+			cardH = cb.H
+			found = true
+		}
+	}
+	if !found || offsetY < -cardH || offsetY > viewH {
+		offsetY = viewH * 0.32
+	}
+	a.reflowAnchorID = assetID
+	a.reflowAnchorOffsetY = offsetY
+	a.reflowAnchorViewH = viewH
+	a.reflowAnchorValid = true
+	a.reflowAnchorGen = a.layoutGen
+	a.reflowLastScrollY = scrollY
+}
+
+func (a *App) syncReflowAnchorManualScroll(curScrollY, maxScrollY float32) {
+	if !a.reflowAnchorValid {
+		return
+	}
+	if a.reflowAnchorGen != a.layoutGen {
+		a.reflowAnchorValid = false
+		return
+	}
+	diff := curScrollY - a.reflowLastScrollY
+	if diff < 0 {
+		diff = -diff
+	}
+	if diff > 2.0 {
+		clampedAtEnd := maxScrollY >= 0 && curScrollY <= maxScrollY+1 && curScrollY >= maxScrollY-1 && a.reflowLastScrollY > maxScrollY
+		if !clampedAtEnd {
+			a.reflowAnchorValid = false
+			return
+		}
+		a.reflowLastScrollY = curScrollY
+	}
+}
+
+func (a *App) autoCaptureBentoAnchor(scrollY, viewH, gap float32) {
+	if scrollY <= 1 && a.assetIndex < 0 {
+		return
+	}
+	if a.assetIndex >= 0 && a.assetIndex < len(a.assets) {
+		if y, h, ok := bentoItemRect(&a.bentoCache, a.assetIndex, gap); ok && y+h >= scrollY && y <= scrollY+viewH {
+			a.reflowAnchorID = a.assets[a.assetIndex].ID
+			a.reflowAnchorOffsetY = y - scrollY
+			a.reflowAnchorViewH = viewH
+			a.reflowAnchorValid = true
+			a.reflowAnchorGen = a.layoutGen
+			a.reflowLastScrollY = scrollY
+			return
+		}
+	}
+	if scrollY <= 1 {
+		return
+	}
+	if idx := bentoAnchorIndexAtY(&a.bentoCache, scrollY+viewH*0.35); idx >= 0 && idx < len(a.assets) {
+		if y, _, ok := bentoItemRect(&a.bentoCache, idx, gap); ok {
+			a.reflowAnchorID = a.assets[idx].ID
+			a.reflowAnchorOffsetY = y - scrollY
+			a.reflowAnchorViewH = viewH
+			a.reflowAnchorValid = true
+			a.reflowAnchorGen = a.layoutGen
+			a.reflowLastScrollY = scrollY
+		}
+	}
+}
+
+func (a *App) applyBentoReflowAnchor(viewH, gap float32) {
+	idx := a.findAssetIndex(a.reflowAnchorID)
+	if idx < 0 {
+		a.reflowAnchorValid = false
+		return
+	}
+	newY, _, ok := bentoItemRect(&a.bentoCache, idx, gap)
+	if !ok {
+		return
+	}
+	maxScroll := a.bentoCache.totalH + libraryScrollTopPad + libraryScrollBottomPad - viewH
+	if maxScroll < 0 {
+		maxScroll = 0
+	}
+	targetY := newY - a.reflowAnchorOffsetY
+	if targetY < 0 {
+		targetY = 0
+	} else if targetY > maxScroll {
+		targetY = maxScroll
+	}
+	a.bentoScroll.Y = targetY
+	a.reflowLastScrollY = targetY
+}
+
+func (a *App) autoCaptureMasonryAnchor(scrollY, viewH float32) {
+	if scrollY <= 1 && a.assetIndex < 0 {
+		return
+	}
+	if a.assetIndex >= 0 && a.assetIndex < len(a.assets) {
+		if y, h, ok := masonryItemRect(&a.masonryCache, a.assetIndex); ok && y+h >= scrollY && y <= scrollY+viewH {
+			a.reflowAnchorID = a.assets[a.assetIndex].ID
+			a.reflowAnchorOffsetY = y - scrollY
+			a.reflowAnchorViewH = viewH
+			a.reflowAnchorValid = true
+			a.reflowAnchorGen = a.layoutGen
+			a.reflowLastScrollY = scrollY
+			return
+		}
+	}
+	if scrollY <= 1 {
+		return
+	}
+	if idx := masonryAnchorIndexAtY(&a.masonryCache, scrollY+viewH*0.35); idx >= 0 && idx < len(a.assets) {
+		if y, _, ok := masonryItemRect(&a.masonryCache, idx); ok {
+			a.reflowAnchorID = a.assets[idx].ID
+			a.reflowAnchorOffsetY = y - scrollY
+			a.reflowAnchorViewH = viewH
+			a.reflowAnchorValid = true
+			a.reflowAnchorGen = a.layoutGen
+			a.reflowLastScrollY = scrollY
+		}
+	}
+}
+
+func (a *App) applyMasonryReflowAnchor(viewH float32) {
+	idx := a.findAssetIndex(a.reflowAnchorID)
+	if idx < 0 {
+		a.reflowAnchorValid = false
+		return
+	}
+	newY, _, ok := masonryItemRect(&a.masonryCache, idx)
+	if !ok {
+		return
+	}
+	maxScroll := a.masonryCache.maxH + libraryScrollTopPad + libraryScrollBottomPad - viewH
+	if maxScroll < 0 {
+		maxScroll = 0
+	}
+	targetY := newY - a.reflowAnchorOffsetY
+	if targetY < 0 {
+		targetY = 0
+	} else if targetY > maxScroll {
+		targetY = maxScroll
+	}
+	a.masonryScroll.Y = targetY
+	a.reflowLastScrollY = targetY
 }
 
 func (a *App) bindAssetShortcuts(el gui.Element) {
@@ -655,7 +1020,7 @@ func (a *App) assetMasonry(c *gui.Context) {
 	if a.assetIndex >= len(a.assets) {
 		a.assetIndex = -1
 	}
-	scroll := gui.Scroll(c.Key("asset-masonry")).Grow(1).FillWidth().TrackScroll(&a.masonryScroll)
+	scroll := gui.Scroll(c.Key("asset-masonry")).Grow(1).FillWidth()
 	a.bindAssetShortcuts(scroll)
 
 	layout := scroll.LayoutBounds()
@@ -667,10 +1032,8 @@ func (a *App) assetMasonry(c *gui.Context) {
 	if viewH < 240 {
 		viewH = 820
 	}
-	scrollY := a.masonryScroll.Y
-	const overscan float32 = 720
-	minY := scrollY - overscan
-	maxY := scrollY + viewH + overscan
+
+	a.syncReflowAnchorManualScroll(a.masonryScroll.Y, a.masonryScroll.MaxY)
 
 	const gap float32 = 14
 	cellW := float32(a.cardSize)
@@ -699,8 +1062,16 @@ func (a *App) assetMasonry(c *gui.Context) {
 		a.masonryCache.cols != cols ||
 		a.masonryCache.colW != colW ||
 		a.masonryCache.capH != capH {
+		isReflow := a.masonryCache.gen == a.layoutGen &&
+			a.masonryCache.count == len(a.assets) &&
+			a.masonryCache.cols > 0
+		if isReflow && !a.reflowAnchorValid {
+			a.autoCaptureMasonryAnchor(a.masonryScroll.Y, viewH)
+		}
 		buckets := make([][]masonryEntry, cols)
 		colHeights := make([]float32, cols)
+		itemY := make([]float32, len(a.assets))
+		itemH := make([]float32, len(a.assets))
 		estPerCol := len(a.assets)/cols + 1
 		for col := 0; col < cols; col++ {
 			buckets[col] = make([]masonryEntry, 0, estPerCol)
@@ -718,7 +1089,7 @@ func (a *App) assetMasonry(c *gui.Context) {
 			} else if ratio > 1.85 {
 				ratio = 1.85
 			}
-			itemH := colW*ratio + capH
+			h := colW*ratio + capH
 			best := 0
 			for k := 1; k < cols; k++ {
 				if colHeights[k] < colHeights[best] {
@@ -726,8 +1097,20 @@ func (a *App) assetMasonry(c *gui.Context) {
 				}
 			}
 			y := colHeights[best]
-			buckets[best] = append(buckets[best], masonryEntry{index: i, y: y, h: itemH})
-			colHeights[best] = y + itemH + gap
+			itemY[i] = y
+			itemH[i] = h
+			buckets[best] = append(buckets[best], masonryEntry{index: i, y: y, h: h})
+			colHeights[best] = y + h + gap
+		}
+		var maxH float32
+		for _, ch := range colHeights {
+			h := ch
+			if h > gap {
+				h -= gap
+			}
+			if h > maxH {
+				maxH = h
+			}
 		}
 		a.masonryCache = masonryLayoutCache{
 			gen:        a.layoutGen,
@@ -737,8 +1120,21 @@ func (a *App) assetMasonry(c *gui.Context) {
 			capH:       capH,
 			buckets:    buckets,
 			colHeights: colHeights,
+			itemY:      itemY,
+			itemH:      itemH,
+			maxH:       maxH,
+		}
+		if isReflow && a.reflowAnchorValid {
+			a.applyMasonryReflowAnchor(viewH)
 		}
 	}
+
+	scroll.TrackScroll(&a.masonryScroll)
+
+	scrollY := a.masonryScroll.Y
+	const overscan float32 = 720
+	minY := scrollY - overscan
+	maxY := scrollY + viewH + overscan
 
 	buckets := a.masonryCache.buckets
 	colHeights := a.masonryCache.colHeights
@@ -799,7 +1195,7 @@ func (a *App) assetBento(c *gui.Context) {
 	if a.assetIndex >= len(a.assets) {
 		a.assetIndex = -1
 	}
-	scroll := gui.Scroll(c.Key("asset-bento")).Grow(1).FillWidth().TrackScroll(&a.bentoScroll)
+	scroll := gui.Scroll(c.Key("asset-bento")).Grow(1).FillWidth()
 	a.bindAssetShortcuts(scroll)
 
 	layout := scroll.LayoutBounds()
@@ -811,10 +1207,8 @@ func (a *App) assetBento(c *gui.Context) {
 	if viewH < 240 {
 		viewH = 820
 	}
-	scrollY := a.bentoScroll.Y
-	const overscan float32 = 720
-	minY := scrollY - overscan
-	maxY := scrollY + viewH + overscan
+
+	a.syncReflowAnchorManualScroll(a.bentoScroll.Y, a.bentoScroll.MaxY)
 
 	const gap float32 = 14
 	cellW := float32(a.cardSize)
@@ -841,6 +1235,12 @@ func (a *App) assetBento(c *gui.Context) {
 		a.bentoCache.count != len(a.assets) ||
 		a.bentoCache.cols != cols ||
 		a.bentoCache.unitH != unitH {
+		isReflow := a.bentoCache.gen == a.layoutGen &&
+			a.bentoCache.count == len(a.assets) &&
+			a.bentoCache.cols > 0
+		if isReflow && !a.reflowAnchorValid {
+			a.autoCaptureBentoAnchor(a.bentoScroll.Y, viewH, gap)
+		}
 		n := len(a.assets)
 		blocks := make([]bentoBlock, 0, n/cols+2)
 		i := 0
@@ -912,7 +1312,17 @@ func (a *App) assetBento(c *gui.Context) {
 			blocks: blocks,
 			totalH: totalH,
 		}
+		if isReflow && a.reflowAnchorValid {
+			a.applyBentoReflowAnchor(viewH, gap)
+		}
 	}
+
+	scroll.TrackScroll(&a.bentoScroll)
+
+	scrollY := a.bentoScroll.Y
+	const overscan float32 = 720
+	minY := scrollY - overscan
+	maxY := scrollY + viewH + overscan
 
 	blocks := a.bentoCache.blocks
 	totalH := a.bentoCache.totalH
@@ -1110,6 +1520,28 @@ func (a *App) assetCard(c *gui.Context, index int, asset model.Asset, selected b
 							a.batchReferenceToProject(batchIDs, proj.ID)
 						} else {
 							a.referenceAssetToProject(asset.ID, proj.ID)
+						}
+					}
+				}
+			})
+		}
+		if len(a.folders) > 0 {
+			addFolderTitle := a.t("folder.addTo")
+			if multi {
+				addFolderTitle = fmt.Sprintf("%s (%d)", addFolderTitle, len(batchIDs))
+			}
+			a.menuSub(m, iconFolder, addFolderTitle, func(sm *gui.Menu) {
+				for _, f := range a.folders {
+					folder := f
+					lbl := a.folderFullPath(folder.ID)
+					if multi {
+						if a.menuItem(sm, iconFolder, lbl, "", false).Chosen() {
+							a.batchApplyFolder(batchIDs, folder.ID)
+						}
+					} else {
+						has := a.hasFolder(asset.ID, folder.ID)
+						if a.menuRadio(sm, lbl, has).Chosen() {
+							a.setAssetFolderFast(asset.ID, folder.ID, !has)
 						}
 					}
 				}
@@ -2063,6 +2495,66 @@ func (a *App) inspector(c *gui.Context) {
 											a.setAssetRatingFast(asset.ID, a.inspectorRating)
 										})
 									})
+									if len(a.folders) > 0 || len(a.assetFolders[asset.ID]) > 0 {
+										gui.Box(c).FillWidth().Height(1).Background(hairline)
+										// Folders section (parallel hierarchical classification).
+										gui.Column(c).FillWidth().Gap(8).Children(func() {
+											ownedFolders := map[string]bool{}
+											appliedFolders := a.assetFolders[asset.ID]
+											for _, f := range appliedFolders {
+												ownedFolders[f.ID] = true
+											}
+											var availFolders []model.Folder
+											for _, f := range a.folders {
+												if !ownedFolders[f.ID] {
+													availFolders = append(availFolders, f)
+												}
+											}
+											gui.Row(c).FillWidth().AlignItems(gui.Center).Children(func() {
+												a.sectionLabel(c, a.t("inspector.folders"))
+												gui.Spacer(c)
+												if len(availFolders) > 0 {
+													addFBtn := gui.ButtonBase(c.Key("insp-add-folder-pop-" + asset.ID)).
+														Size(24, 24).
+														Radius(7).
+														Center().
+														Label(a.t("inspector.addFolder")).
+														Tooltip(a.t("inspector.addFolder")).
+														PopoverMenuButton(func(m *gui.Menu) {
+															for _, cand := range availFolders {
+																f := cand
+																if m.Item(a.folderFullPath(f.ID)).Chosen() {
+																	a.setAssetFolderFast(asset.ID, f.ID, true)
+																}
+															}
+														})
+													abg := gui.Transparent
+													afg := a.pal.inkMuted
+													if addFBtn.Hovered() || addFBtn.Pressed() {
+														abg = a.pal.surfaceMuted
+														afg = a.pal.ink
+													}
+													addFBtn.Background(addFBtn.AnimateColor("fbg", abg, animFast)).
+														TextColor(addFBtn.AnimateColor("ffg", afg, animFast)).
+														Children(func() {
+															gui.Icon(c, iconPlus).Size(13, 13)
+														})
+												}
+											})
+											if len(appliedFolders) > 0 {
+												gui.Row(c).FillWidth().Gap(6).Wrap().AlignItems(gui.Center).Children(func() {
+													for _, folder := range appliedFolders {
+														f := folder
+														a.tintedFolderChip(c, "insp-folder-"+asset.ID+"-"+f.ID, f, func() {
+															a.setAssetFolderFast(asset.ID, f.ID, false)
+														})
+													}
+												})
+											} else {
+												gui.Text(c, a.t("inspector.noFolders")).FontSize(11).TextColor(a.pal.inkMuted)
+											}
+										})
+									}
 									gui.Box(c).FillWidth().Height(1).Background(hairline)
 									gui.Column(c).FillWidth().Gap(8).Children(func() {
 										owned := map[string]bool{}

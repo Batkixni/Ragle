@@ -7,14 +7,31 @@ import (
 	"strings"
 )
 
+type collectedFile struct {
+	Path       string
+	RelFolders []string
+}
+
 func collectFiles(root string, inputs []string) ([]string, error) {
+	items, err := collectFilesWithFolders(root, inputs)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, len(items))
+	for i, it := range items {
+		out[i] = it.Path
+	}
+	return out, nil
+}
+
+func collectFilesWithFolders(root string, inputs []string) ([]collectedFile, error) {
 	root, err := filepath.Abs(root)
 	if err != nil {
 		return nil, err
 	}
 	root = filepath.Clean(root)
 	seen := map[string]bool{}
-	var out []string
+	var out []collectedFile
 	for _, input := range inputs {
 		abs, err := cleanPath(input)
 		if err != nil {
@@ -25,6 +42,7 @@ func collectFiles(root string, inputs []string) ([]string, error) {
 			return nil, err
 		}
 		if info.IsDir() {
+			baseFolder := filepath.Base(abs)
 			err = filepath.WalkDir(abs, func(path string, d fs.DirEntry, err error) error {
 				if err != nil {
 					return err
@@ -43,7 +61,18 @@ func collectFiles(root string, inputs []string) ([]string, error) {
 				}
 				if !seen[path] {
 					seen[path] = true
-					out = append(out, path)
+					var relSegs []string
+					if baseFolder != "" && baseFolder != "." && baseFolder != string(os.PathSeparator) {
+						relSegs = append(relSegs, baseFolder)
+					}
+					if rel, rerr := filepath.Rel(abs, filepath.Dir(path)); rerr == nil && rel != "." && rel != "" {
+						for _, seg := range strings.Split(filepath.ToSlash(rel), "/") {
+							if seg != "" && seg != "." && seg != ".." {
+								relSegs = append(relSegs, seg)
+							}
+						}
+					}
+					out = append(out, collectedFile{Path: path, RelFolders: relSegs})
 				}
 				return nil
 			})
@@ -57,7 +86,7 @@ func collectFiles(root string, inputs []string) ([]string, error) {
 		}
 		if !seen[abs] {
 			seen[abs] = true
-			out = append(out, abs)
+			out = append(out, collectedFile{Path: abs})
 		}
 	}
 	return out, nil

@@ -333,12 +333,7 @@ func (a *App) settingsOpenTooltip() string {
 }
 
 func (a *App) sidebarToggleTooltip() string {
-	base := a.t("view.showSidebar")
-	if a.lang == "en" {
-		base = "Toggle Sidebar"
-	} else {
-		base = "切換側邊欄"
-	}
+	base := a.t("shortcuts.act.toggle_sidebar")
 	if lbl := a.shortcutLabel("toggle_sidebar"); lbl != "" {
 		return fmt.Sprintf("%s (%s)", base, lbl)
 	}

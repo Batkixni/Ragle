@@ -103,6 +103,15 @@ func DeleteAssetRecords(tx *bbolt.Tx, id string) error {
 			return err
 		}
 	}
+	folderIDs, err := FoldersOfAsset(tx, id)
+	if err != nil {
+		return err
+	}
+	for _, folderID := range folderIDs {
+		if err := UnlinkAssetFolder(tx, id, folderID); err != nil {
+			return err
+		}
+	}
 	projectIDs, err := ProjectsOfAsset(tx, id)
 	if err != nil {
 		return err

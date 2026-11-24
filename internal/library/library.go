@@ -673,18 +673,25 @@ func (l *Library) WatchDirs() ([]string, error) {
 
 // CatalogSnapshot holds the entire library catalog loaded in one bbolt read transaction.
 type CatalogSnapshot struct {
-	Tags      []model.Tag
-	Assets    []model.Asset
-	Stacks    []model.Stack
-	AssetTags map[string][]model.Tag
+	Tags         []model.Tag
+	Folders      []model.Folder
+	Assets       []model.Asset
+	Stacks       []model.Stack
+	AssetTags    map[string][]model.Tag
+	AssetFolders map[string][]model.Folder
 }
 
-// LoadCatalogSnapshot loads all tags, assets, stacks, and asset-tag mappings in
-// a single bbolt read transaction (avoiding N+1 transactions on large libraries).
+// LoadCatalogSnapshot loads all tags, folders, assets, stacks, and asset
+// membership mappings in a single bbolt read transaction (avoiding N+1
+// transactions on large libraries).
 func (l *Library) LoadCatalogSnapshot() (CatalogSnapshot, error) {
 	var snap CatalogSnapshot
 	err := l.DB.View(func(tx *bbolt.Tx) error {
 		tags, err := db.ListTags(tx)
+		if err != nil {
+			return err
+		}
+		folders, err := db.ListFolders(tx)
 		if err != nil {
 			return err
 		}
@@ -697,6 +704,10 @@ func (l *Library) LoadCatalogSnapshot() (CatalogSnapshot, error) {
 			return err
 		}
 		rawLinks, err := db.AllAssetTagIDs(tx)
+		if err != nil {
+			return err
+		}
+		rawFolderLinks, err := db.AllAssetFolderIDs(tx)
 		if err != nil {
 			return err
 		}
@@ -716,11 +727,31 @@ func (l *Library) LoadCatalogSnapshot() (CatalogSnapshot, error) {
 				assetTags[assetID] = list
 			}
 		}
+		folderByID := make(map[string]model.Folder, len(folders))
+		for _, f := range folders {
+			folderByID[f.ID] = f
+		}
+		assetFolders := make(map[string][]model.Folder, len(rawFolderLinks))
+		for assetID, fids := range rawFolderLinks {
+			list := make([]model.Folder, 0, len(fids))
+			for _, fid := range fids {
+				if f, ok := folderByID[fid]; ok {
+					list = append(list, f)
+				}
+			}
+			if len(list) > 0 {
+				assetFolders[assetID] = list
+			}
+		}
+		sort.Slice(tags, func(i, j int) bool { return TagLess(tags[i], tags[j]) })
+		sort.Slice(folders, func(i, j int) bool { return FolderLess(folders[i], folders[j]) })
 		snap = CatalogSnapshot{
-			Tags:      tags,
-			Assets:    assets,
-			Stacks:    stacks,
-			AssetTags: assetTags,
+			Tags:         tags,
+			Folders:      folders,
+			Assets:       assets,
+			Stacks:       stacks,
+			AssetTags:    assetTags,
+			AssetFolders: assetFolders,
 		}
 		return nil
 	})
@@ -791,9 +822,16 @@ func (l *Library) Import(ctx context.Context, paths []string, mode string, tagID
 }
 
 // ImportWithProgress imports paths in fast 128-file transactions while
-// reporting live file-level progress and respecting ctx cancellation.
+// reporting live file-level progress, automatically preserving subfolder
+// hierarchies as Raglex Folders when importing directories.
 func (l *Library) ImportWithProgress(ctx context.Context, paths []string, mode string, tagIDs []string, progress func(ImportProgress)) (Result, error) {
-	files, err := collectFiles(l.DB.Root(), paths)
+	return l.ImportWithFolders(ctx, paths, mode, tagIDs, nil, true, progress)
+}
+
+// ImportWithFolders imports paths while optionally applying explicit folderIDs
+// and mirroring imported directory subfolders into Raglex's Folder hierarchy.
+func (l *Library) ImportWithFolders(ctx context.Context, paths []string, mode string, tagIDs []string, folderIDs []string, preserveSubfolders bool, progress func(ImportProgress)) (Result, error) {
+	files, err := collectFilesWithFolders(l.DB.Root(), paths)
 	if err != nil {
 		return Result{}, err
 	}
@@ -822,16 +860,47 @@ func (l *Library) ImportWithProgress(ctx context.Context, paths []string, mode s
 			Current:  filepath.Base(current),
 		})
 	}
-	emit(0, files[0], true)
+	emit(0, files[0].Path, true)
+
+	baseParentFolder := ""
+	if len(folderIDs) == 1 {
+		baseParentFolder = folderIDs[0]
+	}
+	relFolderCache := map[string]string{}
+	resolveFoldersFor := func(relSegs []string) []string {
+		var out []string
+		seen := map[string]bool{}
+		add := func(id string) {
+			if id != "" && !seen[id] {
+				seen[id] = true
+				out = append(out, id)
+			}
+		}
+		if preserveSubfolders && len(relSegs) > 0 {
+			key := strings.Join(relSegs, "\x00")
+			fid, ok := relFolderCache[key]
+			if !ok {
+				fid = l.EnsureFolderPath(baseParentFolder, relSegs)
+				relFolderCache[key] = fid
+			}
+			add(fid)
+		} else {
+			for _, fid := range folderIDs {
+				add(fid)
+			}
+		}
+		return out
+	}
 
 	const batchSize = 128
 	type preparedItem struct {
-		abs      string
-		stored   string
-		sum      string
-		asset    model.Asset
-		existing string
-		err      error
+		abs       string
+		stored    string
+		sum       string
+		asset     model.Asset
+		existing  string
+		folderIDs []string
+		err       error
 	}
 
 	for start := 0; start < len(files); start += batchSize {
@@ -843,7 +912,8 @@ func (l *Library) ImportWithProgress(ctx context.Context, paths []string, mode s
 		prep := make([]preparedItem, len(chunk))
 
 		// Phase 1: hash & check existing in a single read transaction.
-		for i, rawPath := range chunk {
+		for i, cf := range chunk {
+			rawPath := cf.Path
 			if ctx.Err() != nil {
 				return result, ctx.Err()
 			}
@@ -858,7 +928,11 @@ func (l *Library) ImportWithProgress(ctx context.Context, paths []string, mode s
 				prep[i] = preparedItem{abs: abs, err: err}
 				continue
 			}
-			prep[i] = preparedItem{abs: abs, sum: sum}
+			prep[i] = preparedItem{
+				abs:       abs,
+				sum:       sum,
+				folderIDs: resolveFoldersFor(cf.RelFolders),
+			}
 		}
 
 		_ = l.DB.View(func(tx *bbolt.Tx) error {
@@ -930,11 +1004,17 @@ func (l *Library) ImportWithProgress(ctx context.Context, paths []string, mode s
 					if err := linkTags(tx, p.existing, tagIDs); err != nil {
 						p.err = err
 					}
+					if err := linkFolders(tx, p.existing, p.folderIDs); err != nil {
+						p.err = err
+					}
 					continue
 				}
 				if id, ok := db.AssetIDByHash(tx, p.sum); ok {
 					p.existing = id
 					if err := linkTags(tx, id, tagIDs); err != nil {
+						p.err = err
+					}
+					if err := linkFolders(tx, id, p.folderIDs); err != nil {
 						p.err = err
 					}
 					continue
@@ -944,6 +1024,9 @@ func (l *Library) ImportWithProgress(ctx context.Context, paths []string, mode s
 					continue
 				}
 				if err := linkTags(tx, p.asset.ID, tagIDs); err != nil {
+					p.err = err
+				}
+				if err := linkFolders(tx, p.asset.ID, p.folderIDs); err != nil {
 					p.err = err
 				}
 			}
@@ -973,7 +1056,7 @@ func (l *Library) ImportWithProgress(ctx context.Context, paths []string, mode s
 			}
 			result.Items = append(result.Items, item)
 		}
-		emit(end, chunk[len(chunk)-1], true)
+		emit(end, chunk[len(chunk)-1].Path, true)
 	}
 	return result, nil
 }
@@ -1180,4 +1263,52 @@ func cleanPath(path string) (string, error) {
 		return "", err
 	}
 	return filepath.Clean(abs), nil
+}
+
+// SaveTextAsset writes edited UTF-8 text content back to an existing text or
+// Markdown asset on disk and refreshes its stored SHA-256 hash in bbolt.
+func (l *Library) SaveTextAsset(id, content string) (model.Asset, error) {
+	if l == nil || id == "" {
+		return model.Asset{}, errors.New("library is not open")
+	}
+	cur, err := l.Get(id)
+	if err != nil {
+		return model.Asset{}, err
+	}
+	if cur.Path == "" {
+		return model.Asset{}, errors.New("asset has no disk path")
+	}
+	raw := []byte(content)
+	if err := os.WriteFile(cur.Path, raw, 0o644); err != nil {
+		return model.Asset{}, err
+	}
+	sum := sha256.Sum256(raw)
+	newHash := hex.EncodeToString(sum[:])
+
+	var updated model.Asset
+	err = l.DB.Update(func(tx *bbolt.Tx) error {
+		a, err := db.GetAsset(tx, id)
+		if err != nil {
+			return err
+		}
+		oldHash := a.Hash
+		a.Hash = newHash
+		a.Missing = false
+		if err := db.PutAsset(tx, a); err != nil {
+			return err
+		}
+		if oldHash != "" && oldHash != newHash {
+			if existingID, ok := db.AssetIDByHash(tx, oldHash); ok && existingID == a.ID {
+				_ = tx.Bucket(db.BucketAssetsByHash).Delete([]byte(oldHash))
+			}
+		}
+		if newHash != "" {
+			if _, taken := db.AssetIDByHash(tx, newHash); !taken {
+				_ = tx.Bucket(db.BucketAssetsByHash).Put([]byte(newHash), []byte(a.ID))
+			}
+		}
+		updated = a
+		return nil
+	})
+	return updated, err
 }

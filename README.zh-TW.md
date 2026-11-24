@@ -4,12 +4,14 @@
 
 <p align="center">
   <a href="README.md">English</a> &nbsp;·&nbsp;
-  <a href="README.zh-TW.md"><strong>繁體中文</strong></a>
+  <a href="README.zh-TW.md"><strong>繁體中文</strong></a> &nbsp;·&nbsp;
+  <a href="README.ja.md">日本語</a>
 </p>
 
 <p align="center">
   <a href="LICENSE"><img src="https://shieldcn.dev/github/license/Batkixni/Raglex.svg?variant=secondary" alt="License: MPL 2.0" /></a>
   <a href="https://github.com/Batkixni/Raglex/stargazers"><img src="https://shieldcn.dev/github/stars/Batkixni/Raglex.svg?variant=secondary" alt="GitHub Stars" /></a>
+  <img src="https://shieldcn.dev/badge/Version-v0.4.0-FF5C33.svg" alt="v0.4.0" />
   <img src="https://shieldcn.dev/badge/Go-1.24+-00ADD8.svg" alt="Go 1.24+" />
   <img src="https://shieldcn.dev/badge/UI-MyGo_Native-FF5C33.svg" alt="MyGo Native UI" />
   <img src="https://shieldcn.dev/badge/Platform-macOS_%7C_Windows_%7C_Linux-3F3F46.svg" alt="Platforms" />
@@ -29,47 +31,50 @@
 
 ## 為什麼選擇 Raglex？
 
-**Raglex** 是一款原生桌面視覺素材管理與無限靈感白板工具——**原生極速啟動**、**完全離線可用**，所有索引、標籤與白板都儲存在你本機的單一 `bbolt` 資料庫中，檔案主權 100% 歸你所有。
+**Raglex** 是一款原生桌面視覺素材管理與無限靈感白板工具——**原生極速啟動**、**完全離線可用**，所有索引、資料夾、標籤與白板都儲存在你本機的單一 `bbolt` 資料庫中，檔案主權 100% 歸你所有。
 
-採用 **Go** 與 **[MyGo Native UI](https://github.com/egoist/mygo)**（`CGO_ENABLED=0`）打造，跨平台支援 **macOS（Apple Silicon & Intel）**、**Windows（x64 & ARM64）** 與 **Linux（x64 & ARM64）**。
+採用 **Go** 與 **[MyGo Native UI](https://github.com/egoist/mygo)**（`CGO_ENABLED=0`）打造，跨平台支援 **macOS（Apple Silicon & Intel）**、**Windows（x64 & ARM64）** 與 **Linux（x64 & ARM64）**，並原生內建 **繁體中文**、**English** 與 **日本語** 完整介面。
 
 ---
 
 ## 核心功能
 
-### 視覺資料庫與版本堆疊（Asset Stacks）
-- **四種彈性匯入模式**：支援 **索引（原地不動）**、**軟連結**、**移動**、**複製**，內建檔案變更即時監控與自動備份還原（`raglex.db.bak`）。
-- **三種質感排版**：一鍵切換 **Bento 拼接**、**瀑布流 Masonry** 與 **等比格狀 Grid**，搭配滑順縮放、多層彩色標籤樹、評分篩選與滑鼠拖拉框選多選。
-- **版本堆疊（`Ctrl+G`）**：將同一張海報的 `v1 / v2 / v3 / final` 或角色多角度視圖折疊為單張卡片，保持資料庫乾淨清爽；也支援透過 `Ctrl+T` 一鍵 **自動堆疊相似版本**，點開即可並排檢視或在預覽頁即時 A/B 切換版本。
+### 平行階層資料夾、標籤與版本堆疊
+- **資料夾與標籤完全平行**：左下角一鍵平滑切換「資料夾｜標籤」樹狀檢視，支援多層子資料夾、色彩繼承、拖曳排序與歸類、批次刪除資料夾（可選連同子資料夾移除），匯入本地資料夾時自動完整鏡像階層。
+- **四種彈性匯入模式**：支援 **索引（原地不動）**、**軟連結**、**移動**、**複製**，內建檔案變更即時監控、自動備份還原（`raglex.db.bak`），並可於偏好設定自訂左側欄頂部快速篩選按鈕。
+- **三種質感排版**：一鍵切換 **Bento 拼接**、**瀑布流 Masonry** 與 **等比格狀 Grid**，搭配滑順縮放、評分篩選與滑鼠拖拉框選多選。
+- **版本堆疊（`Ctrl+G`）**：將 `v1 / v2 / final` 或角色多角度視圖折疊為單張卡片，支援 `Ctrl+T` 一鍵自動堆疊相似版本。
 
-### 設計師原生格式預覽
-免切換外部軟體，直接在 Raglex 內嵌大圖視窗檢視創作原生格式：
-- **字體（`.ttf` / `.otf`）**：支援即時 **自訂預覽文字**、`24pt / 36pt / 48pt / 72pt` 字級切換、完整大小寫與數字字樣瀑布流，並於列表顯示該字體實際渲染的 `Aa` 縮圖。
-- **音訊（`.wav` / `.mp3` / `.flac` / `.ogg` / `.m4a` / `.aac`）**：96 條 **互動式波形條** 點擊跳轉進度、原生直接試聽播放與音量調整，列表自動產生波形縮圖。
-- **SVG 向量無損檢視（`.svg`）**：GPU 原生向量繪製，支援 **25%～800% 無損放大**，可一鍵切換 **透明棋盤格背景**。
-- **PDF 多頁翻閱（`.pdf`）**：支援多頁翻閱、頁碼顯示、縮放與首頁縮圖生成。
-- **圖片與影片**：無彈窗內嵌全舞台檢視、動圖 GIF 與影片循環播放，右側同步提供 **資訊 / 相似素材** 檢視面板。
+### Raglex Cloud、選擇性同步與好友協作空間（v0.4.0）
+- **20 GB 雲端儲存空間與高速雙向同步**：支援登入 **Raglex Cloud**（亦可隨時切換至自架 **Self-Host** Docker 伺服器），內建 6-Worker HTTP/2 並發上傳、側邊欄即時進度條與 20 GB 空間用量顯示。
+- **選擇性資料夾同步**：在 `偏好設定 → 同步與協作` 逐一勾選哪些資料夾要同步上雲，排除不需要同步的資料夾與子資料夾，輕鬆省下雲端配額。
+- **好友協作空間（`CLB-XXXX-XXXX`）**：將參考資料夾或專案建立為好友協作空間，大家共同維護參考素材；**白板採個人擁有制**，每個人只能修改自己的白板、可瀏覽對方白板，零衝突免煩惱。
+- **公開分享碼（`SHR-XXXX-XXXX`）與跨網直傳**：發佈資料夾或專案的公開分享碼，**任何用戶免註冊免登入**輸入代碼即可下載，亦支援同 Wi-Fi 與 6 碼端對端加密直傳。
+
+### 設計師原生格式預覽與極簡無框 Markdown 寫作桌
+免切換外部軟體，直接在 Raglex 檢視與編輯創作格式：
+- **無框 Markdown 閱讀與寫作桌**：支援閱讀／分欄／編輯三模式、段落專注模式、YAML Frontmatter、表格、可點擊待辦勾選框、GitHub Alerts 與 `Ctrl+S` 直接存檔。
+- **字體（`.ttf` / `.otf`）**：即時自訂預覽文字、`24pt / 36pt / 48pt / 72pt` 字級切換與 `Aa` 縮圖。
+- **音訊（`.wav` / `.mp3` / `.flac` / `.ogg` / `.m4a` / `.aac`）**：96 條互動式波形條、直接播放與音量調整。
+- **SVG 無損向量（`.svg`）與 PDF 多頁翻閱（`.pdf`）**：GPU 向量無損縮放（25%～800%）＋透明棋盤格背景，支援多頁 PDF 瀏覽。
+- **圖片、RAW 與影片**：全舞台無彈窗預覽、GIF 與內建 `ffmpeg` 影片播放，右側即時顯示 **資訊 / 相似素材**。
 
 ### 無限白板與置頂參考浮窗
-- **獨立白板與專案白板**：除了專案內白板，也可在側邊欄直接建立白板，自由拖放素材、分組框、向量箭頭、便利貼、縮放與旋轉。
-- **置頂參考浮窗（Always on Top）**：一鍵將目前白板彈出成無邊框置頂浮窗，懸浮於各類繪圖、3D 與影音創作軟體上方；支援自動隱藏控制列、**獨立調整背景與圖片透明度**、獨立拖曳平移縮放與按 `F` 置中符合畫面。
+- **獨立白板與專案白板**：可在側邊欄或專案內建立無限畫布，支援圖片排板、分區框、向量箭頭、畫筆／螢光筆、便利貼與縮放旋轉。
+- **置頂參考浮窗（Always on Top）**：一鍵將白板彈出成無邊框置頂浮窗，支援獨立調整背景／圖片透明度、點擊穿透鎖定、水平翻轉、黑白對照與按 `F` 置中符合畫面。
 
-### 批次檔案管理與高效率操作
-- **批次重新命名（`F2`）與復原（`Ctrl+Z`）**：支援範本變數（`{name}`、`{n}`、`{date}`、`{ext}`、尋找取代）、衝突檢查、即時預覽與完整批次還原紀錄。
-- **批次匯出與系統剪貼簿**：支援一次匯出多檔、直接 `Ctrl+C` 複製系統實體檔案、`Ctrl+V` 貼上系統檔案或剪貼簿截圖進資料庫。
-- **快速跳轉與指令面板（`Ctrl+T`）**：一鍵模糊搜尋標籤、專案、白板與常用動作。
-
-### 本地 AI、以圖搜圖與開放生態
-- **內建離線視覺搜尋**：純 Go 128 維視覺向量 Embedding、64-bit pHash/dHash 感知相似比對與 5 色 OKLab 色彩搜尋，無需連網即可使用。
-- **App 內一鍵部署 Laya / Ollaya**：在 **偏好設定 → AI 與模型** 即可免終端機一鍵下載、背景啟動與管理本地開源 Laya 決策模型（`laya:multilingual`、`laya`、`winnow:e4b`）。
-- **內建分享伺服器與 VPS CLI（`raglex-server`）**：在 App 內一鍵啟動區域網路網頁藝廊與互動白板分享，亦提供獨立命令列版本方便部署至 VPS。
-- **MCP Server（`raglex-mcp`）**：透過 Stdio 或 HTTP（`/mcp`）讓 AI 助手直接查詢、標記與搜尋你的 Raglex 素材庫。
-- **瀏覽器配套擴充套件（`extensions/browser/`）**：支援拖拉存圖浮動膠囊、右鍵抓圖、網頁截圖與整頁批次擷取。
-- **插件系統與 GitHub 自動更新**：支援任意語言撰寫本機插件（[`examples/plugins/`](examples/plugins/)），內建 GitHub Releases 自動更新與 SHA-256 完整性驗證。
+### 本地 AI、Eagle Import、MCP 與開放生態
+- **內建離線視覺搜尋**：純 Go 128 維視覺向量 Embedding、pHash/dHash 感知相似比對與 5 色 OKLab 主色搜尋，100% 離線可用。
+- **App 內一鍵部署 Laya / Ollaya**：在 `偏好設定 → AI 與模型` 免終端機部署本地 Laya 自動標籤模型。
+- **官方 Eagle Import 插件**：從 `+ 匯入 → 從 Eagle 匯入` 一鍵匯入 `.library` 資料夾與 `.eaglepack` 封包，完整還原巢狀資料夾、標籤與網頁書籤縮圖。
+- **內建伺服器（`raglex-server`）與 MCP Server（`raglex-mcp`）**：提供區網網頁藝廊、手機版 `/mobile` PWA 與 17 項 AI 助手 MCP 工具。
+- **瀏覽器配套擴充套件**：支援 Chrome / Edge / Firefox / Zen，搭配離線收件資料夾，未開軟體也能存圖。
 
 ---
 
 ## 常用快捷鍵
+
+所有快捷鍵皆可於 `偏好設定 → 快捷鍵` 自由修改（自動對應 Windows `Ctrl` 與 macOS `⌘`）。
 
 | 快捷鍵 | 功能說明 |
 | :--- | :--- |
@@ -81,7 +86,9 @@
 | `F2` | 批次重新命名選取項目 |
 | `Ctrl+Z` / `Cmd+Z` | 復原上一次批次重新命名 |
 | `Ctrl+C` / `Ctrl+V` | 複製實體檔案 / 貼上檔案或剪貼簿圖片 |
-| `Space` | 開啟 / 關閉內嵌大圖預覽 |
+| `Space` | Quick Look / 開啟完整內嵌預覽 |
+| `Ctrl+Alt+C` | 切換專注模式 |
+| `Ctrl+Alt+G` | 切換黑白預覽對照 |
 | `0` – `5` | 設定星級評分 |
 | `F` *（於置頂浮窗內）* | 畫面自動置中符合所有參考圖 |
 | `Esc` | 關閉預覽 / 退回堆疊 / 關閉彈窗 |
@@ -94,8 +101,8 @@
 | :--- | :--- | :--- |
 | **macOS** | Apple Silicon (`darwin/arm64`) | `Raglex-darwin-arm64.zip`（`.app` 應用程式包） |
 | **macOS** | Intel x86_64 (`darwin/amd64`) | `Raglex-darwin-amd64.zip`（`.app` 應用程式包） |
-| **Windows** | x64 (`windows/amd64`) | `raglex-setup-0.3.4-amd64.exe`（安裝版） / `Raglex-windows-amd64.zip` |
-| **Windows** | ARM64 (`windows/arm64`) | `raglex-setup-0.3.4-arm64.exe`（安裝版） / `Raglex-windows-arm64.zip` |
+| **Windows** | x64 (`windows/amd64`) | `raglex-setup-0.4.0-amd64.exe`（安裝版） / `Raglex-windows-amd64.zip` |
+| **Windows** | ARM64 (`windows/arm64`) | `raglex-setup-0.4.0-arm64.exe`（安裝版） / `Raglex-windows-arm64.zip` |
 | **Linux** | x64 (`linux/amd64`) | `.tar.gz`、`.deb`、`.rpm`、`PKGBUILD` |
 | **Linux** | ARM64 (`linux/arm64`) | `.tar.gz`、`.deb`、`.rpm`、`PKGBUILD` |
 
@@ -129,14 +136,7 @@ CGO_ENABLED=0 go test -count=1 ./...
 
 ---
 
-## 瀏覽器配套擴充套件
-
-- **Chrome / Edge / Brave**：開啟 `chrome://extensions` → 開啟「開發人員模式」→ 點選「載入未封裝項目」→ 選擇 [`extensions/browser/`](extensions/browser/)。
-- **Firefox / Zen Browser / Floorp / LibreWolf**：開啟 `about:debugging#/runtime/this-firefox` → 點選「載入暫時附加元件…」→ 選擇 [`extensions/firefox/manifest.json`](extensions/firefox/manifest.json)（永久 `.xpi` 安裝與網站權限設定請見完整教學：[extensions/firefox/README.md](extensions/firefox/README.md)）。
-
----
-
 ## 參與貢獻與授權條款
 
-- 歡迎任何形式的 Issue 回報與 Pull Request，提交前請先閱讀 [CONTRIBUTING.md](CONTRIBUTING.md)。
-- 本專案採用 **[Mozilla Public License 2.0 (MPL-2.0)](LICENSE)** 開源授權。你可以自由使用、修改與散佈本軟體；若修改既有受 MPL-2.0 保護之原始碼檔案，該檔案的修改內容須維持以 MPL-2.0 條款公開。
+- 歡迎任何形式的 Issue 回報與 Pull Request，提交前請先閱讀 [CONTRIBUTING.md](CONTRIBUTING.md) 與 [AGENT.md](AGENT.md)。
+- 本專案採用 **[Mozilla Public License 2.0 (MPL-2.0)](LICENSE)** 開源授權。

@@ -3,6 +3,7 @@ package ui
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"path/filepath"
@@ -13,6 +14,7 @@ import (
 	"github.com/egoist/mygo"
 
 	"raglex/internal/config"
+	"raglex/internal/library"
 	"raglex/internal/mcp"
 	"raglex/internal/model"
 	"raglex/internal/plugin"
@@ -376,7 +378,7 @@ func (a *App) runLibraryPlugin(pluginID string) {
 }
 
 func (a *App) startMigrateExternalLibrary() {
-	if a.lib == nil || a.win == nil {
+	if a.lib == nil || a.win == nil || a.importing {
 		return
 	}
 	win := a.win
@@ -396,24 +398,185 @@ func (a *App) startMigrateExternalLibrary() {
 			return
 		}
 		picked := filepath.Clean(dirs[0])
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
-		defer cancel()
-		res, impErr := lib.ImportExternalLibrary(ctx, picked, mode)
+		ctx, cancel := context.WithCancel(context.Background())
 		win.Update(func() {
 			if a.isClosed() {
-				return
-			}
-			if impErr != nil {
-				a.notify(impErr.Error())
+				cancel()
 				return
 			}
 			a.settingsOpen = false
+			a.importing = true
+			a.importStage = "scanning"
+			a.importDone = 0
+			a.importTotal = 0
+			a.importAdded = 0
+			a.importExisting = 0
+			a.importFailed = 0
+			a.importCurrent = filepath.Base(picked)
+			a.importCancel = cancel
+		})
+		defer cancel()
+
+		var lastPush time.Time
+		res, impErr := lib.ImportExternalPackageWithProgress(ctx, picked, mode, func(p library.ImportProgress) {
+			now := time.Now()
+			if p.Total > 0 && p.Done < p.Total && now.Sub(lastPush) < 70*time.Millisecond {
+				return
+			}
+			lastPush = now
+			prog := p
+			win.Update(func() {
+				if a.isClosed() {
+					return
+				}
+				if a.importStage != "canceling" {
+					a.importStage = "importing"
+				}
+				a.importDone = prog.Done
+				a.importTotal = prog.Total
+				a.importAdded = prog.Added
+				a.importExisting = prog.Existing
+				a.importFailed = prog.Failed
+				if prog.Current != "" {
+					a.importCurrent = prog.Current
+				}
+			})
+		})
+		win.Update(func() {
+			a.importing = false
+			a.importCancel = nil
+			a.importStage = ""
+			if a.isClosed() {
+				return
+			}
+			if impErr != nil && !errors.Is(impErr, context.Canceled) {
+				a.notify(impErr.Error())
+				return
+			}
+			if res.FoldersMapped > 0 {
+				a.sidebarBrowseMode = "folders"
+			}
 			a.reload()
+			if errors.Is(impErr, context.Canceled) {
+				a.notify(fmt.Sprintf(a.t("import.canceled"), res.AssetsImported, res.AssetsExisting))
+				return
+			}
 			if res.AssetsImported == 0 && res.AssetsExisting == 0 && res.FoldersMapped == 0 {
 				a.notify(a.t("plugins.migrateNone"))
 				return
 			}
-			a.notify(fmt.Sprintf(a.t("plugins.migrateDone"), res.AssetsImported, res.FoldersMapped))
+			a.notify(fmt.Sprintf(a.t("plugins.migrateDone"), res.AssetsImported, res.FoldersMapped, res.TagsMapped))
+		})
+	}()
+}
+
+// startMigrateExternalPack opens a file picker for external asset package archives
+// and imports all contained assets, nested folders (as Raglex Folders), tags,
+// ratings, notes, and source URLs into the active library with live progress.
+func (a *App) startMigrateExternalPack() {
+	if a.lib == nil || a.win == nil || a.importing {
+		return
+	}
+	win := a.win
+	lib := a.lib
+	title := a.t("plugins.migratePackTitle")
+	go func() {
+		files, err := mygo.Dialog.Open(mygo.OpenDialogOptions{
+			Parent:   win,
+			Title:    title,
+			Multiple: true,
+			Filters: []mygo.FileFilter{
+				{Name: "Asset Package Archive", Extensions: []string{"eaglepack", "zip"}},
+			},
+		})
+		if err != nil || len(files) == 0 {
+			return
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		win.Update(func() {
+			if a.isClosed() {
+				cancel()
+				return
+			}
+			a.settingsOpen = false
+			a.importing = true
+			a.importStage = "scanning"
+			a.importDone = 0
+			a.importTotal = 0
+			a.importAdded = 0
+			a.importExisting = 0
+			a.importFailed = 0
+			a.importCurrent = filepath.Base(files[0])
+			a.importCancel = cancel
+		})
+		defer cancel()
+
+		var totalAssets, totalExisting, totalFolders, totalTags int
+		var lastErr error
+		var lastPush time.Time
+		for _, f := range files {
+			if ctx.Err() != nil {
+				break
+			}
+			if strings.TrimSpace(f) == "" {
+				continue
+			}
+			res, impErr := lib.ImportExternalPackageWithProgress(ctx, filepath.Clean(f), model.StorageCopy, func(p library.ImportProgress) {
+				now := time.Now()
+				if p.Total > 0 && p.Done < p.Total && now.Sub(lastPush) < 70*time.Millisecond {
+					return
+				}
+				lastPush = now
+				prog := p
+				win.Update(func() {
+					if a.isClosed() {
+						return
+					}
+					if a.importStage != "canceling" {
+						a.importStage = "importing"
+					}
+					a.importDone = prog.Done
+					a.importTotal = prog.Total
+					a.importAdded = totalAssets + prog.Added
+					a.importExisting = totalExisting + prog.Existing
+					a.importFailed = prog.Failed
+					if prog.Current != "" {
+						a.importCurrent = prog.Current
+					}
+				})
+			})
+			if impErr != nil {
+				lastErr = impErr
+			}
+			totalAssets += res.AssetsImported
+			totalExisting += res.AssetsExisting
+			totalFolders += res.FoldersMapped
+			totalTags += res.TagsMapped
+		}
+		win.Update(func() {
+			a.importing = false
+			a.importCancel = nil
+			a.importStage = ""
+			if a.isClosed() {
+				return
+			}
+			if totalFolders > 0 {
+				a.sidebarBrowseMode = "folders"
+			}
+			a.reload()
+			if errors.Is(lastErr, context.Canceled) {
+				a.notify(fmt.Sprintf(a.t("import.canceled"), totalAssets, totalExisting))
+				return
+			}
+			if lastErr != nil && totalAssets == 0 && totalFolders == 0 {
+				a.notify(lastErr.Error())
+				return
+			}
+			if totalAssets == 0 && totalExisting == 0 && totalFolders == 0 {
+				a.notify(a.t("plugins.migrateNone"))
+				return
+			}
+			a.notify(fmt.Sprintf(a.t("plugins.migrateDone"), totalAssets, totalFolders, totalTags))
 		})
 	}()
 }
@@ -623,6 +786,7 @@ func (a *App) submitVerifyEmail() {
 			a.accountVerified = true
 			a.authVerifyCodeBuf = ""
 			a.authStatusMsg = a.t("account.verifyOK")
+			a.syncConfigFromState()
 			a.notify(a.authStatusMsg)
 		}
 		if win == nil {
@@ -686,6 +850,7 @@ func (a *App) resendVerifyEmail() {
 			if out.EmailVerified {
 				a.accountVerified = true
 				a.authStatusMsg = a.t("account.verifyOK")
+				a.syncConfigFromState()
 			} else {
 				a.authStatusMsg = a.t("account.verifySent")
 			}
@@ -866,8 +1031,71 @@ func (a *App) signOutAccount() {
 	a.notify(a.t("account.signedOut"))
 }
 
-// runCloudSyncNow executes a bidirectional delta + SHA-256 blob sync with the
-// active provider (Raglex Cloud default endpoint or Self-Hosted Docker server).
+// refreshAccountProfile silently queries GET /api/v1/auth/me in the background
+// so email_verified and profile metadata stay in sync across app restarts & upgrades.
+func (a *App) refreshAccountProfile() {
+	if a.win == nil || a.accountToken == "" || a.syncProvider == "selfhost" {
+		return
+	}
+	tok := strings.TrimSpace(a.accountToken)
+	win := a.win
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+		defer cancel()
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, config.DefaultCloudEndpoint+"/api/v1/auth/me", nil)
+		if err != nil {
+			return
+		}
+		req.Header.Set("Authorization", "Bearer "+tok)
+		req.Header.Set("User-Agent", "Raglex-Desktop/0.4")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			return
+		}
+		var out struct {
+			OK            bool   `json:"ok"`
+			Email         string `json:"email"`
+			Name          string `json:"name"`
+			EmailVerified bool   `json:"email_verified"`
+			UsedBytes     uint64 `json:"used_bytes"`
+			QuotaBytes    int64  `json:"quota_bytes"`
+		}
+		if json.NewDecoder(resp.Body).Decode(&out) != nil || !out.OK {
+			return
+		}
+		win.Update(func() {
+			if a.isClosed() || strings.TrimSpace(a.accountToken) != tok {
+				return
+			}
+			changed := a.accountVerified != out.EmailVerified
+			if out.Email != "" && a.accountEmail != out.Email {
+				a.accountEmail = out.Email
+				changed = true
+			}
+			if out.Name != "" && a.accountName != out.Name {
+				a.accountName = out.Name
+				changed = true
+			}
+			a.accountVerified = out.EmailVerified
+			a.accountUsedBytes = out.UsedBytes
+			if out.QuotaBytes > 0 {
+				a.accountQuotaBytes = out.QuotaBytes
+			} else if a.accountQuotaBytes <= 0 {
+				a.accountQuotaBytes = 20 << 30
+			}
+			if changed {
+				a.syncConfigFromState()
+			}
+		})
+	}()
+}
+
+// runCloudSyncNow executes a bidirectional delta + concurrent SHA-256 blob sync
+// with live sidebar progress reporting against the active provider.
 func (a *App) runCloudSyncNow() {
 	serverURL, token := a.effectiveSyncEndpoint()
 	if a.lib == nil || a.syncBusy || serverURL == "" {
@@ -875,19 +1103,59 @@ func (a *App) runCloudSyncNow() {
 	}
 	a.syncConfigFromState()
 	a.syncBusy = true
+	a.syncStage = "scanning"
+	a.syncDone = 0
+	a.syncTotal = 0
+	a.syncCurrent = ""
 	a.syncStatusMsg = a.t("sync.syncing")
 	lib := a.lib
 	projs := a.projects
+	exMap := make(map[string]bool, len(a.syncExcludeFolders))
+	for id, off := range a.syncExcludeFolders {
+		if off {
+			exMap[id] = true
+		}
+	}
 	cfg := rsync.ClientConfig{
-		ServerURL: serverURL,
-		Token:     token,
-		DeviceID:  strings.TrimSpace(a.deviceName),
+		ServerURL:            serverURL,
+		Token:                token,
+		DeviceID:             strings.TrimSpace(a.deviceName),
+		ExcludedFolderIDs:    exMap,
+		ExcludeUncategorized: !a.syncIncludeUncat,
 	}
 	win := a.win
 	run := func() {
-		rep, err := rsync.SyncNow(context.Background(), cfg, lib, projs)
+		var lastPush time.Time
+		onProgress := func(p rsync.SyncProgress) {
+			now := time.Now()
+			if p.Total > 0 && p.Done < p.Total && now.Sub(lastPush) < 80*time.Millisecond {
+				return
+			}
+			lastPush = now
+			prog := p
+			apply := func() {
+				a.syncStage = prog.Stage
+				a.syncDone = prog.Done
+				a.syncTotal = prog.Total
+				a.syncCurrent = prog.Current
+			}
+			if win == nil {
+				apply()
+				return
+			}
+			win.Update(func() {
+				if !a.isClosed() {
+					apply()
+				}
+			})
+		}
+		rep, err := rsync.SyncNowWithProgress(context.Background(), cfg, lib, projs, onProgress)
 		finish := func() {
 			a.syncBusy = false
+			a.syncStage = ""
+			a.syncDone = 0
+			a.syncTotal = 0
+			a.syncCurrent = ""
 			if err != nil {
 				a.syncStatusMsg = err.Error()
 				a.notify(err.Error())
@@ -898,6 +1166,7 @@ func (a *App) runCloudSyncNow() {
 			if rep.PulledOps > 0 || rep.DownloadedBlobs > 0 {
 				a.reload()
 			}
+			a.refreshAccountProfile()
 			a.notify(msg)
 		}
 		if win == nil {
@@ -943,4 +1212,287 @@ func (a *App) createPublicShareLink(kind, targetID, title, password string, allo
 		}
 	}
 	return base + relPath, nil
+}
+
+// hasSyncConnection reports whether the user has signed into Raglex Cloud OR
+// configured a Self-Host sync server URL (gates the Sync & Collab settings tab).
+func (a *App) hasSyncConnection() bool {
+	if a.syncProvider == "selfhost" {
+		return strings.TrimSpace(a.syncServerURL) != ""
+	}
+	return strings.TrimSpace(a.accountToken) != ""
+}
+
+func (a *App) refreshCollabSpaces() {
+	serverURL, token := a.effectiveSyncEndpoint()
+	if token == "" || a.collabBusy {
+		return
+	}
+	cfg := rsync.ClientConfig{ServerURL: serverURL, Token: token}
+	win := a.win
+	run := func() {
+		list, err := rsync.ListCollabSpaces(context.Background(), cfg)
+		finish := func() {
+			if err == nil {
+				a.collabList = list
+				a.collabLoaded = true
+			}
+		}
+		if win == nil {
+			finish()
+			return
+		}
+		win.Update(func() {
+			if !a.isClosed() {
+				finish()
+			}
+		})
+	}
+	if win == nil {
+		run()
+		return
+	}
+	go run()
+}
+
+func (a *App) createCollabFromTarget(kind, targetID string) {
+	database := a.shareDB.Load()
+	if database == nil && a.lib != nil {
+		database = a.lib.DB
+	}
+	serverURL, token := a.effectiveSyncEndpoint()
+	if database == nil || a.collabBusy || token == "" || targetID == "" {
+		if token == "" {
+			a.notify(a.t("collab.needCloud"))
+		}
+		return
+	}
+	a.collabBusy = true
+	a.syncBusy = true
+	a.syncStage = "uploading"
+	a.syncDone = 0
+	a.syncTotal = 0
+	a.syncCurrent = ""
+	cfg := rsync.ClientConfig{ServerURL: serverURL, Token: token}
+	win := a.win
+	run := func() {
+		var lastPush time.Time
+		cs, err := rsync.CreateCollabSpace(context.Background(), cfg, database, kind, targetID, func(p rsync.SyncProgress) {
+			now := time.Now()
+			if p.Total > 0 && p.Done < p.Total && now.Sub(lastPush) < 80*time.Millisecond {
+				return
+			}
+			lastPush = now
+			prog := p
+			if win != nil {
+				win.Update(func() {
+					if !a.isClosed() {
+						a.syncStage = prog.Stage
+						a.syncDone = prog.Done
+						a.syncTotal = prog.Total
+						a.syncCurrent = prog.Current
+					}
+				})
+			}
+		})
+		finish := func() {
+			a.collabBusy = false
+			a.syncBusy = false
+			a.syncStage = ""
+			a.syncDone = 0
+			a.syncTotal = 0
+			a.syncCurrent = ""
+			if err != nil {
+				a.notify(err.Error())
+				return
+			}
+			if a.collabLocalMap == nil {
+				a.collabLocalMap = map[string]string{}
+			}
+			a.collabLocalMap[cs.ID] = targetID
+			a.collabLastCode = cs.Code
+			a.syncConfigFromState()
+			a.notify(fmt.Sprintf(a.t("collab.created"), cs.Title, cs.Code))
+			a.refreshCollabSpaces()
+			a.refreshAccountProfile()
+		}
+		if win == nil {
+			finish()
+			return
+		}
+		win.Update(func() {
+			if !a.isClosed() {
+				finish()
+			}
+		})
+	}
+	if win == nil {
+		run()
+		return
+	}
+	go run()
+}
+
+func (a *App) joinCollabByCode(rawCode string) {
+	code := strings.ToUpper(strings.TrimSpace(rawCode))
+	serverURL, token := a.effectiveSyncEndpoint()
+	if code == "" || a.collabBusy {
+		return
+	}
+	if token == "" {
+		a.notify(a.t("collab.needCloud"))
+		return
+	}
+	a.collabBusy = true
+	cfg := rsync.ClientConfig{ServerURL: serverURL, Token: token}
+	win := a.win
+	run := func() {
+		cs, err := rsync.JoinCollabSpace(context.Background(), cfg, code)
+		finish := func() {
+			a.collabBusy = false
+			if err != nil {
+				a.notify(err.Error())
+				return
+			}
+			a.collabJoinCode = ""
+			a.pairRecvCode = ""
+			a.pairRecvOpen = false
+			a.notify(fmt.Sprintf(a.t("collab.joined"), cs.Title))
+			a.refreshCollabSpaces()
+			a.syncCollabSpaceByID(cs.ID, cs.Kind)
+		}
+		if win == nil {
+			finish()
+			return
+		}
+		win.Update(func() {
+			if !a.isClosed() {
+				finish()
+			}
+		})
+	}
+	if win == nil {
+		run()
+		return
+	}
+	go run()
+}
+
+func (a *App) syncCollabSpaceByID(collabID, kind string) {
+	database := a.shareDB.Load()
+	if database == nil && a.lib != nil {
+		database = a.lib.DB
+	}
+	serverURL, token := a.effectiveSyncEndpoint()
+	if database == nil || a.collabBusy || token == "" || collabID == "" {
+		return
+	}
+	a.collabBusy = true
+	a.syncBusy = true
+	a.syncStage = "pulling"
+	a.syncDone = 0
+	a.syncTotal = 0
+	a.syncCurrent = ""
+	localID := ""
+	if a.collabLocalMap != nil {
+		localID = a.collabLocalMap[collabID]
+	}
+	cfg := rsync.ClientConfig{ServerURL: serverURL, Token: token}
+	win := a.win
+	run := func() {
+		var lastPush time.Time
+		res, err := rsync.SyncCollabSpace(context.Background(), cfg, database, collabID, kind, localID, func(p rsync.SyncProgress) {
+			now := time.Now()
+			if p.Total > 0 && p.Done < p.Total && now.Sub(lastPush) < 80*time.Millisecond {
+				return
+			}
+			lastPush = now
+			prog := p
+			if win != nil {
+				win.Update(func() {
+					if !a.isClosed() {
+						a.syncStage = prog.Stage
+						a.syncDone = prog.Done
+						a.syncTotal = prog.Total
+						a.syncCurrent = prog.Current
+					}
+				})
+			}
+		})
+		finish := func() {
+			a.collabBusy = false
+			a.syncBusy = false
+			a.syncStage = ""
+			a.syncDone = 0
+			a.syncTotal = 0
+			a.syncCurrent = ""
+			if err != nil {
+				a.notify(err.Error())
+				return
+			}
+			if a.collabLocalMap == nil {
+				a.collabLocalMap = map[string]string{}
+			}
+			if res.LocalTargetID != "" {
+				a.collabLocalMap[collabID] = res.LocalTargetID
+				a.syncConfigFromState()
+			}
+			a.reload()
+			a.notify(fmt.Sprintf(a.t("collab.synced"), res.Collab.Title))
+			a.refreshCollabSpaces()
+			a.refreshAccountProfile()
+		}
+		if win == nil {
+			finish()
+			return
+		}
+		win.Update(func() {
+			if !a.isClosed() {
+				finish()
+			}
+		})
+	}
+	if win == nil {
+		run()
+		return
+	}
+	go run()
+}
+
+func (a *App) leaveOrDeleteCollabSpace(collabID string) {
+	serverURL, token := a.effectiveSyncEndpoint()
+	if token == "" || collabID == "" || a.collabBusy {
+		return
+	}
+	a.collabBusy = true
+	cfg := rsync.ClientConfig{ServerURL: serverURL, Token: token}
+	win := a.win
+	run := func() {
+		err := rsync.LeaveOrDeleteCollab(context.Background(), cfg, collabID)
+		finish := func() {
+			a.collabBusy = false
+			if err != nil {
+				a.notify(err.Error())
+				return
+			}
+			delete(a.collabLocalMap, collabID)
+			a.syncConfigFromState()
+			a.notify(a.t("collab.left"))
+			a.refreshCollabSpaces()
+		}
+		if win == nil {
+			finish()
+			return
+		}
+		win.Update(func() {
+			if !a.isClosed() {
+				finish()
+			}
+		})
+	}
+	if win == nil {
+		run()
+		return
+	}
+	go run()
 }

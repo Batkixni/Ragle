@@ -21,6 +21,7 @@ const (
 	settingsTabGeneral = iota
 	settingsTabShortcuts
 	settingsTabAccount
+	settingsTabSync
 	settingsTabDatabase
 	settingsTabImport
 	settingsTabExtension
@@ -41,6 +42,12 @@ func (a *App) openSettings(tab int) {
 	}
 	a.refreshLayaStatus()
 	a.refreshDBStats()
+	if a.settingsTab == settingsTabAccount {
+		a.refreshAccountProfile()
+	}
+	if a.settingsTab == settingsTabSync && a.hasSyncConnection() {
+		a.refreshCollabSpaces()
+	}
 }
 
 func (a *App) setSettingsTab(tab int) {
@@ -52,6 +59,12 @@ func (a *App) setSettingsTab(tab int) {
 	a.settingsTab = tab
 	if tab == settingsTabDatabase && !a.dbStatsLoaded {
 		a.refreshDBStats()
+	}
+	if tab == settingsTabAccount {
+		a.refreshAccountProfile()
+	}
+	if tab == settingsTabSync && a.hasSyncConnection() {
+		a.refreshCollabSpaces()
 	}
 }
 
@@ -269,6 +282,7 @@ func (a *App) settingsModal(c *gui.Context) {
 			{settingsTabGeneral, iconSliders, a.t("settings.tab.general")},
 			{settingsTabShortcuts, iconCommand, a.t("settings.tab.shortcuts")},
 			{settingsTabAccount, iconUser, a.t("settings.tab.account")},
+			{settingsTabSync, iconCloud, a.t("settings.tab.sync")},
 			{settingsTabDatabase, iconDatabase, a.t("settings.tab.database")},
 			{settingsTabImport, iconImport, a.t("settings.tab.import")},
 			{settingsTabExtension, iconGlobe, a.t("settings.tab.extension")},
@@ -360,6 +374,7 @@ func (a *App) settingsModal(c *gui.Context) {
 					settingsTabGeneral:   "settings.sub.general",
 					settingsTabShortcuts: "settings.sub.shortcuts",
 					settingsTabAccount:   "settings.sub.account",
+					settingsTabSync:      "settings.sub.sync",
 					settingsTabDatabase:  "settings.sub.database",
 					settingsTabImport:    "settings.sub.import",
 					settingsTabExtension: "settings.sub.extension",
@@ -412,6 +427,8 @@ func (a *App) settingsModal(c *gui.Context) {
 							a.settingsShortcutsTab(c)
 						case settingsTabAccount:
 							a.settingsAccountTab(c)
+						case settingsTabSync:
+							a.settingsSyncTab(c)
 						case settingsTabDatabase:
 							a.settingsDatabaseTab(c)
 						case settingsTabImport:
@@ -625,14 +642,20 @@ func (a *App) settingsGeneralTab(c *gui.Context) {
 
 		a.settingsItemRow(c, "lang", iconGlobe, a.t("pref.lang"), "", func() {
 			sel := 0
-			if a.lang == i18nEn {
+			switch a.lang {
+			case i18nEn:
 				sel = 1
+			case i18nJa:
+				sel = 2
 			}
-			a.arcPillTabs(c, "pref-lang", sel, []string{"繁體中文", "English"}, func(idx int) {
-				if idx == 0 {
+			a.arcPillTabs(c, "pref-lang", sel, []string{"繁體中文", "English", "日本語"}, func(idx int) {
+				switch idx {
+				case 0:
 					a.setLang(i18nZh)
-				} else {
+				case 1:
 					a.setLang(i18nEn)
+				case 2:
+					a.setLang(i18nJa)
 				}
 			})
 		})
@@ -687,6 +710,40 @@ func (a *App) settingsGeneralTab(c *gui.Context) {
 			a.syncConfigFromState()
 		})
 		a.settingsIconSwitchRow(c, "pref-card-caption", iconType, a.t("pref.cardTitle"), &a.showCardCaption, func() {
+			a.syncConfigFromState()
+		})
+	})
+
+	// 2.5 側邊欄頂部按鈕（全部素材固定顯示，其餘可個別開關）
+	a.settingsSection(c, a.t("pref.grpSidebarBtns"), a.t("pref.grpSidebarBtnsTip"), true, func() {
+		a.settingsItemRow(c, "pref-sb-btn-all", iconLibrary, a.t("pref.sbBtnAllLocked"), "", func() {
+			a.pillBadge(c, "ON", a.pal.inkMuted, a.pal.surfaceMuted)
+		})
+		a.settingsIconSwitchRow(c, "pref-sb-btn-untagged", iconInbox, a.t("shell.untagged"), &a.showSidebarUntagged, func() {
+			if !a.showSidebarUntagged && a.navFilter == "untagged" {
+				a.handleNav("tag-all")
+			}
+			a.syncConfigFromState()
+		})
+		a.settingsIconSwitchRow(c, "pref-sb-btn-recent", iconClock, a.t("shell.recent"), &a.showSidebarRecent, func() {
+			if !a.showSidebarRecent && a.navFilter == "recent" {
+				a.handleNav("tag-all")
+			}
+			a.syncConfigFromState()
+		})
+		a.settingsIconSwitchRow(c, "pref-sb-btn-random", iconShuffle, a.t("shell.random"), &a.showSidebarRandom, func() {
+			if !a.showSidebarRandom && a.navFilter == "random" {
+				a.handleNav("tag-all")
+			}
+			a.syncConfigFromState()
+		})
+		a.settingsIconSwitchRow(c, "pref-sb-btn-missing", iconAlert, a.t("shell.missing"), &a.showSidebarMissing, func() {
+			if !a.showSidebarMissing && a.navFilter == "missing" {
+				a.handleNav("tag-all")
+			}
+			a.syncConfigFromState()
+		})
+		a.settingsIconSwitchRow(c, "pref-sb-btn-tagmgr", iconTag, a.t("tags.manage"), &a.showSidebarTagMgr, func() {
 			a.syncConfigFromState()
 		})
 	})
@@ -874,7 +931,7 @@ func (a *App) settingsAITab(c *gui.Context) {
 					}
 				}
 				gui.Row(c).FillWidth().Padding(2, 10, 4, 35).Children(func() {
-					a.arcPillTabs(c, "pref-laya-preset", selMod, []string{"Laya 多語系", "Laya EN", "Winnow 4B"}, func(idx int) {
+					a.arcPillTabs(c, "pref-laya-preset", selMod, []string{a.t("ai.layaMultilingual"), "Laya EN", "Winnow 4B"}, func(idx int) {
 						a.layaModel = models[idx]
 						a.syncConfigFromState()
 					})
@@ -1340,6 +1397,46 @@ func (a *App) settingsAccountTab(c *gui.Context) {
 						})
 					})
 				})
+
+				// 20 GB Cloud Storage Quota Meter
+				quota := a.accountQuotaBytes
+				if quota == 0 {
+					quota = 20 << 30
+				}
+				used := a.accountUsedBytes
+				pct := float64(used) / float64(quota) * 100
+				barPct := pct
+				if barPct < 0 {
+					barPct = 0
+				}
+				if barPct > 100 {
+					barPct = 100
+				}
+				barCol := a.pal.controlOn
+				if pct >= 90 {
+					barCol = gui.Hex("#FF5C33")
+				} else if pct >= 75 {
+					barCol = gui.Hex("#F59E0B")
+				}
+				gui.Column(c.Key("acct-quota-meter")).FillWidth().Padding(6, 10, 8, 10).Gap(6).Children(func() {
+					gui.Row(c).FillWidth().Gap(8).AlignItems(gui.Center).Children(func() {
+						gui.Icon(c, iconDatabase).Size(15, 15).TextColor(a.pal.inkSecondary)
+						gui.Text(c, a.t("account.storage")).FontSize(13).TextColor(a.pal.ink).SingleLine()
+						gui.Spacer(c)
+						gui.Text(c, fmt.Sprintf(a.t("account.storageUsed"), formatBytes(int64(used)), formatBytes(int64(quota)), pct)).
+							FontSize(11.5).TextColor(a.pal.inkMuted).SingleLine()
+					})
+					gui.Box(c).FillWidth().Height(5).Radius(radiusPill).Background(a.pal.surfaceMuted).Children(func() {
+						if barPct > 0 {
+							wPct := float32(barPct)
+							if wPct < 1.5 {
+								wPct = 1.5
+							}
+							gui.Box(c).FillHeight().WidthPercent(wPct).Radius(radiusPill).Background(barCol)
+						}
+					})
+				})
+
 				if !a.accountVerified {
 					a.settingsItemRow(c, "acct-verify-row", iconCheck, a.t("account.verifyEmail"), "", func() {
 						gui.Row(c).Gap(6).AlignItems(gui.Center).Children(func() {
@@ -1371,7 +1468,7 @@ func (a *App) settingsAccountTab(c *gui.Context) {
 				})
 				a.settingsItemRow(c, "acct-reset-code", iconTag, a.t("account.resetCode"), "", func() {
 					gui.TextInput(c.Key("pref-reset-code"), &a.authResetCodeBuf).
-						Placeholder("6 位數驗證碼").
+						Placeholder(a.t("account.verifyCodePh")).
 						Width(240)
 				})
 				a.settingsItemRow(c, "acct-reset-pass", iconLock, a.t("account.newPassword"), "", func() {
@@ -1482,6 +1579,250 @@ func (a *App) settingsAccountTab(c *gui.Context) {
 				Disabled(a.syncBusy || strings.TrimSpace(a.syncServerURL) == "").
 				OnClick(func() { a.runCloudSyncNow() })
 		})
+	})
+}
+
+func (a *App) settingsSyncTab(c *gui.Context) {
+	services := c.Services()
+
+	if !a.hasSyncConnection() {
+		gui.Column(c.Key("sync-locked-state")).FillWidth().Padding(24, 16).Gap(14).AlignItems(gui.Center).Children(func() {
+			gui.Box(c).Size(42, 42).Radius(radiusPill).Background(a.pal.surfaceMuted).Center().Children(func() {
+				gui.Icon(c, iconLock).Size(19, 19).TextColor(a.pal.inkSecondary)
+			})
+			gui.Text(c, a.t("sync.needAuth")).
+				FontSize(12.5).
+				TextColor(a.pal.inkSecondary).
+				LineHeight(1.5).
+				MaxWidth(420)
+			a.arcButton(c, "sync-go-account", a.t("sync.goAccount"), true).OnClick(func() {
+				a.setSettingsTab(settingsTabAccount)
+			})
+		})
+		return
+	}
+
+	// 1. 選擇性資料夾同步（節省 20 GB 雲端配額）
+	a.settingsSection(c, a.t("sync.foldersTitle"), a.t("sync.foldersSub"), false, func() {
+		gui.Row(c).FillWidth().Padding(4, 10, 6, 10).Gap(6).AlignItems(gui.Center).Children(func() {
+			a.toolButton(c, "sync-folders-all-on", iconCheck, a.t("sync.allOn"), false).OnClick(func() {
+				a.syncExcludeFolders = map[string]bool{}
+				a.syncIncludeUncat = true
+				a.syncConfigFromState()
+			})
+			a.toolButton(c, "sync-folders-all-off", iconX, a.t("sync.allOff"), false).OnClick(func() {
+				if a.syncExcludeFolders == nil {
+					a.syncExcludeFolders = map[string]bool{}
+				}
+				for _, f := range a.folders {
+					a.syncExcludeFolders[f.ID] = true
+				}
+				a.syncIncludeUncat = false
+				a.syncConfigFromState()
+			})
+			gui.Spacer(c)
+			btnLbl := a.t("sync.now")
+			if a.syncBusy {
+				btnLbl = a.t("sync.syncing")
+			}
+			a.arcButton(c, "sync-tab-run-now", btnLbl, true).
+				Disabled(a.syncBusy).
+				OnClick(func() { a.runCloudSyncNow() })
+		})
+
+		a.settingsIconSwitchRow(c, "sync-inc-uncat", iconInbox, a.t("sync.includeUncat"), &a.syncIncludeUncat, func() {
+			a.syncConfigFromState()
+		})
+
+		if len(a.folders) == 0 {
+			gui.Text(c, a.t("sync.noFolders")).
+				FontSize(12).
+				TextColor(a.pal.inkMuted).
+				LineHeight(1.45).
+				Padding(6, 10)
+		} else {
+			a.ensureFolderTree()
+			var renderFolderSyncRows func(list []model.Folder, depth int, parentExcluded bool)
+			renderFolderSyncRows = func(list []model.Folder, depth int, parentExcluded bool) {
+				for _, f := range list {
+					folder := f
+					fid := folder.ID
+					excluded := parentExcluded || a.syncExcludeFolders[fid]
+					included := !excluded
+					leftPad := float32(10 + depth*18)
+					row := gui.Row(c.Key("sync-folder-row-"+fid)).
+						FillWidth().
+						Padding(6, 10, 6, leftPad).
+						Gap(8).
+						Radius(8).
+						AlignItems(gui.Center)
+					if row.Hovered() {
+						row.Background(a.settingsRowHoverBg())
+					}
+					row.Children(func() {
+						icCol := a.pal.inkSecondary
+						if col, ok := parseHexColor(folder.Color); ok {
+							icCol = col
+						}
+						gui.Icon(c, iconFolder).Size(15, 15).TextColor(icCol)
+						gui.Text(c, folder.Name).FontSize(13).TextColor(a.pal.ink).SingleLine().Grow(1)
+						if cnt := a.folderCounts[fid]; cnt > 0 {
+							gui.Text(c, fmt.Sprintf("%d", cnt)).FontSize(11).TextColor(a.pal.inkMuted).SingleLine()
+						}
+						a.arcSwitch(c, "sync-folder-sw-"+fid, &included, func() {
+							if a.syncExcludeFolders == nil {
+								a.syncExcludeFolders = map[string]bool{}
+							}
+							if !included {
+								// Turning OFF: exclude this folder and all its descendants.
+								for descID := range a.folderDescendantSet(fid) {
+									a.syncExcludeFolders[descID] = true
+								}
+							} else {
+								// Turning ON: un-exclude this folder and its ancestors so it actually syncs.
+								cur := fid
+								for cur != "" {
+									delete(a.syncExcludeFolders, cur)
+									if parent, ok := a.folderByID[cur]; ok {
+										cur = parent.ParentID
+									} else {
+										break
+									}
+								}
+							}
+							a.syncConfigFromState()
+						})
+					})
+					if ch := a.folderChildren[fid]; len(ch) > 0 {
+						renderFolderSyncRows(ch, depth+1, excluded)
+					}
+				}
+			}
+			renderFolderSyncRows(a.folderChildren[""], 0, false)
+		}
+	})
+
+	// 2. 好友協作空間（共同維護參考資料夾與專案；白板採個人擁有制，不可修改他人白板）
+	a.settingsSection(c, a.t("collab.title"), a.t("collab.sub"), true, func() {
+		gui.Text(c, a.t("collab.sub")).
+			FontSize(11.5).
+			TextColor(a.pal.inkMuted).
+			LineHeight(1.45).
+			Padding(2, 10, 6, 10)
+
+		_, tok := a.effectiveSyncEndpoint()
+		if tok == "" {
+			gui.Text(c, a.t("collab.needCloud")).
+				FontSize(12).
+				TextColor(a.pal.inkSecondary).
+				Padding(6, 10)
+			return
+		}
+
+		gui.Row(c).FillWidth().Padding(4, 10, 8, 10).Gap(6).AlignItems(gui.Center).Children(func() {
+			gui.TextInput(c.Key("collab-join-input"), &a.collabJoinCode).
+				Placeholder(a.t("collab.joinPh")).
+				Grow(1).
+				OnSubmit(func() {
+					a.joinCollabByCode(a.collabJoinCode)
+				})
+			a.arcButton(c, "collab-join-btn", a.t("collab.joinBtn"), true).
+				Disabled(a.collabBusy || strings.TrimSpace(a.collabJoinCode) == "").
+				OnClick(func() {
+					a.joinCollabByCode(a.collabJoinCode)
+				})
+			gui.PopoverMenuButton(c.Key("collab-create-menu"), a.t("collab.createBtn"), func(m *gui.Menu) {
+				if len(a.projectList) == 0 && len(a.folders) == 0 {
+					m.Item(a.t("sync.noFolders"))
+					return
+				}
+				for _, p := range a.projectList {
+					proj := p
+					if a.menuItem(m, iconLayers, fmt.Sprintf(a.t("collab.createProj"), proj.Name), "", false).Chosen() {
+						a.createCollabFromTarget("project", proj.ID)
+					}
+				}
+				if len(a.projectList) > 0 && len(a.folders) > 0 {
+					m.Separator()
+				}
+				for _, f := range a.folders {
+					folder := f
+					if a.menuItem(m, iconFolder, fmt.Sprintf(a.t("collab.createFolder"), folder.Name), "", false).Chosen() {
+						a.createCollabFromTarget("folder", folder.ID)
+					}
+				}
+			})
+			a.iconButton(c, "collab-refresh-btn", iconRefresh, a.t("settings.recalc"), false).
+				Disabled(a.collabBusy).
+				OnClick(func() {
+					a.refreshCollabSpaces()
+				})
+		})
+
+		if len(a.collabList) == 0 {
+			gui.Text(c, a.t("collab.empty")).
+				FontSize(12).
+				TextColor(a.pal.inkMuted).
+				LineHeight(1.45).
+				Padding(6, 10)
+			return
+		}
+
+		for i, item := range a.collabList {
+			cs := item
+			if i > 0 {
+				gui.Box(c).FillWidth().Height(1).Margin(2, 10).Background(a.chromeHairline())
+			}
+			isOwner := false
+			for _, m := range cs.Members {
+				if strings.EqualFold(m.Email, a.accountEmail) && m.Role == "owner" {
+					isOwner = true
+					break
+				}
+			}
+			rowIcon := iconLayers
+			if cs.Kind == "folder" {
+				rowIcon = iconFolder
+			}
+			row := gui.Row(c.Key("collab-row-"+cs.ID)).
+				FillWidth().
+				Padding(8, 10).
+				Gap(10).
+				Radius(8).
+				AlignItems(gui.Center)
+			if row.Hovered() {
+				row.Background(a.settingsRowHoverBg())
+			}
+			row.Children(func() {
+				gui.Icon(c, rowIcon).Size(16, 16).TextColor(a.pal.inkSecondary)
+				gui.Column(c).Grow(1).Gap(2).Children(func() {
+					gui.Row(c).Gap(6).AlignItems(gui.Center).Children(func() {
+						gui.Text(c, cs.Title).FontSize(13).Bold().TextColor(a.pal.ink).SingleLine()
+						a.pillBadge(c, cs.Code, a.pal.inkSecondary, a.pal.surfaceMuted)
+					})
+					gui.Text(c, fmt.Sprintf(a.t("collab.meta"), len(cs.Members), cs.Revision, cs.AssetCount)).
+						FontSize(11).TextColor(a.pal.inkMuted).SingleLine()
+				})
+				a.iconButton(c, "collab-copy-"+cs.ID, iconCopy, a.t("collab.copyCode"), false).OnClick(func() {
+					services.WriteClipboard(cs.Code)
+					a.notify(a.t("share.codeCopied"))
+				})
+				a.toolButton(c, "collab-sync-"+cs.ID, iconRefresh, a.t("collab.syncBtn"), false).
+					Disabled(a.collabBusy).
+					OnClick(func() {
+						a.syncCollabSpaceByID(cs.ID, cs.Kind)
+					})
+				leaveLbl := a.t("collab.leave")
+				if isOwner {
+					leaveLbl = a.t("collab.delete")
+				}
+				a.toolButton(c, "collab-leave-"+cs.ID, iconTrash, leaveLbl, false).
+					Disabled(a.collabBusy).
+					OnClick(func() {
+						a.leaveOrDeleteCollabSpace(cs.ID)
+					})
+			})
+		}
 	})
 }
 

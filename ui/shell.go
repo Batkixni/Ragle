@@ -358,12 +358,19 @@ func (a *App) currentViewTitle() string {
 	switch a.navFilter {
 	case "untagged":
 		return a.t("shell.untagged")
+	case "uncategorized":
+		return a.t("shell.uncategorized")
 	case "recent":
 		return a.t("shell.recent")
 	case "random":
 		return a.t("shell.random")
 	case "missing":
 		return a.t("shell.missing")
+	}
+	if a.folderID != "" {
+		if f, ok := a.folderByID[a.folderID]; ok {
+			return f.Name
+		}
 	}
 	if a.tagID != "" {
 		if tg, ok := a.tagByID[a.tagID]; ok {
@@ -393,8 +400,9 @@ func (a *App) arcNavItem(
 	active := a.selectedNav == id
 	indent := float32(depth * 18)
 	isTag := strings.HasPrefix(id, "tag:")
+	isFolder := strings.HasPrefix(id, "folder:")
 	isProject := strings.HasPrefix(id, "project:")
-	reorderable := isTag || isProject
+	reorderable := isTag || isFolder || isProject
 
 	// Outer wrapper isolates assetBatchDrag drops from reorder drops (MyGo's
 	// DragOver overwrites accepts per element) and drives smooth spring FLIP
@@ -439,6 +447,15 @@ func (a *App) arcNavItem(
 				a.reorderTagLive(d.ID, tagID)
 			}
 			if _, ok := gui.Drop[tagReorderDrag](btn); ok {
+				a.lastReorderPair = ""
+			}
+		} else if isFolder {
+			folderID := strings.TrimPrefix(id, "folder:")
+			btn.Drag(folderReorderDrag{ID: folderID})
+			if d, over := gui.DragOver[folderReorderDrag](btn); over && d.ID != folderID {
+				a.reorderFolderLive(d.ID, folderID)
+			}
+			if _, ok := gui.Drop[folderReorderDrag](btn); ok {
 				a.lastReorderPair = ""
 			}
 		} else if isProject {
@@ -522,6 +539,8 @@ func (a *App) arcNavItem(
 
 func (a *App) sidebar(c *gui.Context) {
 	a.ensureTagTree()
+	a.ensureFolderTree()
+	browseMode := a.effectiveBrowseMode()
 	services := c.Services()
 	rawQ := strings.ToLower(strings.TrimSpace(a.searchQuery))
 	sf := ""
@@ -536,6 +555,14 @@ func (a *App) sidebar(c *gui.Context) {
 		if !matchedNav {
 			for _, p := range a.projectList {
 				if strings.Contains(strings.ToLower(p.Name), rawQ) {
+					matchedNav = true
+					break
+				}
+			}
+		}
+		if !matchedNav {
+			for _, f := range a.folders {
+				if strings.Contains(strings.ToLower(f.Name), rawQ) {
 					matchedNav = true
 					break
 				}
@@ -670,15 +697,73 @@ func (a *App) sidebar(c *gui.Context) {
 						}
 					}
 
+					var renderFolderNodes func(list []model.Folder, depth int)
+					renderFolderNodes = func(list []model.Folder, depth int) {
+						for _, folder := range list {
+							f := folder
+							if sf != "" && !a.folderBranchMatches(f.ID, sf) {
+								continue
+							}
+							children := a.folderChildren[f.ID]
+							hasCh := len(children) > 0
+							expanded := a.expandedFolders[f.ID] || sf != ""
+							fid := f.ID
+							var tint *gui.Color
+							if col, ok := a.effectiveFolderColor(fid); ok {
+								cc := col
+								tint = &cc
+							}
+							addNav(
+								"folder:"+fid,
+								iconFolder,
+								tint,
+								f.Name,
+								a.folderDisplayCount(fid),
+								depth,
+								hasCh,
+								expanded,
+								func() { a.toggleFolderExpand(fid) },
+								func(m *gui.Menu) { a.buildFolderContextMenu(m, f, services) },
+								func(ids []string) { a.batchApplyFolder(ids, fid) },
+							)
+							if hasCh && expanded {
+								lineX := float32(depth*18) + 18
+								chCol := gui.Column(c.Key("folder-ch-" + fid)).
+									FillWidth().
+									Gap(2).
+									Transition(gui.ElementTransition{
+										Animation: &springSnappy,
+										Position:  true,
+									}).
+									Draw(func(p *gui.Painter, r gui.Rect) {
+										if r.H > 6 {
+											p.Fill(gui.Rect{X: r.X + lineX, Y: r.Y + 2, W: 1, H: r.H - 6}, guideCol, 0.5)
+										}
+									})
+								chCol.Children(func() {
+									renderFolderNodes(children, depth+1)
+								})
+							}
+						}
+					}
+
 					track.Children(func() {
 						addNav("tag-all", iconLibrary, nil, a.t("shell.allAssets"), a.allAssetsCount, 0, false, false, nil, nil, nil)
-						addNav("filter-untagged", iconInbox, nil, a.t("shell.untagged"), a.untaggedCount, 0, false, false, nil, nil, nil)
-						addNav("filter-recent", iconClock, nil, a.t("shell.recent"), 0, 0, false, false, nil, nil, nil)
-						addNav("filter-random", iconShuffle, nil, a.t("shell.random"), 0, 0, false, false, nil, nil, nil)
-						if a.missingCount > 0 {
+						if a.showSidebarUntagged {
+							addNav("filter-untagged", iconInbox, nil, a.t("shell.untagged"), a.untaggedCount, 0, false, false, nil, nil, nil)
+						}
+						if a.showSidebarRecent {
+							addNav("filter-recent", iconClock, nil, a.t("shell.recent"), 0, 0, false, false, nil, nil, nil)
+						}
+						if a.showSidebarRandom {
+							addNav("filter-random", iconShuffle, nil, a.t("shell.random"), 0, 0, false, false, nil, nil, nil)
+						}
+						if a.showSidebarMissing && a.missingCount > 0 {
 							addNav("filter-missing", iconAlert, nil, a.t("shell.missing"), a.missingCount, 0, false, false, nil, nil, nil)
 						}
-						addNav("manage-tags", iconTag, nil, a.t("tags.manage"), len(a.tags), 0, false, false, nil, nil, nil)
+						if a.showSidebarTagMgr {
+							addNav("manage-tags", iconTag, nil, a.t("tags.manage"), len(a.tags), 0, false, false, nil, nil, nil)
+						}
 
 						// Boards section header with inline "+" creator button.
 						gui.Row(c).FillWidth().Padding(14, 4, 4, 10).AlignItems(gui.Center).Children(func() {
@@ -786,47 +871,171 @@ func (a *App) sidebar(c *gui.Context) {
 							})
 						}
 
-						// Tags section header with inline "+" creator button.
-						gui.Row(c).FillWidth().Padding(14, 4, 4, 10).AlignItems(gui.Center).Children(func() {
-							a.sectionLabel(c, a.t("shell.tags"))
-							gui.Spacer(c)
-							a.miniHeaderButton(c, "sb-add-tag", iconPlus, a.t("tag.new"), a.newTagOpen).OnClick(func() {
-								a.newTagOpen = !a.newTagOpen
-							})
-						})
-
-						if a.newTagOpen {
-							gui.Row(c.Key("inline-new-tag-row")).
-								Padding(4, 4, 6, 4).
-								Gap(4).
-								AlignItems(gui.Center).
+						// Active classification section (Folders <-> Tags) with smooth slide + fade transition.
+						if browseMode == "folders" {
+							gui.Column(c.Key("sb-pane-folders")).
+								FillWidth().
+								Gap(2).
 								Transition(gui.ElementTransition{
 									Animation: &springSmooth,
-									Enter:     &gui.Motion{Y: -6, Opacity: 0, Collapse: true},
-									Exit:      &gui.Motion{Y: -6, Opacity: 0, Collapse: true},
+									Enter:     &gui.Motion{X: -14, Opacity: 0},
+									Exit:      &gui.Motion{X: -14, Opacity: 0},
 								}).
 								Children(func() {
-									gui.TextInput(c.Key("new-tag"), &a.newTagName).
-										Placeholder(a.t("tag.new")).
-										AutoFocus().
-										Grow(1).
-										OnSubmit(func() { a.createTag() })
-									a.iconButton(c, "new-tag-ok", iconCheck, a.t("tag.create"), true).OnClick(func() {
-										a.createTag()
+									gui.Row(c).FillWidth().Padding(14, 4, 4, 10).Gap(2).AlignItems(gui.Center).Children(func() {
+										a.sectionLabel(c, a.t("shell.folders"))
+										gui.Spacer(c)
+										if len(a.folders) > 0 {
+											a.miniHeaderButton(c, "sb-batch-del-folder", iconTrash, a.t("folder.batchDelete"), a.batchDelFoldersOpen).OnClick(func() {
+												a.openBatchDeleteFoldersModal()
+											})
+										}
+										a.miniHeaderButton(c, "sb-add-folder", iconPlus, a.t("folder.new"), a.newFolderOpen).OnClick(func() {
+											a.newFolderParentID = ""
+											a.newFolderOpen = !a.newFolderOpen
+										})
 									})
-									a.iconButton(c, "new-tag-x", iconX, a.t("common.cancel"), false).OnClick(func() {
-										a.newTagOpen = false
-										a.newTagName = ""
-									})
-								})
-						}
 
-						if len(a.tags) > 0 {
-							renderTagNodes(a.tagChildren[""], 0)
+									if a.newFolderOpen {
+										placeholder := a.t("folder.new")
+										if a.newFolderParentID != "" {
+											if pf, ok := a.folderByID[a.newFolderParentID]; ok {
+												placeholder = pf.Name + " / " + a.t("folder.newSub")
+											}
+										}
+										gui.Row(c.Key("inline-new-folder-row")).
+											Padding(4, 4, 6, 4).
+											Gap(4).
+											AlignItems(gui.Center).
+											Transition(gui.ElementTransition{
+												Animation: &springSmooth,
+												Enter:     &gui.Motion{Y: -6, Opacity: 0, Collapse: true},
+												Exit:      &gui.Motion{Y: -6, Opacity: 0, Collapse: true},
+											}).
+											Children(func() {
+												gui.TextInput(c.Key("new-folder"), &a.newFolderName).
+													Placeholder(placeholder).
+													AutoFocus().
+													Grow(1).
+													OnSubmit(func() { a.createFolder() })
+												a.iconButton(c, "new-folder-ok", iconCheck, a.t("folder.create"), true).OnClick(func() {
+													a.createFolder()
+												})
+												a.iconButton(c, "new-folder-x", iconX, a.t("common.cancel"), false).OnClick(func() {
+													a.newFolderOpen = false
+													a.newFolderName = ""
+													a.newFolderParentID = ""
+												})
+											})
+									}
+									if len(a.folders) > 0 {
+										renderFolderNodes(a.folderChildren[""], 0)
+									}
+								})
+						} else {
+							gui.Column(c.Key("sb-pane-tags")).
+								FillWidth().
+								Gap(2).
+								Transition(gui.ElementTransition{
+									Animation: &springSmooth,
+									Enter:     &gui.Motion{X: 14, Opacity: 0},
+									Exit:      &gui.Motion{X: 14, Opacity: 0},
+								}).
+								Children(func() {
+									gui.Row(c).FillWidth().Padding(14, 4, 4, 10).AlignItems(gui.Center).Children(func() {
+										a.sectionLabel(c, a.t("shell.tags"))
+										gui.Spacer(c)
+										a.miniHeaderButton(c, "sb-add-tag", iconPlus, a.t("tag.new"), a.newTagOpen).OnClick(func() {
+											a.newTagOpen = !a.newTagOpen
+										})
+									})
+
+									if a.newTagOpen {
+										gui.Row(c.Key("inline-new-tag-row")).
+											Padding(4, 4, 6, 4).
+											Gap(4).
+											AlignItems(gui.Center).
+											Transition(gui.ElementTransition{
+												Animation: &springSmooth,
+												Enter:     &gui.Motion{Y: -6, Opacity: 0, Collapse: true},
+												Exit:      &gui.Motion{Y: -6, Opacity: 0, Collapse: true},
+											}).
+											Children(func() {
+												gui.TextInput(c.Key("new-tag"), &a.newTagName).
+													Placeholder(a.t("tag.new")).
+													AutoFocus().
+													Grow(1).
+													OnSubmit(func() { a.createTag() })
+												a.iconButton(c, "new-tag-ok", iconCheck, a.t("tag.create"), true).OnClick(func() {
+													a.createTag()
+												})
+												a.iconButton(c, "new-tag-x", iconX, a.t("common.cancel"), false).OnClick(func() {
+													a.newTagOpen = false
+													a.newTagName = ""
+												})
+											})
+									}
+
+									if len(a.tags) > 0 {
+										renderTagNodes(a.tagChildren[""], 0)
+									}
+								})
 						}
 					})
 					attachGlidingPill(track, activeBtn, hasActive, radiusControl, a.pal.pillActive, a.pal.shadowResting)
 				})
+
+				// Live Cloud Sync Progress Bar (shown only while syncing).
+				a.sidebarSyncBar(c)
+
+				// Pinned bottom-left Folders / Tags switcher right above the footer
+				// (above Account/Settings on Windows/Linux, above Logo on macOS).
+				gui.Box(c.Key("sb-browse-footer-bar")).
+					FillWidth().
+					Padding(8, 10, 4, 10).
+					BorderWidth(1, 0, 0, 0).
+					BorderColor(a.chromeHairline()).
+					Children(func() {
+						segTrack := gui.Row(c.Key("sb-browse-seg")).
+							FillWidth().
+							Padding(3).
+							Gap(2).
+							Radius(radiusControl).
+							Background(a.pal.surfaceMuted).
+							AlignItems(gui.Center)
+						var activeSeg gui.Element
+						var hasActiveSeg bool
+						segTrack.Children(func() {
+							modeBtn := func(key, mode string, icon *gui.SVG, label string) {
+								active := browseMode == mode
+								btn := gui.ButtonBase(c.Key(key)).
+									Grow(1).
+									Padding(5, 8).
+									Gap(5).
+									Radius(radiusControl - 3).
+									Center().
+									OnClick(func() {
+										a.setSidebarBrowseMode(mode)
+									})
+								fg := a.pal.inkMuted
+								if active || btn.Hovered() {
+									fg = a.pal.ink
+								}
+								btn.TextColor(btn.AnimateColor("mfg", fg, animFast)).
+									Children(func() {
+										gui.Icon(c, icon).Size(13, 13)
+										gui.Text(c, label).FontSize(12).Bold().SingleLine()
+									})
+								if active {
+									activeSeg = btn
+									hasActiveSeg = true
+								}
+							}
+							modeBtn("sb-mode-folders", "folders", iconFolder, a.t("shell.browseByFolders"))
+							modeBtn("sb-mode-tags", "tags", iconTag, a.t("shell.browseByTags"))
+						})
+						attachGlidingPill(segTrack, activeSeg, hasActiveSeg, radiusControl-3, a.pal.pillActive, a.pal.shadowResting)
+					})
 
 				// Sidebar bottom footer:
 				// - macOS: Raglex brand logo (bottom-left) + Collapse Sidebar (bottom-right)
@@ -879,6 +1088,90 @@ func (a *App) sidebar(c *gui.Context) {
 						})
 				}
 			})
+}
+
+// sidebarSyncBar renders a sleek live sync progress strip pinned right above
+// the sidebar footer/settings bar whenever Cloud Sync is active, so users can
+// close Preferences and still monitor upload/download progress at a glance.
+func (a *App) sidebarSyncBar(c *gui.Context) {
+	if !a.syncBusy {
+		return
+	}
+	stageLabel := a.t("sync.syncing")
+	switch a.syncStage {
+	case "scanning":
+		stageLabel = a.t("sync.stage.scanning")
+	case "pushing":
+		stageLabel = a.t("sync.stage.pushing")
+	case "uploading":
+		stageLabel = a.t("sync.stage.uploading")
+	case "pulling":
+		stageLabel = a.t("sync.stage.pulling")
+	case "downloading":
+		stageLabel = a.t("sync.stage.downloading")
+	}
+
+	var targetPct float32 = 14
+	countText := ""
+	if a.syncTotal > 0 {
+		pct := float32(a.syncDone) * 100 / float32(a.syncTotal)
+		if pct < 4 {
+			pct = 4
+		} else if pct > 100 {
+			pct = 100
+		}
+		targetPct = pct
+		countText = fmt.Sprintf("%d / %d", a.syncDone, a.syncTotal)
+	}
+
+	wrap := gui.ButtonBase(c.Key("sb-sync-bar")).
+		FillWidth().
+		Padding(9, 12).
+		BorderWidth(1, 0, 0, 0).
+		BorderColor(a.chromeHairline()).
+		Label(a.t("sync.sidebarTip")).
+		Tooltip(a.t("sync.sidebarTip")).
+		Transition(gui.ElementTransition{
+			Animation: &springSmooth,
+			Enter:     &gui.Motion{Y: 6, Opacity: 0},
+			Exit:      &gui.Motion{Y: 6, Opacity: 0},
+		}).
+		OnClick(func() {
+			a.openSettings(settingsTabAccount)
+		})
+	bg := a.pal.surface
+	if wrap.Hovered() {
+		bg = a.pal.surfaceMuted
+	}
+	animPct := wrap.AnimateTo("sb-sync-pct", targetPct, animFast)
+	wrap.Background(wrap.AnimateColor("sb-sync-bg", bg, animFast)).
+		Children(func() {
+			gui.Column(c).FillWidth().Gap(6).Children(func() {
+				gui.Row(c).FillWidth().Gap(6).AlignItems(gui.Center).Children(func() {
+					gui.Spinner(c)
+					gui.Text(c, stageLabel).FontSize(11).Bold().TextColor(a.pal.ink).Grow(1).SingleLine()
+					if countText != "" {
+						gui.Text(c, countText).FontSize(10).Bold().TextColor(a.pal.inkMuted).SingleLine()
+					}
+				})
+				gui.Box(c.Key("sb-sync-track")).
+					FillWidth().
+					Height(4).
+					Radius(2).
+					Clip().
+					Background(a.pal.surfaceActive).
+					Children(func() {
+						gui.Box(c.Key("sb-sync-fill")).
+							WidthPercent(animPct).
+							FillHeight().
+							Radius(2).
+							Background(a.pal.controlOn)
+					})
+				if a.syncCurrent != "" {
+					gui.Text(c, a.syncCurrent).FontSize(10).TextColor(a.pal.inkMuted).SingleLine()
+				}
+			})
+		})
 }
 
 func (a *App) miniHeaderButton(c *gui.Context, key string, icon *gui.SVG, tip string, active bool) gui.Element {
@@ -956,6 +1249,18 @@ func (a *App) workspaceBar(c *gui.Context) {
 		})
 
 		gui.Box(c).Grow(1).FillHeight().DragWindow()
+
+		if a.folderID != "" {
+			if compact {
+				a.iconButton(c, "top-share-folder", iconShare, a.t("folder.share"), false).OnClick(func() {
+					a.openShareFolder(a.folderID)
+				})
+			} else {
+				a.toolButton(c, "top-share-folder", iconShare, a.t("share.send"), false).OnClick(func() {
+					a.openShareFolder(a.folderID)
+				})
+			}
+		}
 
 		filterActive := a.filterBarOpen || a.kindFilter != 0 || a.minRating != 0
 		if compact {
@@ -1181,9 +1486,14 @@ func (a *App) workspaceBar(c *gui.Context) {
 				a.watchFoldersOpen = true
 			}
 			if a.isPluginEnabled("raglex.library-migrator") {
-				if a.menuItem(m, iconImport, a.t("plugins.migrateMenu"), "", false).Chosen() {
-					a.startMigrateExternalLibrary()
-				}
+				a.menuSub(m, iconImport, a.t("plugins.migrateMenu"), func(sm *gui.Menu) {
+					if a.menuItem(sm, iconFolder, a.t("plugins.migrateLibOpt"), "", false).Chosen() {
+						a.startMigrateExternalLibrary()
+					}
+					if a.menuItem(sm, iconImport, a.t("plugins.migratePackOpt"), "", false).Chosen() {
+						a.startMigrateExternalPack()
+					}
+				})
 			}
 			m.Separator()
 			if a.menuItem(m, iconLink, a.t("webimport.menu"), a.shortcutLabel("web_import"), false).Chosen() {

@@ -35,6 +35,9 @@ var (
 	BucketTags              = []byte("tags")
 	BucketAssetTags         = []byte("asset_tags")
 	BucketTagAssets         = []byte("tag_assets")
+	BucketFolders           = []byte("folders")
+	BucketAssetFolders      = []byte("asset_folders")
+	BucketFolderAssets      = []byte("folder_assets")
 	BucketProjects          = []byte("projects")
 	BucketProjectTags       = []byte("project_tags")
 	BucketTagProjects       = []byte("tag_projects")
@@ -59,6 +62,9 @@ var allBuckets = [][]byte{
 	BucketTags,
 	BucketAssetTags,
 	BucketTagAssets,
+	BucketFolders,
+	BucketAssetFolders,
+	BucketFolderAssets,
 	BucketProjects,
 	BucketProjectTags,
 	BucketTagProjects,

@@ -29,8 +29,13 @@ type Config struct {
 	OnboardingDone bool `json:"onboarding_done,omitempty"`
 
 	// Workspace & appearance preferences.
-	ShowSidebarCounts *bool    `json:"show_sidebar_counts,omitempty"`
-	ShowTagColors     *bool    `json:"show_tag_colors,omitempty"`
+	ShowSidebarCounts   *bool    `json:"show_sidebar_counts,omitempty"`
+	ShowSidebarUntagged *bool    `json:"show_sidebar_untagged,omitempty"`
+	ShowSidebarRecent   *bool    `json:"show_sidebar_recent,omitempty"`
+	ShowSidebarRandom   *bool    `json:"show_sidebar_random,omitempty"`
+	ShowSidebarMissing  *bool    `json:"show_sidebar_missing,omitempty"`
+	ShowSidebarTagMgr   *bool    `json:"show_sidebar_tag_mgr,omitempty"`
+	ShowTagColors       *bool    `json:"show_tag_colors,omitempty"`
 	ShowCardCaption   *bool    `json:"show_card_caption,omitempty"`
 	ShowCardExt       *bool    `json:"show_card_ext,omitempty"`
 	ShowCardRating    *bool    `json:"show_card_rating,omitempty"`
@@ -39,6 +44,7 @@ type Config struct {
 	RefWinBgOpacity   *float64 `json:"refwin_bg_opacity,omitempty"`
 	DefaultSort       int      `json:"default_sort,omitempty"`
 	LayoutMode        string   `json:"layout_mode,omitempty"` // "bento", "masonry", "grid"
+	SidebarBrowseMode string   `json:"sidebar_browse_mode,omitempty"` // "folders" or "tags"
 
 	// Import preferences.
 	DefaultStorageMode   string        `json:"default_storage_mode,omitempty"` // "index", "symlink", "move", "copy"
@@ -71,12 +77,16 @@ type Config struct {
 	ClipperInboxDir string `json:"clipper_inbox_dir,omitempty"`
 
 	// Open Sync API v1 (Raglex Cloud default or Self-Hosted Docker) & Account Auth.
-	SyncProvider   string `json:"sync_provider,omitempty"` // "cloud" (default) or "selfhost"
-	SyncServerURL  string `json:"sync_server_url,omitempty"`
-	SyncToken      string `json:"sync_token,omitempty"`
-	AccountEmail   string `json:"account_email,omitempty"`
-	AccountName    string `json:"account_name,omitempty"`
-	AccountToken   string `json:"account_token,omitempty"`
+	SyncProvider       string   `json:"sync_provider,omitempty"` // "cloud" (default) or "selfhost"
+	SyncServerURL      string   `json:"sync_server_url,omitempty"`
+	SyncToken          string   `json:"sync_token,omitempty"`
+	SyncExcludeFolders []string          `json:"sync_exclude_folders,omitempty"`
+	SyncIncludeUncat   *bool             `json:"sync_include_uncat,omitempty"`
+	CollabLinks        map[string]string `json:"collab_links,omitempty"` // collabID -> local projectID or folderID
+	AccountEmail    string `json:"account_email,omitempty"`
+	AccountName     string `json:"account_name,omitempty"`
+	AccountToken    string `json:"account_token,omitempty"`
+	AccountVerified bool   `json:"account_verified,omitempty"`
 	PairForceRelay bool   `json:"pair_force_relay,omitempty"`
 
 	// Auto-updater preferences (GitHub Releases).

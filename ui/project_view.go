@@ -70,7 +70,7 @@ func (a *App) projectView(c *gui.Context) {
 					a.openEditProjectModal()
 				})
 				a.iconButton(c, "proj-share-btn", iconShare, a.t("share.send"), false).OnClick(func() {
-					a.shareOpen = true
+					a.openShareProject(a.projectID)
 				})
 				gui.PopoverMenuButton(c.Key("proj-more-btn"), "⋯", func(m *gui.Menu) {
 					if a.menuRadio(m, a.t("library.kind.all"), a.projKindFilter == 0).Chosen() {

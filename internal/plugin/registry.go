@@ -92,10 +92,10 @@ func BuiltinStarterCatalog() []RegistryEntry {
 	return []RegistryEntry{
 		{
 			ID:               "raglex.library-migrator",
-			Name:             ".library 資料庫遷移匯入",
-			Version:          "1.0.0",
+			Name:             "Eagle Import",
+			Version:          "1.1.0",
 			Author:           "Raglex Official",
-			Description:      "一鍵遷移現有 .library 資料庫資料夾，完整保留巢狀資料夾階層（轉為子標籤與顏色）、素材標籤、星等評分、備註與來源網址。",
+			Description:      "從 Eagle 匯入 .library 資料庫資料夾或 .eaglepack 素材封包，完整還原巢狀資料夾與顏色至「資料夾」分類，並保留標籤、星等評分、備註與來源網址。",
 			Icon:             "import",
 			Accent:           "#FF5C33",
 			Category:         "import",

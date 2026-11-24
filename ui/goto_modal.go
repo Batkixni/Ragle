@@ -33,7 +33,33 @@ func (a *App) buildGotoEntries() []gotoEntry {
 
 	var out []gotoEntry
 
-	// 1. Tags.
+	// 1. Folders.
+	for _, f := range a.folders {
+		folder := f
+		fullPath := a.folderFullPath(folder.ID)
+		if !match(fullPath) {
+			continue
+		}
+		var tint *gui.Color
+		if col, ok := a.effectiveFolderColor(folder.ID); ok {
+			cCopy := col
+			tint = &cCopy
+		}
+		out = append(out, gotoEntry{
+			id:       "folder:" + folder.ID,
+			icon:     iconFolder,
+			tint:     tint,
+			label:    fullPath,
+			kindText: a.t("shell.folders"),
+			run: func() {
+				a.closePreview()
+				a.sidebarBrowseMode = "folders"
+				a.handleNav("folder:" + folder.ID)
+			},
+		})
+	}
+
+	// 2. Tags.
 	for _, tg := range a.tags {
 		tag := tg
 		if !match(tag.Name) {
@@ -54,6 +80,7 @@ func (a *App) buildGotoEntries() []gotoEntry {
 			kindText: a.t("goto.kindTag"),
 			run: func() {
 				a.closePreview()
+				a.sidebarBrowseMode = "tags"
 				a.handleNav("tag:" + tag.ID)
 			},
 		})
