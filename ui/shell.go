@@ -25,16 +25,17 @@ func (a *App) shell(c *gui.Context) {
 	}
 	root := gui.Box(c.Key("shell-root")).Fill().Background(shellBg)
 
-	targetSidebarW := float32(0)
+	targetSidebarT := float32(0)
 	if a.sidebarOpen {
-		targetSidebarW = a.sidebarWidth
+		targetSidebarT = 1
 	}
-	var animSidebarW float32
-	if a.sidebarResizing && a.sidebarOpen {
-		animSidebarW = root.Jump("sidebar-w", a.sidebarWidth)
-	} else {
-		animSidebarW = root.AnimateTo("sidebar-w", targetSidebarW, springSidebar)
+	sidebarT := root.AnimateTo("sidebar-open", targetSidebarT, springSidebar)
+	if sidebarT < 0 {
+		sidebarT = 0
+	} else if sidebarT > 1 {
+		sidebarT = 1
 	}
+	animSidebarW := a.sidebarWidth * sidebarT
 
 	root.Children(func() {
 		if a.screen == screenBoard {
@@ -64,12 +65,6 @@ func (a *App) shell(c *gui.Context) {
 
 		gui.Row(c.Key("shell-layout")).Fill().Children(func() {
 			if animSidebarW > 0.5 {
-				progress := animSidebarW / a.sidebarWidth
-				if progress < 0 {
-					progress = 0
-				} else if progress > 1 {
-					progress = 1
-				}
 				gui.Box(c.Key("sidebar-anim-clip")).
 					Width(animSidebarW).
 					FillHeight().
@@ -81,65 +76,87 @@ func (a *App) shell(c *gui.Context) {
 							Top(0).
 							Bottom(0).
 							Width(a.sidebarWidth)
-						if progress < 0.995 {
-							slide.Opacity(0.35 + 0.65*progress)
+						if sidebarT < 0.995 {
+							slide.Opacity(0.35 + 0.65*sidebarT)
 						}
 						slide.Children(func() {
 							a.sidebar(c)
 						})
 					})
 
-				// Flush edge-to-edge resize seam when sidebar is expanded.
-				if a.sidebarOpen && animSidebarW >= a.sidebarWidth-1.5 {
-					grip := gui.Box(c.Key("sidebar-resize-grip")).
+				// Fixed 1px flush hairline divider (never shifts layout width on hover/drag).
+				if a.sidebarOpen && (sidebarT >= 0.99 || a.sidebarResizing) {
+					seamCol := a.chromeHairline()
+					if a.sidebarResizing {
+						seamCol = a.pal.controlOn
+					}
+					gui.Box(c.Key("sidebar-resize-seam")).
 						Width(1).
 						FillHeight().
-						Background(a.chromeHairline()).
-						Cursor(gui.CursorResizeEW).
-						HandleInput(func(ev gui.InputEvent) bool {
-							winX := a.sidebarGripX + ev.X
-							switch ev.Kind {
-							case gui.InputPointerDown:
-								if ev.Button != 0 {
-									return false
-								}
-								a.sidebarResizing = true
-								a.sidebarDragStartX = winX
-								a.sidebarDragStartW = a.sidebarWidth
-								return true
-							case gui.InputPointerMove:
-								if !a.sidebarResizing {
-									return false
-								}
-								w := a.sidebarDragStartW + (winX - a.sidebarDragStartX)
-								if w < 204 {
-									w = 204
-								} else if w > 340 {
-									w = 340
-								}
-								a.sidebarWidth = w
-								return true
-							case gui.InputPointerUp:
-								if !a.sidebarResizing {
-									return false
-								}
-								if ev.Canceled {
-									a.sidebarWidth = a.sidebarDragStartW
-								}
-								a.sidebarResizing = false
-								return true
-							}
-							return false
-						})
-					a.sidebarGripX = grip.Bounds().X
-					if a.sidebarResizing || grip.Hovered() {
-						grip.Width(3).Background(a.pal.surfaceActive)
-					}
+						Background(seamCol)
 				}
 			}
 
 			gui.Box(c.Key("shell-main-slot")).Grow(1).FillHeight().Clip().Children(renderMain)
 		})
+
+		// Floating 7px hit-area overlay centered over the sidebar seam so resizing
+		// never shifts flex layout width, never loses capture, and never triggers
+		// spring velocity overshoot on release.
+		if a.sidebarOpen && (sidebarT >= 0.99 || a.sidebarResizing) {
+			grip := gui.Box(c.Key("sidebar-resize-grip")).
+				Absolute().
+				Left(animSidebarW - 3).
+				Top(0).
+				Bottom(0).
+				Width(7).
+				Cursor(gui.CursorResizeEW).
+				HandleInput(func(ev gui.InputEvent) bool {
+					winX := a.sidebarGripX + ev.X
+					switch ev.Kind {
+					case gui.InputPointerDown:
+						if ev.Button != 0 {
+							return false
+						}
+						a.sidebarResizing = true
+						a.sidebarDragStartX = winX
+						a.sidebarDragStartW = a.sidebarWidth
+						return true
+					case gui.InputPointerMove:
+						if !a.sidebarResizing {
+							return false
+						}
+						w := a.sidebarDragStartW + (winX - a.sidebarDragStartX)
+						if w < 204 {
+							w = 204
+						} else if w > 340 {
+							w = 340
+						}
+						a.sidebarWidth = w
+						return true
+					case gui.InputPointerUp:
+						if !a.sidebarResizing {
+							return false
+						}
+						if ev.Canceled {
+							a.sidebarWidth = a.sidebarDragStartW
+						}
+						a.sidebarResizing = false
+						return true
+					}
+					return false
+				})
+			a.sidebarGripX = grip.Bounds().X
+			if a.sidebarResizing || grip.Hovered() {
+				barCol := a.pal.surfaceActive
+				if a.sidebarResizing {
+					barCol = a.pal.controlOn
+				}
+				grip.Children(func() {
+					gui.Box(c).Absolute().Left(2).Top(0).Bottom(0).Width(3).Background(barCol)
+				})
+			}
+		}
 
 		// Floating bottom-corner re-open buttons (hidden during Focus Mode for a pure canvas).
 		if !a.focusMode && !a.sidebarOpen {
@@ -257,74 +274,33 @@ func (a *App) withAnimatedInspector(c *gui.Context, key string, mainContent func
 	}
 	show := a.inspectorShouldShow()
 	row := gui.Row(c.Key(key)).Grow(1).FillWidth()
-	targetW := float32(0)
+	targetT := float32(0)
 	if show {
-		targetW = a.inspectorWidth
+		targetT = 1
 	}
-	var animW float32
-	if a.inspectorResizing && show {
-		animW = row.Jump("inspector-w", a.inspectorWidth)
-	} else {
-		animW = row.AnimateTo("inspector-w", targetW, springSidebar)
+	inspT := row.AnimateTo("inspector-open", targetT, springSidebar)
+	if inspT < 0 {
+		inspT = 0
+	} else if inspT > 1 {
+		inspT = 1
 	}
+	animW := a.inspectorWidth * inspT
 
 	row.Children(func() {
 		gui.Box(c.Key(key + "-main")).Grow(1).FillHeight().Clip().Children(mainContent)
 
 		if animW > 0.5 {
-			if show && animW >= a.inspectorWidth-1.5 {
-				grip := gui.Box(c.Key(key + "-resize-grip")).
+			if show && (inspT >= 0.99 || a.inspectorResizing) {
+				seamCol := a.chromeHairline()
+				if a.inspectorResizing {
+					seamCol = a.pal.controlOn
+				}
+				gui.Box(c.Key(key + "-resize-seam")).
 					Width(1).
 					FillHeight().
-					Background(a.chromeHairline()).
-					Cursor(gui.CursorResizeEW).
-					HandleInput(func(ev gui.InputEvent) bool {
-						winX := a.inspectorGripX + ev.X
-						switch ev.Kind {
-						case gui.InputPointerDown:
-							if ev.Button != 0 {
-								return false
-							}
-							a.inspectorResizing = true
-							a.inspectorDragX = winX
-							a.inspectorDragW = a.inspectorWidth
-							return true
-						case gui.InputPointerMove:
-							if !a.inspectorResizing {
-								return false
-							}
-							w := a.inspectorDragW - (winX - a.inspectorDragX)
-							if w < 260 {
-								w = 260
-							} else if w > 460 {
-								w = 460
-							}
-							a.inspectorWidth = w
-							return true
-						case gui.InputPointerUp:
-							if !a.inspectorResizing {
-								return false
-							}
-							if ev.Canceled {
-								a.inspectorWidth = a.inspectorDragW
-							}
-							a.inspectorResizing = false
-							return true
-						}
-						return false
-					})
-				a.inspectorGripX = grip.Bounds().X
-				if a.inspectorResizing || grip.Hovered() {
-					grip.Width(3).Background(a.pal.surfaceActive)
-				}
+					Background(seamCol)
 			}
 
-			progress := animW / a.inspectorWidth
-			if progress < 0 {
-				progress = 0
-			} else if progress > 1 {
-				progress = 1
-			}
 			gui.Box(c.Key(key + "-insp-clip")).
 				Width(animW).
 				FillHeight().
@@ -336,13 +312,68 @@ func (a *App) withAnimatedInspector(c *gui.Context, key string, mainContent func
 						Top(0).
 						Bottom(0).
 						Width(a.inspectorWidth)
-					if progress < 0.995 {
-						slide.Opacity(0.35 + 0.65*progress)
+					if inspT < 0.995 {
+						slide.Opacity(0.35 + 0.65*inspT)
 					}
 					slide.Children(func() {
 						a.inspector(c)
 					})
 				})
+		}
+
+		if show && (inspT >= 0.99 || a.inspectorResizing) {
+			grip := gui.Box(c.Key(key + "-resize-grip")).
+				Absolute().
+				Right(animW - 3).
+				Top(0).
+				Bottom(0).
+				Width(7).
+				Cursor(gui.CursorResizeEW).
+				HandleInput(func(ev gui.InputEvent) bool {
+					winX := a.inspectorGripX + ev.X
+					switch ev.Kind {
+					case gui.InputPointerDown:
+						if ev.Button != 0 {
+							return false
+						}
+						a.inspectorResizing = true
+						a.inspectorDragX = winX
+						a.inspectorDragW = a.inspectorWidth
+						return true
+					case gui.InputPointerMove:
+						if !a.inspectorResizing {
+							return false
+						}
+						w := a.inspectorDragW - (winX - a.inspectorDragX)
+						if w < 260 {
+							w = 260
+						} else if w > 460 {
+							w = 460
+						}
+						a.inspectorWidth = w
+						return true
+					case gui.InputPointerUp:
+						if !a.inspectorResizing {
+							return false
+						}
+						if ev.Canceled {
+							a.inspectorWidth = a.inspectorDragW
+						}
+						a.inspectorResizing = false
+						return true
+					}
+					return false
+				})
+			a.inspectorGripX = grip.Bounds().X
+			if a.inspectorResizing || grip.Hovered() {
+				barCol := a.pal.surfaceActive
+				if a.inspectorResizing {
+					barCol = a.pal.controlOn
+				}
+				grip.Children(func() {
+					gui.Box(c).Absolute().Left(2).Top(0).Bottom(0).Width(3).Background(barCol)
+				})
+			}
 		}
 	})
 }

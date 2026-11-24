@@ -1349,3 +1349,53 @@ func TestDeleteAssetModalPermanentDiskOption(t *testing.T) {
 		t.Fatalf("permanent delete should have removed %s from disk, stat err=%v", permPath, err)
 	}
 }
+
+func TestSidebarSmoothResizeNoGlitch(t *testing.T) {
+	root := t.TempDir()
+	lib, err := library.Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lib.Close()
+
+	a := NewApp()
+	a.lib = lib
+	a.projects = project.New(lib.DB)
+	a.lang = i18n.ZhHant
+	a.cfg.LibraryPath = root
+	a.screen = screenLibrary
+	a.sidebarOpen = true
+	a.sidebarWidth = 240
+	a.reload()
+
+	tt := gui.NewTester(a.View, 1280, 820)
+	tt.Frame()
+	tt.Advance(400 * time.Millisecond)
+
+	// Press directly on the sidebar seam (x=240, y=300) and drag right +60px, then back -20px.
+	tt.Press(240, 300)
+	if !a.sidebarResizing {
+		t.Fatalf("expected pressing x=240 to start sidebar resize, gripX=%v", a.sidebarGripX)
+	}
+	for step := float32(1); step <= 6; step++ {
+		tt.Move(240+step*10, 300)
+		if !a.sidebarResizing {
+			t.Fatalf("sidebar resize dropped mid-drag at step %v! width=%v", step, a.sidebarWidth)
+		}
+	}
+	if a.sidebarWidth < 298 || a.sidebarWidth > 302 {
+		t.Fatalf("expected sidebarWidth ~300 after +60px drag, got %v", a.sidebarWidth)
+	}
+	tt.Move(280, 300)
+	if a.sidebarWidth < 278 || a.sidebarWidth > 282 {
+		t.Fatalf("expected sidebarWidth ~280 after dragging back -20px, got %v", a.sidebarWidth)
+	}
+	tt.Release(280, 300)
+	if a.sidebarResizing {
+		t.Fatalf("expected sidebarResizing=false after release")
+	}
+	tt.Advance(400 * time.Millisecond)
+	if a.sidebarWidth < 278 || a.sidebarWidth > 282 {
+		t.Fatalf("sidebarWidth drifted or snapped back after release: got %v", a.sidebarWidth)
+	}
+}
