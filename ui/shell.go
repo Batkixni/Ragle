@@ -1089,7 +1089,7 @@ func (a *App) sidebar(c *gui.Context) {
 // the sidebar footer/settings bar whenever Cloud Sync is active, so users can
 // close Preferences and still monitor upload/download progress at a glance.
 func (a *App) sidebarSyncBar(c *gui.Context) {
-	if !a.syncBusy {
+	if !a.syncBusy || a.syncHidden {
 		return
 	}
 	stageLabel := a.t("sync.syncing")

@@ -582,6 +582,7 @@ func (a *App) setAssetFolderFast(assetID, folderID string, on bool) {
 	if a.folderID != "" || a.navFilter == "uncategorized" || a.searchQuery != "" {
 		a.applyFilters()
 	}
+	a.scheduleAutoSync(4 * time.Second)
 }
 
 func (a *App) recomputeFolderCounts() {

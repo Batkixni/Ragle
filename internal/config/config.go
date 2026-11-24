@@ -77,9 +77,10 @@ type Config struct {
 	ClipperInboxDir string `json:"clipper_inbox_dir,omitempty"`
 
 	// Open Sync API v1 (Raglex Cloud default or Self-Hosted Docker) & Account Auth.
-	SyncProvider       string   `json:"sync_provider,omitempty"` // "cloud" (default) or "selfhost"
-	SyncServerURL      string   `json:"sync_server_url,omitempty"`
-	SyncToken          string   `json:"sync_token,omitempty"`
+	SyncProvider       string            `json:"sync_provider,omitempty"` // "cloud" (default) or "selfhost"
+	SyncServerURL      string            `json:"sync_server_url,omitempty"`
+	SyncToken          string            `json:"sync_token,omitempty"`
+	AutoSync           *bool             `json:"auto_sync,omitempty"`
 	SyncExcludeFolders []string          `json:"sync_exclude_folders,omitempty"`
 	SyncIncludeUncat   *bool             `json:"sync_include_uncat,omitempty"`
 	CollabLinks        map[string]string `json:"collab_links,omitempty"` // collabID -> local projectID or folderID

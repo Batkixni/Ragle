@@ -1134,6 +1134,10 @@ var pairs = []pair{
 	{"sync.allOn", "全部開啟", "Enable All", "すべてオン"},
 	{"sync.allOff", "全部關閉", "Disable All", "すべてオフ"},
 	{"sync.noFolders", "尚未建立任何資料夾；建立或匯入資料夾後即可在此逐一開關同步。", "No folders yet. Create or import folders to configure per-folder sync here.", "フォルダはまだありません。フォルダを作成またはインポートするとここで個別に同期設定できます。"},
+	{"sync.autoTitle", "自動背景同步", "Smart Auto-Sync", "スマート自動同期"},
+	{"sync.autoTip", "開啟後會在啟動時、每次編輯素材／資料夾／白板後自動防抖同步，並定期靜默拉取其他裝置與協作空間的新變更，無需手動按同步。", "Automatically syncs on launch, debounces after edits to assets, folders, or boards, and quietly pulls remote & collab updates in the background.", "起動時やアセット・フォルダ・ボード編集後に自動でデバウンス同期し、他端末やコラボの変更もバックグラウンドで自動取得します。"},
+	{"sync.lastSynced", "上次同步：%s", "Last synced: %s", "最終同期：%s"},
+	{"sync.pulledNotice", "雲端已自動同步 %d 筆新變更", "Auto-synced %d remote update(s)", "クラウドから %d 件の更新を自動同期しました"},
 
 	{"collab.title", "好友協作空間", "Collaboration Spaces", "コラボスペース"},
 	{"collab.sub", "與好友共同維護參考資料夾與專案；每個人的白板獨立擁有，只能編輯自己的白板、可檢視對方的白板。", "Collaborate on shared reference folders and projects. Each member owns their own whiteboards and can view others' boards without conflict.", "フレンドとリファレンスフォルダやプロジェクトを共有できます。ボードは個人所有制のため、他人のボードは閲覧のみ・自分のボードのみ編集できます。"},

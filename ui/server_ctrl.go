@@ -721,6 +721,8 @@ func (a *App) submitCloudAuth(register bool) {
 			}
 			a.syncConfigFromState()
 			a.notify(a.authStatusMsg)
+			a.refreshAccountProfile()
+			a.scheduleAutoSync(2 * time.Second)
 		}
 		if win == nil {
 			finish()
@@ -788,6 +790,8 @@ func (a *App) submitVerifyEmail() {
 			a.authStatusMsg = a.t("account.verifyOK")
 			a.syncConfigFromState()
 			a.notify(a.authStatusMsg)
+			a.refreshAccountProfile()
+			a.scheduleAutoSync(2 * time.Second)
 		}
 		if win == nil {
 			finish()
@@ -1001,6 +1005,8 @@ func (a *App) submitPasswordReset() {
 			a.authStatusMsg = a.t("account.resetOK")
 			a.syncConfigFromState()
 			a.notify(a.authStatusMsg)
+			a.refreshAccountProfile()
+			a.scheduleAutoSync(2 * time.Second)
 		}
 		if win == nil {
 			finish()
@@ -1094,20 +1100,36 @@ func (a *App) refreshAccountProfile() {
 	}()
 }
 
-// runCloudSyncNow executes a bidirectional delta + concurrent SHA-256 blob sync
-// with live sidebar progress reporting against the active provider.
+// runCloudSyncNow executes a user-initiated bidirectional delta + concurrent
+// SHA-256 blob sync with live sidebar progress and toast feedback.
 func (a *App) runCloudSyncNow() {
+	a.runCloudSync(false)
+}
+
+// runCloudSync executes a bidirectional sync. When quiet is true (smart
+// background auto-sync), no-op scans stay completely invisible and offline
+// errors back off silently without spamming toasts.
+func (a *App) runCloudSync(quiet bool) {
 	serverURL, token := a.effectiveSyncEndpoint()
 	if a.lib == nil || a.syncBusy || serverURL == "" {
 		return
 	}
-	a.syncConfigFromState()
+	if quiet && (!a.autoSync || a.importing || a.collabBusy || !a.hasSyncConnection()) {
+		return
+	}
+	if !quiet {
+		a.syncConfigFromState()
+		a.autoSyncFailCount = 0
+	}
 	a.syncBusy = true
+	a.syncHidden = quiet
 	a.syncStage = "scanning"
 	a.syncDone = 0
 	a.syncTotal = 0
 	a.syncCurrent = ""
-	a.syncStatusMsg = a.t("sync.syncing")
+	if !quiet {
+		a.syncStatusMsg = a.t("sync.syncing")
+	}
 	lib := a.lib
 	projs := a.projects
 	exMap := make(map[string]bool, len(a.syncExcludeFolders))
@@ -1138,6 +1160,9 @@ func (a *App) runCloudSyncNow() {
 				a.syncDone = prog.Done
 				a.syncTotal = prog.Total
 				a.syncCurrent = prog.Current
+				if prog.Stage == "uploading" || prog.Stage == "downloading" || prog.Total > 0 {
+					a.syncHidden = false
+				}
 			}
 			if win == nil {
 				apply()
@@ -1152,22 +1177,43 @@ func (a *App) runCloudSyncNow() {
 		rep, err := rsync.SyncNowWithProgress(context.Background(), cfg, lib, projs, onProgress)
 		finish := func() {
 			a.syncBusy = false
+			a.syncHidden = false
 			a.syncStage = ""
 			a.syncDone = 0
 			a.syncTotal = 0
 			a.syncCurrent = ""
 			if err != nil {
 				a.syncStatusMsg = err.Error()
-				a.notify(err.Error())
+				if quiet {
+					a.autoSyncFailCount++
+				} else {
+					a.notify(err.Error())
+				}
 				return
 			}
+			a.autoSyncFailCount = 0
+			a.lastSyncAt = time.Now()
 			msg := fmt.Sprintf(a.t("sync.done"), rep.PushedOps, rep.PulledOps, rep.UploadedBlobs, rep.DownloadedBlobs)
 			a.syncStatusMsg = msg
-			if rep.PulledOps > 0 || rep.DownloadedBlobs > 0 {
+			pulled := rep.PulledOps + rep.DownloadedBlobs
+			pushed := rep.PushedOps + rep.UploadedBlobs
+			if pulled > 0 {
+				a.autoSyncSuppress = true
 				a.reload()
+				a.autoSyncSuppress = false
 			}
-			a.refreshAccountProfile()
-			a.notify(msg)
+			if !quiet || pushed > 0 || pulled > 0 {
+				a.refreshAccountProfile()
+			}
+			if !quiet {
+				a.notify(msg)
+			} else if pulled > 0 {
+				a.notify(fmt.Sprintf(a.t("sync.pulledNotice"), pulled))
+			}
+			if a.autoSyncPending {
+				a.autoSyncPending = false
+				a.scheduleAutoSync(2 * time.Second)
+			}
 		}
 		if win == nil {
 			finish()
@@ -1184,6 +1230,170 @@ func (a *App) runCloudSyncNow() {
 		return
 	}
 	go run()
+}
+
+// scheduleAutoSync coalesces rapid local edits (imports, tags, folders, boards)
+// into a single quiet background sync after delay.
+func (a *App) scheduleAutoSync(delay time.Duration) {
+	if a.win == nil || !a.autoSync || a.autoSyncSuppress || a.importing || a.lib == nil || !a.hasSyncConnection() {
+		return
+	}
+	if a.syncBusy {
+		a.autoSyncPending = true
+		return
+	}
+	if delay <= 0 {
+		delay = 4 * time.Second
+	}
+	win := a.win
+	a.mu.Lock()
+	if a.autoSyncTimer != nil {
+		a.autoSyncTimer.Stop()
+	}
+	a.autoSyncTimer = time.AfterFunc(delay, func() {
+		if win == nil {
+			return
+		}
+		win.Update(func() {
+			if a.isClosed() || !a.autoSync || a.lib == nil {
+				return
+			}
+			a.runCloudSync(true)
+		})
+	})
+	a.mu.Unlock()
+}
+
+// startAutoSyncLoop runs a lightweight background sync loop: an initial quiet
+// sync shortly after opening a library, plus periodic 90s pulls with automatic
+// backoff when offline.
+func (a *App) startAutoSyncLoop() {
+	a.stopAutoSyncLoop()
+	if a.win == nil {
+		return
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	a.mu.Lock()
+	a.autoSyncCancel = cancel
+	a.mu.Unlock()
+	win := a.win
+	go func() {
+		// Initial quiet sync 3s after library open.
+		initTimer := time.NewTimer(3 * time.Second)
+		select {
+		case <-ctx.Done():
+			initTimer.Stop()
+			return
+		case <-initTimer.C:
+		}
+		win.Update(func() {
+			if a.isClosed() || a.lib == nil {
+				return
+			}
+			if a.autoSync && a.hasSyncConnection() {
+				a.runCloudSync(true)
+			}
+		})
+
+		ticker := time.NewTicker(90 * time.Second)
+		defer ticker.Stop()
+		ticksSkipped := 0
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				win.Update(func() {
+					if a.isClosed() || a.lib == nil || !a.autoSync || !a.hasSyncConnection() {
+						return
+					}
+					if a.autoSyncFailCount > 0 {
+						skipLimit := 1 << min(a.autoSyncFailCount, 3)
+						if ticksSkipped < skipLimit-1 {
+							ticksSkipped++
+							return
+						}
+					}
+					ticksSkipped = 0
+					if !a.syncBusy && !a.importing {
+						a.runCloudSync(true)
+					}
+					if !a.collabBusy && len(a.collabLocalMap) > 0 {
+						a.syncLinkedCollabsQuietly()
+					}
+				})
+			}
+		}
+	}()
+}
+
+// stopAutoSyncLoop cancels any active periodic loop and pending debounce timer.
+func (a *App) stopAutoSyncLoop() {
+	a.mu.Lock()
+	cancel := a.autoSyncCancel
+	a.autoSyncCancel = nil
+	timer := a.autoSyncTimer
+	a.autoSyncTimer = nil
+	a.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+	if timer != nil {
+		timer.Stop()
+	}
+	a.autoSyncPending = false
+}
+
+// syncLinkedCollabsQuietly refreshes joined collaboration spaces in the
+// background so teammates' newly shared reference assets arrive automatically.
+func (a *App) syncLinkedCollabsQuietly() {
+	database := a.shareDB.Load()
+	if database == nil && a.lib != nil {
+		database = a.lib.DB
+	}
+	serverURL, token := a.effectiveSyncEndpoint()
+	if database == nil || token == "" || a.collabBusy || a.win == nil || len(a.collabLocalMap) == 0 {
+		return
+	}
+	links := make(map[string]string, len(a.collabLocalMap))
+	for k, v := range a.collabLocalMap {
+		links[k] = v
+	}
+	cfg := rsync.ClientConfig{ServerURL: serverURL, Token: token}
+	win := a.win
+	a.collabBusy = true
+	go func() {
+		list, err := rsync.ListCollabSpaces(context.Background(), cfg)
+		changedAny := false
+		if err == nil {
+			for _, cs := range list {
+				localID := links[cs.ID]
+				if localID == "" {
+					continue
+				}
+				if res, serr := rsync.SyncCollabSpace(context.Background(), cfg, database, cs.ID, cs.Kind, localID, nil); serr == nil {
+					if res.Downloaded > 0 {
+						changedAny = true
+					}
+				}
+			}
+		}
+		win.Update(func() {
+			a.collabBusy = false
+			if a.isClosed() {
+				return
+			}
+			if err == nil {
+				a.collabList = list
+				a.collabLoaded = true
+			}
+			if changedAny {
+				a.autoSyncSuppress = true
+				a.reload()
+				a.autoSyncSuppress = false
+			}
+		})
+	}()
 }
 
 // createPublicShareLink ensures the built-in Raglex server is running and mints

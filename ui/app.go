@@ -488,12 +488,20 @@ type App struct {
 	syncProvider         string // "cloud" (default) or "selfhost"
 	syncServerURL        string
 	syncToken            string
+	autoSync             bool
 	syncBusy             bool
+	syncHidden           bool
 	syncStatusMsg        string
 	syncStage            string
 	syncDone             int
 	syncTotal            int
 	syncCurrent          string
+	lastSyncAt           time.Time
+	autoSyncCancel       context.CancelFunc
+	autoSyncTimer        *time.Timer
+	autoSyncPending      bool
+	autoSyncFailCount    int
+	autoSyncSuppress     bool
 	accountEmail         string
 	accountName          string
 	accountToken         string
@@ -662,6 +670,7 @@ func NewApp() *App {
 		showSidebarMissing:   true,
 		showSidebarTagMgr:    true,
 		showTagColors:        true,
+		autoSync:             true,
 		syncIncludeUncat:     true,
 		syncExcludeFolders:   map[string]bool{},
 		collabLocalMap:       map[string]string{},
@@ -887,6 +896,7 @@ func (a *App) applyConfig(cfg config.Config) {
 	a.accountName = strings.TrimSpace(cfg.AccountName)
 	a.accountToken = strings.TrimSpace(cfg.AccountToken)
 	a.accountVerified = cfg.AccountVerified
+	a.autoSync = config.BoolOr(cfg.AutoSync, true)
 	a.syncIncludeUncat = config.BoolOr(cfg.SyncIncludeUncat, true)
 	a.syncExcludeFolders = map[string]bool{}
 	for _, id := range cfg.SyncExcludeFolders {
@@ -975,6 +985,7 @@ func (a *App) syncConfigFromState() {
 	a.cfg.AccountName = strings.TrimSpace(a.accountName)
 	a.cfg.AccountToken = strings.TrimSpace(a.accountToken)
 	a.cfg.AccountVerified = a.accountVerified
+	a.cfg.AutoSync = config.BoolPtr(a.autoSync)
 	a.cfg.SyncIncludeUncat = config.BoolPtr(a.syncIncludeUncat)
 	if len(a.syncExcludeFolders) > 0 {
 		ex := make([]string, 0, len(a.syncExcludeFolders))
@@ -1132,6 +1143,7 @@ func (a *App) shutdown() {
 	}
 	a.closePreview()
 	a.closeRefWindow()
+	a.stopAutoSyncLoop()
 	a.stopBuiltInServer()
 	if a.layaRuntime != nil {
 		a.layaRuntime.Stop()
@@ -1256,12 +1268,16 @@ func (a *App) attach(lib *library.Library, root string) {
 	a.previewOpen = false
 	a.bitmaps = map[string]*gui.Bitmap{}
 	a.bitmapOrder = nil
+	a.bitmapFailed = map[string]bool{}
 	a.loading = map[string]bool{}
 	a.queued = map[string]bool{}
 	if purged, err := lib.PurgeAuxiliarySidecars(); err == nil && purged > 0 {
 		a.notify(fmt.Sprintf("已自動清理 %d 個輔助附屬檔 (metadata.json / thumbnail)", purged))
 	}
+	a.autoSyncSuppress = true
 	a.reload()
+	a.autoSyncSuppress = false
+	a.startAutoSyncLoop()
 	if a.serverAutoStart {
 		a.startBuiltInServer()
 	}
@@ -1275,6 +1291,7 @@ func (a *App) attach(lib *library.Library, root string) {
 }
 
 func (a *App) detach() {
+	a.stopAutoSyncLoop()
 	a.shareDB.Store(nil)
 	if a.watch != nil {
 		_ = a.watch.Close()
@@ -1465,6 +1482,7 @@ func (a *App) reload() {
 	}
 	a.syncInspectorSelection(true)
 	a.syncNavSelection()
+	a.scheduleAutoSync(4 * time.Second)
 }
 
 // applyFilters filters & sorts a.allAssets into a.assets in memory (instant search/sort).
@@ -2193,6 +2211,7 @@ func (a *App) setAssetRatingFast(assetID string, rating int) {
 	if a.minRating > 0 || a.sortBy == sortRating {
 		a.applyFilters()
 	}
+	a.scheduleAutoSync(4 * time.Second)
 }
 
 // setAssetTagFast links or unlinks a tag on an asset in O(1) without reloading 100k records.
@@ -2243,6 +2262,7 @@ func (a *App) setAssetTagFast(assetID, tagID string, on bool) {
 	if a.tagID != "" || a.navFilter == "untagged" || a.searchQuery != "" {
 		a.applyFilters()
 	}
+	a.scheduleAutoSync(4 * time.Second)
 }
 
 func (a *App) recomputeTagCountsForAsset(_ string) {
@@ -3747,6 +3767,7 @@ func (a *App) batchSetRating(rating int) {
 	if a.minRating > 0 || a.sortBy == sortRating {
 		a.applyFilters()
 	}
+	a.scheduleAutoSync(4 * time.Second)
 }
 
 func (a *App) notify(msg string) {

@@ -976,7 +976,9 @@ func (a *App) flushBoard(force bool) {
 		a.status = err.Error()
 		a.session.Touch(time.Now())
 		a.armFlush()
+		return
 	}
+	a.scheduleAutoSync(4 * time.Second)
 }
 
 func (a *App) boardUndo() {

@@ -1606,13 +1606,28 @@ func (a *App) settingsSyncTab(c *gui.Context) {
 		return
 	}
 
+	// 0. 智慧自動同步（預設開啟，編輯防抖＋背景定期靜默同步）
+	a.settingsSwitchRowTip(c, "sync-auto-bg", iconRefresh, a.t("sync.autoTitle"), a.t("sync.autoTip"), &a.autoSync, func() {
+		a.syncConfigFromState()
+		if a.autoSync {
+			a.scheduleAutoSync(1 * time.Second)
+		}
+	})
+	if !a.lastSyncAt.IsZero() {
+		gui.Text(c, fmt.Sprintf(a.t("sync.lastSynced"), a.lastSyncAt.Format("15:04:05"))).
+			FontSize(11).
+			TextColor(a.pal.inkMuted).
+			Padding(0, 10, 4, 35)
+	}
+
 	// 1. 選擇性資料夾同步（節省 20 GB 雲端配額）
-	a.settingsSection(c, a.t("sync.foldersTitle"), a.t("sync.foldersSub"), false, func() {
+	a.settingsSection(c, a.t("sync.foldersTitle"), a.t("sync.foldersSub"), true, func() {
 		gui.Row(c).FillWidth().Padding(4, 10, 6, 10).Gap(6).AlignItems(gui.Center).Children(func() {
 			a.toolButton(c, "sync-folders-all-on", iconCheck, a.t("sync.allOn"), false).OnClick(func() {
 				a.syncExcludeFolders = map[string]bool{}
 				a.syncIncludeUncat = true
 				a.syncConfigFromState()
+				a.scheduleAutoSync(3 * time.Second)
 			})
 			a.toolButton(c, "sync-folders-all-off", iconX, a.t("sync.allOff"), false).OnClick(func() {
 				if a.syncExcludeFolders == nil {
@@ -1636,6 +1651,9 @@ func (a *App) settingsSyncTab(c *gui.Context) {
 
 		a.settingsIconSwitchRow(c, "sync-inc-uncat", iconInbox, a.t("sync.includeUncat"), &a.syncIncludeUncat, func() {
 			a.syncConfigFromState()
+			if a.syncIncludeUncat {
+				a.scheduleAutoSync(3 * time.Second)
+			}
 		})
 
 		if len(a.folders) == 0 {
@@ -1695,6 +1713,9 @@ func (a *App) settingsSyncTab(c *gui.Context) {
 								}
 							}
 							a.syncConfigFromState()
+							if included {
+								a.scheduleAutoSync(3 * time.Second)
+							}
 						})
 					})
 					if ch := a.folderChildren[fid]; len(ch) > 0 {

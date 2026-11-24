@@ -1224,8 +1224,8 @@ func TestFoldersSidebarSwitcherAndSyncBar(t *testing.T) {
 
 	a.setSettingsTab(settingsTabSync)
 	tt.Advance(250 * time.Millisecond)
-	if !tt.HasText("選擇性資料夾同步") || !tt.HasText("好友協作空間") {
-		t.Fatalf("expected unlocked Sync & Collab tab to show selective folder sync & collab spaces, texts=%v", tt.Texts())
+	if !tt.HasText("自動背景同步") || !tt.HasText("選擇性資料夾同步") || !tt.HasText("好友協作空間") {
+		t.Fatalf("expected unlocked Sync & Collab tab to show auto-sync, selective folder sync & collab spaces, texts=%v", tt.Texts())
 	}
 	a.settingsOpen = false
 
