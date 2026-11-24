@@ -16,6 +16,7 @@ import (
 	"raglex/internal/i18n"
 	"raglex/internal/library"
 	"raglex/internal/model"
+	"raglex/internal/plugin"
 	"raglex/internal/project"
 )
 
@@ -444,4 +445,182 @@ func TestRenderScreenshots(t *testing.T) {
 	})
 	a.session.Selected = map[string]bool{"p1": true}
 	save("board_dark.png", 1360, 860)
+}
+
+func TestRenderWebsiteV051Screenshots(t *testing.T) {
+	outDir := os.Getenv("RAGLEX_WEB_SHOTS_DIR")
+	if outDir == "" {
+		t.Skip("set RAGLEX_WEB_SHOTS_DIR to render website feature screenshots")
+	}
+	_ = os.MkdirAll(outDir, 0o755)
+
+	dir := t.TempDir()
+	lib, err := library.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lib.Close()
+
+	f1, _ := lib.CreateFolder("Brand 2026")
+	f2, _ := lib.CreateFolder("3D Lighting")
+	f3, _ := lib.CreateFolder("UI Motion")
+	f4, _ := lib.CreateFolderWithParent("Posters", f1.ID)
+	_ = lib.SetFolderColor(f1.ID, "#FF5C33")
+	_ = lib.SetFolderColor(f2.ID, "#38BDF8")
+	_ = lib.SetFolderColor(f3.ID, "#10B981")
+
+	t1, _ := lib.CreateTag("Editorial")
+	t2, _ := lib.CreateTag("Lighting")
+	t3, _ := lib.CreateTag("Minimal")
+	_ = lib.SetTagColor(t1.ID, "#22C55E")
+	_ = lib.SetTagColor(t2.ID, "#F59E0B")
+	_ = lib.SetTagColor(t3.ID, "#EC4899")
+	t1.Color = "#22C55E"
+	t2.Color = "#F59E0B"
+	t3.Color = "#EC4899"
+
+	store := project.New(lib.DB)
+	proj, _ := store.Create("Brand Identity 2026", "Visual direction, lighting & grid references", []string{t1.ID, t2.ID})
+	_, _ = store.CreateBoard(proj.ID, "Hero Moodboard")
+
+	a := NewApp()
+	a.lib = lib
+	a.projects = store
+	a.lang = i18n.ZhHant
+	a.cfg.LibraryPath = filepath.Join(dir, "DesignVault")
+	a.themeMode = "dark"
+	a.sidebarBrowseMode = "folders"
+	a.sidebarOpen = true
+	a.sidebarWidth = 240
+
+	save := func(name string) {
+		tt := gui.NewTester(a.View, 1360, 860)
+		tt.SetScale(1.5)
+		tt.Frame()
+		tt.Advance(600 * time.Millisecond)
+		f, err := os.Create(filepath.Join(outDir, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer f.Close()
+		if err := png.Encode(f, tt.Image()); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	colors := [][2]color.RGBA{
+		{{255, 92, 51, 255}, {28, 25, 34, 255}},
+		{{234, 179, 8, 255}, {39, 39, 42, 255}},
+		{{16, 185, 129, 255}, {15, 23, 42, 255}},
+		{{244, 114, 182, 255}, {30, 27, 46, 255}},
+		{{56, 189, 248, 255}, {24, 24, 27, 255}},
+		{{251, 146, 60, 255}, {44, 22, 18, 255}},
+		{{161, 161, 170, 255}, {24, 24, 27, 255}},
+		{{239, 68, 68, 255}, {24, 20, 22, 255}},
+	}
+	names := []string{
+		"Vermilion_Poster_01.png",
+		"Warm_Rim_Light.png",
+		"Botanical_Grid.jpg",
+		"Editorial_Cover.png",
+		"Studio_Glass_UI.png",
+		"Sunset_Keylight.jpg",
+		"Brutalist_Type.png",
+		"Crimson_Frame.png",
+	}
+	dims := [][2]int{
+		{1920, 1280}, {1080, 1520}, {2400, 1350}, {1200, 1200},
+		{1080, 1720}, {1800, 1200}, {1400, 1700}, {2000, 1200},
+	}
+	a.folders = []model.Folder{f1, f2, f3, f4}
+	a.folders[0].Color = "#FF5C33"
+	a.folders[1].Color = "#38BDF8"
+	a.folders[2].Color = "#10B981"
+	a.rebuildFolderTree()
+	a.expandedFolders[f1.ID] = true
+	a.tags = []model.Tag{t1, t2, t3}
+	a.rebuildTagTree()
+	a.projectList = []model.Project{proj}
+
+	now := time.Now()
+	for i, name := range names {
+		id := "web-" + string(rune('a'+i))
+		w, h := dims[i][0], dims[i][1]
+		asset := model.Asset{
+			ID:          id,
+			Path:        filepath.Join("D:\\Studio\\References", name),
+			StorageMode: model.StorageIndex,
+			Mime:        "image/png",
+			Width:       w,
+			Height:      h,
+			Rating:      5 - (i % 3),
+			CreatedAt:   now.Add(-time.Duration(i) * time.Hour),
+			Palette: []model.PaletteColor{
+				{Hex: "#FF5C33", Ratio: 0.34},
+				{Hex: "#F59E0B", Ratio: 0.22},
+				{Hex: "#18181B", Ratio: 0.20},
+				{Hex: "#E4E4E7", Ratio: 0.14},
+				{Hex: "#71717A", Ratio: 0.10},
+			},
+		}
+		a.allAssets = append(a.allAssets, asset)
+		a.assetByID[id] = asset
+		a.bitmaps[id] = makeArtBitmap(w/5, h/5, colors[i][0], colors[i][1])
+		a.assetTags[id] = []model.Tag{t1, t2}
+		a.assetFolders[id] = []model.Folder{f1}
+	}
+	a.allAssetsCount = len(a.allAssets)
+	a.folderCounts = map[string]int{f1.ID: 5, f2.ID: 2, f3.ID: 1, f4.ID: 3}
+	a.folderRecursiveCounts = map[string]int{f1.ID: 8, f2.ID: 2, f3.ID: 1, f4.ID: 3}
+	a.tagCounts = map[string]int{t1.ID: 6, t2.ID: 4, t3.ID: 2}
+	a.tagRecursiveCounts = map[string]int{t1.ID: 6, t2.ID: 4, t3.ID: 2}
+	a.applyFilters()
+	a.screen = screenLibrary
+	a.layoutMode = layoutBento
+	a.assetIndex = 0
+	a.inspectorFileSize = 3145728
+	a.syncInspectorSelection(true)
+
+	// 1. Offline Visual AI & OKLab Color Search view.
+	a.filterBarOpen = true
+	a.colorFilter = "#FF5C33"
+	a.similarQueryLabel = "Vermilion_Poster_01.png"
+	save("shot-ai-search.png")
+	a.filterBarOpen = false
+	a.colorFilter = ""
+	a.similarQueryLabel = ""
+
+	// 2. Non-destructive Index mode + Delete modal with Permanent Disk Delete checkbox.
+	a.deleteAssetPrompt(a.allAssets[0])
+	save("shot-index-delete.png")
+	a.delAssetOpen = false
+
+	// 3. Self-Host Zero-Knowledge AES-256-GCM E2EE Sync settings.
+	a.syncProvider = "selfhost"
+	a.syncServerURL = "https://sync.studio.local"
+	a.syncToken = "rglx-selfhost-token-demo"
+	a.syncE2EEEnabled = true
+	a.syncE2EEPassphrase = "rglx-aes256-8kQ9xM2vP4nL7wR3tY6uJ1cF5hB0dG4sA9zE2qK8mN"
+	a.autoSync = true
+	a.lastSyncAt = time.Now()
+	a.openSettings(settingsTabSync)
+	save("shot-selfhost-e2ee.png")
+
+	// 4. Browser Companion Extension & Offline Inbox settings.
+	a.serverToken = "rglx_8f2a9c4e1b7d6035a2f9e1c4"
+	a.clipperInboxDir = "C:\\Users\\Studio\\Downloads\\RaglexInbox"
+	a.setSettingsTab(settingsTabExtension)
+	save("shot-browser-ext.png")
+
+	// 5. Local AI Embedding & Ollama / Laya settings.
+	a.setSettingsTab(settingsTabAI)
+	save("shot-ai-settings.png")
+
+	// 6. Official English Plugin Marketplace.
+	a.pluginSubTab = 1
+	a.pluginMarketLoaded = true
+	a.pluginMarket = plugin.BuiltinStarterCatalog()
+	a.setSettingsTab(settingsTabPlugins)
+	save("shot-plugins.png")
+	a.settingsOpen = false
 }

@@ -58,21 +58,21 @@
     if (!cta) return;
     const labels = {
       windows: {
-        "zh-Hant": `下載 Windows 版 (v${VERSION})`,
-        en: `Download for Windows (v${VERSION})`,
-        ja: `Windows 版をダウンロード (v${VERSION})`,
+        "zh-Hant": `下載 Windows 版`,
+        en: `Download for Windows`,
+        ja: `Windows 版を入手`,
         href: `${RELEASE_BASE}/raglex-setup-${VERSION}-amd64.exe`,
       },
       macos: {
-        "zh-Hant": `下載 macOS 版 (v${VERSION})`,
-        en: `Download for macOS (v${VERSION})`,
-        ja: `macOS 版をダウンロード (v${VERSION})`,
+        "zh-Hant": `下載 macOS 版`,
+        en: `Download for macOS`,
+        ja: `macOS 版を入手`,
         href: `${RELEASE_BASE}/Raglex-darwin-arm64.zip`,
       },
       linux: {
-        "zh-Hant": `下載 Linux 版 (v${VERSION})`,
-        en: `Download for Linux (v${VERSION})`,
-        ja: `Linux 版をダウンロード (v${VERSION})`,
+        "zh-Hant": `下載 Linux 版`,
+        en: `Download for Linux`,
+        ja: `Linux 版を入手`,
         href: `${RELEASE_BASE}/raglex_${VERSION}_amd64.deb`,
       },
     };
@@ -96,17 +96,47 @@
     }
   }
 
-  function initStageSwitcher() {
-    const tabs = document.querySelectorAll("[data-stage-tab]");
-    const imgs = document.querySelectorAll("[data-stage-img]");
-    if (!tabs.length || !imgs.length) return;
-    tabs.forEach((tab) => {
-      tab.addEventListener("click", () => {
-        const target = tab.getAttribute("data-stage-tab");
-        tabs.forEach((t) => t.classList.toggle("is-active", t === tab));
-        imgs.forEach((img) => img.classList.toggle("is-active", img.getAttribute("data-stage-img") === target));
+  function initScrollytelling() {
+    const cards = Array.from(document.querySelectorAll("[data-card-idx]"));
+    const copies = Array.from(document.querySelectorAll("[data-copy-idx]"));
+    const thumbs = Array.from(document.querySelectorAll("[data-thumb-idx]"));
+    if (!cards.length || !copies.length) return;
+
+    let activeIdx = 0;
+    const setActive = (idx) => {
+      if (idx === activeIdx && copies[idx]?.classList.contains("is-active")) return;
+      activeIdx = idx;
+      copies.forEach((el, i) => el.classList.toggle("is-active", i === idx));
+      thumbs.forEach((el, i) => el.classList.toggle("is-active", i === idx));
+      cards.forEach((el, i) => el.classList.toggle("is-active", i === idx));
+    };
+
+    const pickClosest = () => {
+      const targetY = window.innerHeight * 0.44;
+      let best = 0;
+      let bestDist = Infinity;
+      cards.forEach((card, i) => {
+        const rect = card.getBoundingClientRect();
+        const center = rect.top + rect.height * 0.5;
+        const dist = Math.abs(center - targetY);
+        if (dist < bestDist) {
+          bestDist = dist;
+          best = i;
+        }
+      });
+      setActive(best);
+    };
+
+    thumbs.forEach((btn, idx) => {
+      btn.addEventListener("click", () => {
+        setActive(idx);
+        cards[idx]?.scrollIntoView({ behavior: "smooth", block: "center" });
       });
     });
+
+    window.addEventListener("scroll", pickClosest, { passive: true });
+    window.addEventListener("resize", pickClosest, { passive: true });
+    pickClosest();
   }
 
   function initCopyButtons() {
@@ -146,7 +176,7 @@
       .filter(Boolean);
     const update = () => {
       let current = sections[0]?.id || "";
-      const offset = 120;
+      const offset = 130;
       for (const sec of sections) {
         if (sec.getBoundingClientRect().top <= offset) {
           current = sec.id;
@@ -181,7 +211,7 @@
       });
     }
 
-    initStageSwitcher();
+    initScrollytelling();
     initCopyButtons();
     initDocsScrollSpy();
   });

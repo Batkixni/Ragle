@@ -23,7 +23,7 @@ const { titleZh, titleEn, titleJa, description, activeNav = "home" } = Astro.pro
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&family=Noto+Sans+JP:wght@400;500;700;800&family=Noto+Sans+TC:wght@400;500;700;800&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Noto+Sans+JP:wght@400;500;700&family=Noto+Sans+TC:wght@400;500;700&family=Noto+Serif+JP:wght@500;600&family=Noto+Serif+TC:wght@500;600&display=swap"
       rel="stylesheet"
     />
     <script is:inline>
@@ -38,44 +38,27 @@ const { titleZh, titleEn, titleJa, description, activeNav = "home" } = Astro.pro
   <body data-title-zh={titleZh} data-title-en={titleEn} data-title-ja={titleJa}>
     <header class="nav">
       <div class="container nav-inner">
-        <a href="/" class="brand">
-          <img src="/assets/logo.png" alt="Raglex" class="brand-mark" />
-          <span>Raglex</span>
-        </a>
-        <nav class="nav-links" aria-label="Primary">
-          {
-            activeNav === "home" ? (
-              <a href="#features" class="nav-link" data-i18n-zh="核心特色" data-i18n-en="Features" data-i18n-ja="主な機能">
-                核心特色
-              </a>
-            ) : (
-              <a href="/" class="nav-link" data-i18n-zh="首頁" data-i18n-en="Home" data-i18n-ja="ホーム">
-                首頁
-              </a>
-            )
-          }
-          <a
-            href="/docs"
-            class={`nav-link${activeNav === "docs" ? " is-active" : ""}`}
-            data-i18n-zh="文件與教學"
-            data-i18n-en="Docs"
-            data-i18n-ja="ドキュメント"
-          >
-            文件與教學
+        <div class="nav-left">
+          <a href="/" class="brand">
+            <img src="/assets/logo.png" alt="Raglex" class="brand-mark" />
+            <span>Raglex</span>
           </a>
-          <a
-            href={activeNav === "home" ? "#download" : "/#download"}
-            class="nav-link"
-            data-i18n-zh="下載"
-            data-i18n-en="Download"
-            data-i18n-ja="ダウンロード"
-          >
-            下載
-          </a>
-          <a href="https://github.com/Batkixni/Raglex" target="_blank" rel="noopener noreferrer" class="nav-link">
-            GitHub
-          </a>
-        </nav>
+          <nav class="nav-links" aria-label="Primary">
+            <a href="/" class={`nav-link${activeNav === "home" ? " is-active" : ""}`} data-i18n-zh="首頁" data-i18n-en="Home" data-i18n-ja="ホーム">
+              首頁
+            </a>
+            <a href="/docs" class={`nav-link${activeNav === "docs" ? " is-active" : ""}`} data-i18n-zh="文件" data-i18n-en="Docs" data-i18n-ja="ドキュメント">
+              文件
+            </a>
+            <a href={activeNav === "home" ? "#download" : "/#download"} class="nav-link" data-i18n-zh="下載" data-i18n-en="Download" data-i18n-ja="ダウンロード">
+              下載
+            </a>
+            <a href="https://github.com/Batkixni/raglex-plugins" target="_blank" rel="noopener noreferrer" class="nav-link" data-i18n-zh="插件 ↗" data-i18n-en="Plugins ↗" data-i18n-ja="プラグイン ↗">
+              插件 ↗
+            </a>
+          </nav>
+        </div>
+
         <div class="nav-controls">
           <div class="lang-pill" role="group" aria-label="Language">
             <button type="button" class="lang-btn" data-set-lang="zh-Hant">繁中</button>
@@ -83,17 +66,7 @@ const { titleZh, titleEn, titleJa, description, activeNav = "home" } = Astro.pro
             <button type="button" class="lang-btn" data-set-lang="ja">日本語</button>
           </div>
           <button type="button" id="theme-toggle" class="icon-btn" aria-label="Toggle Theme">
-            <svg
-              id="theme-icon-sun"
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            >
+            <svg id="theme-icon-sun" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <circle cx="12" cy="12" r="4"></circle>
               <path d="M12 2v2"></path>
               <path d="M12 20v2"></path>
@@ -104,65 +77,58 @@ const { titleZh, titleEn, titleJa, description, activeNav = "home" } = Astro.pro
               <path d="m6.34 17.66-1.41 1.41"></path>
               <path d="m19.07 4.93-1.41 1.41"></path>
             </svg>
-            <svg
-              id="theme-icon-moon"
-              style="display:none"
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            >
+            <svg id="theme-icon-moon" style="display:none" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"></path>
             </svg>
           </button>
+          <a href="https://github.com/Batkixni/Raglex" target="_blank" rel="noopener noreferrer" class="gh-pill">
+            <span>GitHub ↗</span>
+          </a>
         </div>
       </div>
     </header>
 
-    <slot />
+    <div class="main-curtain">
+      <slot />
+    </div>
 
-    <footer class="footer">
-      <div class="container footer-inner">
-        <span>© 2026 Raglex · MPL-2.0 Open Source</span>
-        <div class="footer-links">
-          {
-            activeNav === "docs" ? (
-              <a href="/" data-i18n-zh="回首頁" data-i18n-en="Home" data-i18n-ja="ホーム">
-                回首頁
-              </a>
-            ) : (
-              <a href="/docs" data-i18n-zh="文件中心" data-i18n-en="Docs" data-i18n-ja="ドキュメント">
-                文件中心
-              </a>
-            )
-          }
-          <a
-            href="https://github.com/Batkixni/Raglex/blob/main/PRIVACY.md"
-            target="_blank"
-            rel="noopener noreferrer"
-            data-i18n-zh="隱私政策"
-            data-i18n-en="Privacy"
-            data-i18n-ja="プライバシー"
-          >
-            隱私政策
+    <!-- Curtain-Reveal Sticky Footer (Phi Style) -->
+    <footer class="phi-footer">
+      <div class="phi-footer-top-glow"></div>
+      <div class="container phi-footer-grid">
+        <div class="phi-footer-left">
+          <a href={activeNav === "home" ? "#download" : "/#download"} class="glass-cta" style="padding:11px 24px;font-size:13.5px" data-i18n-zh="下載 Raglex" data-i18n-en="Download Raglex" data-i18n-ja="Raglex を入手">
+            下載 Raglex
           </a>
-          <a
-            href="https://github.com/Batkixni/raglex-plugins"
-            target="_blank"
-            rel="noopener noreferrer"
-            data-i18n-zh="插件市集"
-            data-i18n-en="Plugins"
-            data-i18n-ja="プラグイン"
+          <p class="phi-footer-note"
+            data-i18n-zh="MPL-2.0 開源、零遙測、無惡意代碼。檔案永遠留在你自己的硬碟。"
+            data-i18n-en="MPL-2.0 open source. Zero telemetry. Your files always stay on your disk."
+            data-i18n-ja="MPL-2.0 オープンソース。テレメトリゼロ。ファイルは常にあなたの端末に。"
           >
-            插件市集
-          </a>
-          <a href="https://github.com/Batkixni/Raglex" target="_blank" rel="noopener noreferrer">GitHub</a>
-          <a href="https://github.com/Batkixni/Raglex/releases" target="_blank" rel="noopener noreferrer">Releases</a>
+            MPL-2.0 開源、零遙測、無惡意代碼。檔案永遠留在你自己的硬碟。
+          </p>
         </div>
+
+        <div class="phi-footer-center">
+          <img src="/assets/logo.png" alt="Raglex" class="phi-footer-emblem" />
+          <div class="phi-wordmark-line">Raglex</div>
+        </div>
+
+        <div class="phi-footer-right">
+          <span class="phi-footer-heading" data-i18n-zh="資源" data-i18n-en="Resources" data-i18n-ja="リソース">資源</span>
+          <a href="/docs" data-i18n-zh="文件中心" data-i18n-en="Documentation" data-i18n-ja="ドキュメント">文件中心</a>
+          <a href="/docs#self-host" data-i18n-zh="自架同步" data-i18n-en="Self-Host Guide" data-i18n-ja="Self-Host 構築">自架同步</a>
+          <a href="/docs#extension" data-i18n-zh="瀏覽器擴充" data-i18n-en="Web Clipper" data-i18n-ja="ブラウザ拡張">瀏覽器擴充</a>
+          <a href="https://github.com/Batkixni/Raglex/blob/main/PRIVACY.md" target="_blank" rel="noopener noreferrer" data-i18n-zh="隱私政策" data-i18n-en="Privacy" data-i18n-ja="プライバシー">隱私政策</a>
+        </div>
+      </div>
+
+      <div class="phi-footer-giant"
+        data-i18n-zh="檔案永遠屬於你"
+        data-i18n-en="Yours, forever local."
+        data-i18n-ja="素材は、あなたのもの"
+      >
+        檔案永遠屬於你
       </div>
     </footer>
 
