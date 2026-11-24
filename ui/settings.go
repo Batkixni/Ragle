@@ -202,6 +202,10 @@ func (a *App) rebuildAllThumbnails() {
 		return
 	}
 	a.queued = map[string]bool{}
+	a.bitmapFailed = map[string]bool{}
+	if a.thumbs != nil {
+		a.thumbs.Reset()
+	}
 	count := 0
 	for _, asset := range a.allAssets {
 		if asset.Missing {

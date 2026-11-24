@@ -241,3 +241,39 @@ func TestGridInspectorOpenKeepsClickedCardVisible(t *testing.T) {
 		t.Fatalf("target card %s outside stage bounds after grid reflow: card=%+v stage=%+v", targetID, afterBounds, a.stageBounds)
 	}
 }
+
+func TestBoardTrayLibraryVirtualizedAtScale(t *testing.T) {
+	const total = 6000
+	a := newLargeLibraryAppForReflow(t, total, layoutMasonry)
+	// Switch to standalone board with bottom Library tray open.
+	a.screen = screenBoard
+	a.boardProject = ""
+	a.boardDrawerOpen = true
+	a.tray = 1
+
+	tt := gui.NewTester(a.View, 1280, 820)
+	start := time.Now()
+	tt.Frame()
+	tt.Frame()
+	elapsed := time.Since(start)
+	if elapsed > 2*time.Second {
+		t.Fatalf("board tray with %d library assets took too long (%v) — virtualization broken", total, elapsed)
+	}
+	// First item must be mounted, while item #5000 far off-screen MUST NOT be mounted!
+	if !tt.HasText("Image_0000.png") {
+		t.Fatalf("expected first tray card to be mounted")
+	}
+	if tt.HasText("Image_5000.png") {
+		t.Fatalf("expected off-screen tray card #5000 NOT to be mounted (virtualization missing)")
+	}
+	// Scrolling to item #5000 mounts it cleanly and unmounts #0!
+	a.boardTrayScroll.X = 5000 * 108
+	tt.Frame()
+	tt.Frame()
+	if !tt.HasText("Image_5000.png") {
+		t.Fatalf("expected scrolled tray card #5000 to be mounted")
+	}
+	if tt.HasText("Image_0000.png") {
+		t.Fatalf("expected off-screen tray card #0 to be unmounted after scroll")
+	}
+}

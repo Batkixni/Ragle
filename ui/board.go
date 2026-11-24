@@ -547,26 +547,74 @@ func (a *App) boardTray(c *gui.Context) {
 						gui.Text(c, a.t("board.trayLibrary")).FontSize(12).Bold().TextColor(a.pal.ink)
 					} else {
 						a.arcPillTabs(c, "board-tray-tabs", a.tray, trays, func(idx int) {
-							a.tray = idx
+							if a.tray != idx {
+								a.tray = idx
+								a.boardTrayScroll.X = 0
+							}
 						})
 					}
 					gui.Text(c, a.t("board.clickToPlace")).FontSize(11).TextColor(a.pal.inkMuted)
 					gui.Spacer(c)
 					gui.Text(c, fmt.Sprintf(a.t("common.itemsCount"), len(list))).FontSize(11).TextColor(t.TextMuted)
 				})
-				gui.ScrollHorizontal(c.Key("board-tray-scroll")).Grow(1).FillWidth().Children(func() {
-					gui.Row(c).Padding(4, 14, 10, 14).Gap(10).AlignItems(gui.Center).Children(func() {
-						if len(list) == 0 {
+				scroll := gui.ScrollHorizontal(c.Key("board-tray-scroll")).Grow(1).FillWidth()
+				scroll.TrackScroll(&a.boardTrayScroll)
+
+				const (
+					trayCardW   float32 = 98
+					trayCardH   float32 = 78
+					trayCardGap float32 = 10
+					trayStep    float32 = trayCardW + trayCardGap
+				)
+				viewW := scroll.LayoutBounds().W
+				if viewW < 200 {
+					viewW = 1100
+				}
+				scrollX := a.boardTrayScroll.X
+				if scrollX < 0 {
+					scrollX = 0
+				}
+
+				scroll.Children(func() {
+					gui.Row(c).Padding(4, 14, 10, 14).Gap(trayCardGap).AlignItems(gui.Center).Children(func() {
+						n := len(list)
+						if n == 0 {
 							gui.Text(c, a.t("board.empty")).FontSize(12).TextColor(t.TextMuted)
 							return
 						}
-						for _, asset := range list {
-							item := asset
+						minX := scrollX - 2*trayStep
+						if minX < 0 {
+							minX = 0
+						}
+						maxX := scrollX + viewW + 2*trayStep
+						first := int(minX / trayStep)
+						if first < 0 {
+							first = 0
+						}
+						if first >= n {
+							first = n - 1
+						}
+						last := int(maxX / trayStep)
+						if last < first {
+							last = first
+						}
+						if last >= n {
+							last = n - 1
+						}
+
+						if first > 0 {
+							leftPad := float32(first)*trayStep - trayCardGap
+							if leftPad > 0 {
+								gui.Box(c.Key("tray-lpad")).Width(leftPad).Height(trayCardH)
+							}
+						}
+						for i := first; i <= last; i++ {
+							item := list[i]
 							name := a.assetName(item)
 							card := gui.ButtonBase(c.Key("tray-" + item.ID)).
 								Column().
-								Width(98).
-								Height(78).
+								Width(trayCardW).
+								Height(trayCardH).
 								Padding(6).
 								Gap(4).
 								Radius(radiusControl).
@@ -599,6 +647,13 @@ func (a *App) boardTray(c *gui.Context) {
 								})
 								gui.Text(c, name).FontSize(10).TextColor(t.TextMuted).SingleLine().FillWidth()
 							})
+						}
+						if last < n-1 {
+							rem := n - 1 - last
+							rightPad := float32(rem)*trayStep - trayCardGap
+							if rightPad > 0 {
+								gui.Box(c.Key("tray-rpad")).Width(rightPad).Height(trayCardH)
+							}
 						}
 					})
 				})

@@ -89,3 +89,49 @@ func writePNG(t *testing.T, path string) {
 		t.Fatalf("png %v %v", err, closeErr)
 	}
 }
+
+func TestUnsupportedURLAssetDoesNotSpinOnDone(t *testing.T) {
+	if CanThumbnail("text/plain; charset=utf-8", "video.url") {
+		t.Fatal("expected .url text/plain asset not to be thumbnailable")
+	}
+	if !CanThumbnail("image/png", "still.png") {
+		t.Fatal("expected image/png to be thumbnailable")
+	}
+
+	root := t.TempDir()
+	urlPath := filepath.Join(root, "bookmark.url")
+	if err := os.WriteFile(urlPath, []byte("[InternetShortcut]\r\nURL=https://example.com\r\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	d, err := db.Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+
+	asset := model.Asset{
+		ID:          model.NewID(),
+		Path:        urlPath,
+		StorageMode: model.StorageCopy,
+		Hash:        "urlhash",
+		Mime:        "text/plain; charset=utf-8",
+		CreatedAt:   time.Now().UTC(),
+	}
+	if err := d.Update(func(tx *bbolt.Tx) error { return db.PutAsset(tx, asset) }); err != nil {
+		t.Fatal(err)
+	}
+
+	callbacks := make(chan string, 8)
+	svc := Start(d, func(id string) { callbacks <- id })
+	defer svc.Close()
+
+	// Even if Prioritize is called repeatedly on a .url asset, onDone must NEVER fire.
+	for i := 0; i < 5; i++ {
+		svc.Prioritize(asset.ID)
+	}
+	select {
+	case id := <-callbacks:
+		t.Fatalf("unexpected onDone callback for non-thumbnailable .url asset %s (would cause UI spin loop)", id)
+	case <-time.After(150 * time.Millisecond):
+	}
+}

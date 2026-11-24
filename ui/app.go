@@ -180,6 +180,8 @@ type App struct {
 	grid            gui.GridState
 	bentoScroll     gui.ScrollState
 	masonryScroll   gui.ScrollState
+	boardTrayScroll gui.ScrollState
+	bitmapFailed    map[string]bool
 	layoutGen       uint64
 	masonryCache    masonryLayoutCache
 	bentoCache      bentoLayoutCache
@@ -2305,7 +2307,7 @@ func (a *App) requestCardBitmap(asset model.Asset) *gui.Bitmap {
 	if bm := a.bitmaps[asset.ID]; bm != nil {
 		return bm
 	}
-	if asset.Missing {
+	if asset.Missing || a.bitmapFailed[asset.ID] {
 		return nil
 	}
 	if asset.ThumbnailPath != "" {
@@ -2322,14 +2324,14 @@ func (a *App) requestCardBitmap(asset model.Asset) *gui.Bitmap {
 		a.loadSVGThumbAsync(asset.ID, asset.Path)
 		return nil
 	}
-	if a.thumbs != nil {
+	if a.thumbs != nil && thumbnail.CanThumbnail(asset.Mime, asset.Path) {
 		a.thumbs.Prioritize(asset.ID)
 	}
 	return nil
 }
 
 func (a *App) ensureBitmap(id, path string) {
-	if path == "" || a.bitmaps[id] != nil || a.loading[id] || a.win == nil {
+	if path == "" || a.bitmaps[id] != nil || a.loading[id] || a.bitmapFailed[id] || a.win == nil {
 		return
 	}
 	if a.bitmapSem == nil {
@@ -2362,7 +2364,14 @@ func (a *App) ensureBitmap(id, path string) {
 		}
 		win.Update(func() {
 			delete(a.loading, id)
-			if a.lib == nil || err != nil || decErr != nil || bm == nil {
+			if a.lib == nil {
+				return
+			}
+			if err != nil || decErr != nil || bm == nil {
+				if a.bitmapFailed == nil {
+					a.bitmapFailed = map[string]bool{}
+				}
+				a.bitmapFailed[id] = true
 				return
 			}
 			a.storeBitmap(id, bm)

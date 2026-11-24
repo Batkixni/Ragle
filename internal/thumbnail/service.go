@@ -21,6 +21,23 @@ import (
 
 const longEdge = 512
 
+// CanThumbnail reports whether the background thumbnail service can produce
+// a raster thumbnail or visual index for an asset with the given mime/path.
+// Plain text, .url bookmarks, archives, and SVGs (rendered directly as vectors)
+// return false so the UI never queues no-op thumbnail jobs on every frame.
+func CanThumbnail(mime, path string) bool {
+	if model.IsSVG(mime, path) {
+		return false
+	}
+	return model.IsIllustrator(mime, path) ||
+		model.IsExtraCreativeImage(mime, path) ||
+		model.MediaKind(mime) == model.MediaImage ||
+		model.MediaKind(mime) == model.MediaVideo ||
+		model.IsFont(mime, path) ||
+		model.IsAudio(mime, path) ||
+		model.IsPDF(mime, path)
+}
+
 // Service fills ThumbnailPath in the background. At most four files are
 // encoded at once. onDone runs after a path is stored; it may be nil.
 type Service struct {
@@ -31,23 +48,25 @@ type Service struct {
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
 
-	mu      sync.Mutex
-	pending []string
-	queued  map[string]bool
-	wake    chan struct{}
+	mu        sync.Mutex
+	pending   []string
+	queued    map[string]bool
+	attempted map[string]bool
+	wake      chan struct{}
 }
 
 // Start launches the workers. Call Close before closing the database.
 func Start(d *db.DB, onDone func(assetID string)) *Service {
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &Service{
-		db:     d,
-		jobs:   make(chan string, 128),
-		onDone: onDone,
-		ctx:    ctx,
-		cancel: cancel,
-		queued: make(map[string]bool),
-		wake:   make(chan struct{}, 1),
+		db:        d,
+		jobs:      make(chan string, 128),
+		onDone:    onDone,
+		ctx:       ctx,
+		cancel:    cancel,
+		queued:    make(map[string]bool),
+		attempted: make(map[string]bool),
+		wake:      make(chan struct{}, 1),
 	}
 	s.wg.Add(1)
 	go s.feeder()
@@ -87,6 +106,17 @@ func (s *Service) feeder() {
 	}
 }
 
+// Reset clears the attempted-asset memory so failed or rebuilt thumbnails can
+// be queued again (e.g. after "Rebuild all thumbnails").
+func (s *Service) Reset() {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	clear(s.attempted)
+	s.mu.Unlock()
+}
+
 // Enqueue asks for a preview of assetID without ever blocking or spawning
 // unbounded goroutines even on 250,000+ item libraries.
 func (s *Service) Enqueue(assetID string) {
@@ -94,7 +124,7 @@ func (s *Service) Enqueue(assetID string) {
 		return
 	}
 	s.mu.Lock()
-	if s.queued[assetID] {
+	if s.queued[assetID] || s.attempted[assetID] {
 		s.mu.Unlock()
 		return
 	}
@@ -114,7 +144,7 @@ func (s *Service) Prioritize(assetID string) {
 		return
 	}
 	s.mu.Lock()
-	if !s.queued[assetID] {
+	if !s.queued[assetID] && !s.attempted[assetID] {
 		s.queued[assetID] = true
 		s.pending = append([]string{assetID}, s.pending...)
 	}
@@ -144,11 +174,12 @@ func (s *Service) worker() {
 			if s.ctx.Err() != nil {
 				return
 			}
-			err := s.build(id)
+			changed, err := s.build(id)
 			s.mu.Lock()
 			delete(s.queued, id)
+			s.attempted[id] = true
 			s.mu.Unlock()
-			if err != nil {
+			if err != nil || !changed {
 				continue
 			}
 			if s.onDone != nil {
@@ -158,7 +189,7 @@ func (s *Service) worker() {
 	}
 }
 
-func (s *Service) build(id string) error {
+func (s *Service) build(id string) (bool, error) {
 	var asset model.Asset
 	err := s.db.View(func(tx *dbTx) error {
 		var err error
@@ -166,15 +197,15 @@ func (s *Service) build(id string) error {
 		return err
 	})
 	if err != nil {
-		return err
+		return false, err
 	}
 	if asset.Missing {
-		return nil
+		return false, nil
 	}
 	hasThumb := asset.ThumbnailPath != ""
 	hasVisual := len(asset.Palette) > 0 && (asset.PHash != 0 || asset.DHash != 0)
 	if hasThumb && hasVisual {
-		return nil
+		return false, nil
 	}
 
 	dest := asset.ThumbnailPath
@@ -189,17 +220,17 @@ func (s *Service) build(id string) error {
 	switch {
 	case model.IsSVG(asset.Mime, asset.Path):
 		// SVG is rendered losslessly by the UI vector engine on demand.
-		return nil
+		return false, nil
 	case model.IsIllustrator(asset.Mime, asset.Path):
 		if !hasThumb {
 			img, err := preview.DecodeCreativeImage(asset.Path, longEdge)
 			if err != nil {
-				return err
+				return false, err
 			}
 			fitted := imaging.Fit(img, longEdge, longEdge, imaging.Lanczos)
 			savedPath, err := saveSmartThumb(fitted, s.db.ThumbsDir(), asset.ID)
 			if err != nil {
-				return err
+				return false, err
 			}
 			dest = savedPath
 			ph, dh, pal = ExtractVisualFromImage(fitted)
@@ -210,14 +241,14 @@ func (s *Service) build(id string) error {
 		if !hasThumb {
 			img, err := preview.DecodeCreativeImage(asset.Path, longEdge)
 			if err != nil {
-				return err
+				return false, err
 			}
 			decodedW = img.Bounds().Dx()
 			decodedH = img.Bounds().Dy()
 			fitted = imaging.Fit(img, longEdge, longEdge, imaging.Lanczos)
 			savedPath, err := saveSmartThumb(fitted, s.db.ThumbsDir(), asset.ID)
 			if err != nil {
-				return err
+				return false, err
 			}
 			dest = savedPath
 		} else if img, err := imaging.Open(dest); err == nil {
@@ -234,7 +265,7 @@ func (s *Service) build(id string) error {
 			var savedPath string
 			fitted, savedPath, err = imageThumbAndExtract(asset.Path, s.db.ThumbsDir(), asset.ID)
 			if err != nil {
-				return err
+				return false, err
 			}
 			dest = savedPath
 		} else {
@@ -251,7 +282,7 @@ func (s *Service) build(id string) error {
 	case model.MediaKind(asset.Mime) == model.MediaVideo:
 		if !hasThumb {
 			if err := ExtractFrame(asset.Path, dest); err != nil {
-				return err
+				return false, err
 			}
 		}
 		if img, err := imaging.Open(dest); err == nil {
@@ -262,38 +293,38 @@ func (s *Service) build(id string) error {
 		if !hasThumb {
 			img, err := preview.RenderFontThumbnail(asset.Path, color.RGBA{244, 244, 245, 255}, color.RGBA{26, 26, 30, 255})
 			if err != nil {
-				return err
+				return false, err
 			}
 			if err := saveJPEG(img, dest); err != nil {
-				return err
+				return false, err
 			}
 		}
 	case model.IsAudio(asset.Mime, asset.Path):
 		if !hasThumb {
 			wf, err := preview.ExtractWaveform(asset.Path, 64)
 			if err != nil {
-				return err
+				return false, err
 			}
 			img := preview.RenderWaveformThumbnail(wf, color.RGBA{237, 237, 237, 255}, color.RGBA{24, 24, 27, 255})
 			if err := saveJPEG(img, dest); err != nil {
-				return err
+				return false, err
 			}
 		}
 	case model.IsPDF(asset.Mime, asset.Path):
 		if !hasThumb {
 			img, _, err := preview.RenderPDFPage(asset.Path, 0, longEdge)
 			if err != nil {
-				return err
+				return false, err
 			}
 			fitted := imaging.Fit(img, longEdge, longEdge, imaging.Lanczos)
 			if err := saveJPEG(fitted, dest); err != nil {
-				return err
+				return false, err
 			}
 		}
 	default:
-		return nil
+		return false, nil
 	}
-	return s.db.Update(func(tx *dbTx) error {
+	err = s.db.Update(func(tx *dbTx) error {
 		cur, err := db.GetAsset(tx, id)
 		if err != nil {
 			return err
@@ -318,6 +349,10 @@ func (s *Service) build(id string) error {
 		}
 		return db.PutAsset(tx, cur)
 	})
+	if err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func imageThumbAndExtract(src, thumbsDir, id string) (image.Image, string, error) {
