@@ -4,6 +4,21 @@ All notable changes to **Raglex** are documented in this file.
 
 ---
 
+## [v0.4.4] - 2026-11-24
+
+### 🔒 隱私與安全性全面強化 / Privacy & Security Hardening
+- **可選「零知識端對端加密（Zero-Knowledge E2EE）」個人雲端同步**：
+  - 於 **偏好設定 → 同步與協作** 新增 **端對端加密金鑰（選填）**，啟用後個人同步的所有檔名、標籤、資料夾、筆記、來源網址與實體檔案均於本機以 **AES-256-GCM**（PBKDF2-SHA256 210,000 次衍生）加密後才上傳，金鑰絕不離開本機，伺服器無法解密，同時保留公開分享連結與協作白板功能。
+- **內建本機伺服器全面驗證與嚴格 CORS**：
+  - `/api/v1/*` 所有讀寫端點一律強制驗證 `X-Raglex-Token` / `Bearer` 或 `HttpOnly; SameSite=Strict` Cookie；未驗證的 `/api/v1/health` 不再回傳素材數量。
+  - CORS 不再反射任意網頁來源，嚴格僅放行瀏覽器擴充套件與本機 `localhost` / `127.0.0.1` / `[::1]` / 同主機。
+  - 網頁圖庫與手機版 `/mobile` 改為 `HttpOnly` Cookie 驗證並提供 Access Key 解鎖頁；桌面端一鍵開啟會自動簽發 Cookie 並清除網址參數。
+- **本機設定檔權限收緊**：`config.json` 與設定目錄強制採用 `0o600` / `0o700` 檔案權限，保護本機登入與同步憑證。
+- **協作空間成員隱私遮蔽**：協作 API 回傳其他成員資訊時自動遮蔽 Email（`a***@domain.com`），不再暴露完整信箱。
+- **新增隱私政策文件**：新增 [`PRIVACY.md`](./PRIVACY.md) 並連結至中／英／日三語 README，透明公開零遙測原則與資料流向。
+
+---
+
 ## [v0.4.3] - 2026-11-24
 
 ### ⚡ 同步效能與流量大減 99% / Ultra-Light Delta Auto-Sync

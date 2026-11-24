@@ -1,7 +1,7 @@
 {
   "name": "Raglex",
   "identifier": "dev.raglex.app",
-  "version": "0.4.3",
+  "version": "0.4.4",
   "out": "build",
   "icon": "Logo.png",
   "main": "./cmd/raglex"
