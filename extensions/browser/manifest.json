@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Raglex Web Clipper",
-  "version": "0.3.6",
+  "version": "0.3.7",
   "description": "Save webpages, multi-platform sources, screenshots, and page images directly into Raglex tags, projects, and boards.",
   "permissions": [
     "contextMenus",

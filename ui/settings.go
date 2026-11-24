@@ -1319,7 +1319,11 @@ func (a *App) settingsAccountTab(c *gui.Context) {
 		a.settingsSection(c, a.t("account.grpSignIn"), "", true, func() {
 			if a.accountToken != "" && a.accountEmail != "" {
 				initial := strings.ToUpper(a.accountEmail[:1])
-				a.settingsItemRow(c, "acct-signed", nil, a.accountEmail, "", func() {
+				emailLbl := a.accountEmail
+				if a.accountVerified {
+					emailLbl += "  ·  " + a.t("account.verified")
+				}
+				a.settingsItemRow(c, "acct-signed", nil, emailLbl, "", func() {
 					gui.Row(c).Gap(8).AlignItems(gui.Center).Children(func() {
 						gui.Box(c).Size(24, 24).Radius(radiusPill).Background(gui.Hex("#FF5C33")).Center().Children(func() {
 							gui.Text(c, initial).FontSize(11).Bold().TextColor(gui.Hex("#FFFFFF"))
@@ -1335,6 +1339,56 @@ func (a *App) settingsAccountTab(c *gui.Context) {
 							a.signOutAccount()
 						})
 					})
+				})
+				if !a.accountVerified {
+					a.settingsItemRow(c, "acct-verify-row", iconCheck, a.t("account.verifyEmail"), "", func() {
+						gui.Row(c).Gap(6).AlignItems(gui.Center).Children(func() {
+							gui.TextInput(c.Key("pref-auth-verify"), &a.authVerifyCodeBuf).
+								Placeholder(a.t("account.verifyCodePh")).
+								Width(156).
+								OnSubmit(func() { a.submitVerifyEmail() })
+							a.arcButton(c, "pref-verify-ok", a.t("account.verifyBtn"), true).
+								Disabled(a.authBusy).
+								Padding(5, 10).
+								OnClick(func() { a.submitVerifyEmail() })
+							a.toolButton(c, "pref-verify-resend", iconRefresh, a.t("account.resendVerify"), false).
+								Disabled(a.authBusy).
+								OnClick(func() { a.resendVerifyEmail() })
+						})
+					})
+				}
+			} else if a.authResetMode {
+				a.settingsItemRow(c, "acct-reset-email", iconUser, a.t("account.email"), "", func() {
+					gui.Row(c).Gap(6).AlignItems(gui.Center).Children(func() {
+						gui.TextInput(c.Key("pref-reset-email"), &a.authEmailBuf).
+							Placeholder("you@example.com").
+							Width(180).
+							OnSubmit(func() { a.sendPasswordResetCode() })
+						a.toolButton(c, "pref-reset-send", nil, a.t("account.sendReset"), false).
+							Disabled(a.authBusy).
+							OnClick(func() { a.sendPasswordResetCode() })
+					})
+				})
+				a.settingsItemRow(c, "acct-reset-code", iconTag, a.t("account.resetCode"), "", func() {
+					gui.TextInput(c.Key("pref-reset-code"), &a.authResetCodeBuf).
+						Placeholder("6 位數驗證碼").
+						Width(240)
+				})
+				a.settingsItemRow(c, "acct-reset-pass", iconLock, a.t("account.newPassword"), "", func() {
+					gui.TextInput(c.Key("pref-reset-pass"), &a.authResetNewPassBuf).
+						Placeholder("••••••••").
+						Password().
+						Width(240).
+						OnSubmit(func() { a.submitPasswordReset() })
+				})
+				gui.Row(c).FillWidth().Padding(8, 10, 4, 10).Gap(8).AlignItems(gui.Center).Justify(gui.End).Children(func() {
+					a.toolButton(c, "pref-reset-back", nil, a.t("account.backToLogin"), false).OnClick(func() {
+						a.authResetMode = false
+						a.authStatusMsg = ""
+					})
+					a.arcButton(c, "pref-reset-submit", a.t("account.resetSubmit"), true).
+						Disabled(a.authBusy).
+						OnClick(func() { a.submitPasswordReset() })
 				})
 			} else {
 				a.settingsItemRow(c, "acct-email", iconUser, a.t("account.email"), "", func() {
@@ -1356,7 +1410,12 @@ func (a *App) settingsAccountTab(c *gui.Context) {
 						Width(240).
 						OnSubmit(func() { a.submitCloudAuth(true) })
 				})
-				gui.Row(c).FillWidth().Padding(8, 10, 4, 10).Gap(8).AlignItems(gui.Center).Justify(gui.End).Children(func() {
+				gui.Row(c).FillWidth().Padding(8, 10, 4, 10).Gap(8).AlignItems(gui.Center).Children(func() {
+					a.toolButton(c, "pref-auth-forgot", nil, a.t("account.forgotPass"), false).OnClick(func() {
+						a.authResetMode = true
+						a.authStatusMsg = ""
+					})
+					gui.Spacer(c)
 					a.toolButton(c, "pref-auth-reg", nil, a.t("account.register"), false).
 						Disabled(a.authBusy).
 						OnClick(func() { a.submitCloudAuth(true) })

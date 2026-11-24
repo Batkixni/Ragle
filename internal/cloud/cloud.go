@@ -7,6 +7,7 @@
 package cloud
 
 import (
+	"context"
 	"crypto/pbkdf2"
 	"crypto/rand"
 	"crypto/sha256"
@@ -16,8 +17,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
 	"io"
+	"log"
+	"math/big"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -40,6 +45,7 @@ var (
 	bucketUserBlobs    = []byte("user_blobs") // key: userID + ":" + sha256 -> uint64 size
 	bucketUserUsage    = []byte("user_usage") // key: userID -> uint64 total bytes
 	bucketInvites      = []byte("invites")    // key: uppercase invite code -> InviteCode JSON
+	bucketAuthCodes    = []byte("auth_codes") // key: kind + ":" + email -> authCodeRecord JSON
 )
 
 const (
@@ -58,6 +64,7 @@ type Options struct {
 	AllowRegister bool          // Allow account registration (when false, completely closed)
 	InviteOnly    bool          // Require a valid invite code for registration
 	AdminToken    string        // Bearer token for /api/v1/admin/* invite & user management
+	Mailer        Mailer        // Optional transactional email sender (e.g. OpenMail)
 	SignalTTL     time.Duration // WebRTC pairing room TTL (default 5m)
 	R2            *rsync.R2Presigner
 }
@@ -75,12 +82,23 @@ type InviteCode struct {
 
 // User is a registered Raglex Cloud account stored in accounts.db.
 type User struct {
-	ID           string    `json:"id"`
-	Email        string    `json:"email"`
-	Name         string    `json:"name"`
-	PasswordSalt string    `json:"password_salt"`
-	PasswordHash string    `json:"password_hash"`
-	CreatedAt    time.Time `json:"created_at"`
+	ID            string    `json:"id"`
+	Email         string    `json:"email"`
+	Name          string    `json:"name"`
+	PasswordSalt  string    `json:"password_salt"`
+	PasswordHash  string    `json:"password_hash"`
+	EmailVerified bool      `json:"email_verified,omitempty"`
+	CreatedAt     time.Time `json:"created_at"`
+}
+
+type authCodeRecord struct {
+	Kind      string    `json:"kind"` // "verify" or "reset"
+	UserID    string    `json:"user_id"`
+	Email     string    `json:"email"`
+	CodeHash  string    `json:"code_hash"`
+	CreatedAt time.Time `json:"created_at"`
+	ExpiresAt time.Time `json:"expires_at"`
+	Used      bool      `json:"used,omitempty"`
 }
 
 type tokenRecord struct {
@@ -131,7 +149,7 @@ func Open(opts Options) (*Server, error) {
 		return nil, fmt.Errorf("open accounts db: %w", err)
 	}
 	err = db.Update(func(tx *bbolt.Tx) error {
-		for _, b := range [][]byte{bucketUsersByID, bucketUsersByEmail, bucketTokens, bucketUserBlobs, bucketUserUsage, bucketInvites} {
+		for _, b := range [][]byte{bucketUsersByID, bucketUsersByEmail, bucketTokens, bucketUserBlobs, bucketUserUsage, bucketInvites, bucketAuthCodes} {
 			if _, err := tx.CreateBucketIfNotExists(b); err != nil {
 				return err
 			}
@@ -188,6 +206,11 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/api/v1/auth/login", s.handleLogin)
 	s.mux.HandleFunc("/api/v1/auth/me", s.handleMe)
 	s.mux.HandleFunc("/api/v1/auth/logout", s.handleLogout)
+	s.mux.HandleFunc("/api/v1/auth/verify-email", s.handleVerifyEmail)
+	s.mux.HandleFunc("/api/v1/auth/resend-verify", s.handleResendVerify)
+	s.mux.HandleFunc("/api/v1/auth/forgot-password", s.handleForgotPassword)
+	s.mux.HandleFunc("/api/v1/auth/reset-password", s.handleResetPassword)
+	s.mux.HandleFunc("/verify", s.handleVerifyLink)
 
 	// Admin Invite & User Management API v1.
 	s.mux.HandleFunc("/api/v1/admin/invites", s.withAdmin(s.handleAdminInvites))
@@ -216,7 +239,12 @@ func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 		"blob_backend": s.blobs.BackendName(),
 		"register":     s.opts.AllowRegister,
 		"invite_only":  s.opts.InviteOnly,
+		"mailer":       s.mailerEnabled(),
 	})
+}
+
+func (s *Server) mailerEnabled() bool {
+	return s.opts.Mailer != nil && s.opts.Mailer.Enabled()
 }
 
 func (s *Server) handleLanding(w http.ResponseWriter, r *http.Request) {
@@ -391,12 +419,25 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	verificationSent := false
+	if s.mailerEnabled() {
+		if code, cerr := s.issueAuthCode("verify", user, 30*time.Minute); cerr == nil {
+			if serr := s.sendVerificationEmail(r.Context(), user, code); serr == nil {
+				verificationSent = true
+			} else {
+				log.Printf("warn: send verification email to %s: %v", user.Email, serr)
+			}
+		}
+	}
+
 	writeJSON(w, http.StatusCreated, map[string]any{
-		"ok":      true,
-		"user_id": user.ID,
-		"email":   user.Email,
-		"name":    user.Name,
-		"token":   rawToken,
+		"ok":                true,
+		"user_id":           user.ID,
+		"email":             user.Email,
+		"name":              user.Name,
+		"token":             rawToken,
+		"email_verified":    user.EmailVerified,
+		"verification_sent": verificationSent,
 	})
 }
 
@@ -460,11 +501,12 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"ok":      true,
-		"user_id": user.ID,
-		"email":   user.Email,
-		"name":    user.Name,
-		"token":   rawToken,
+		"ok":             true,
+		"user_id":        user.ID,
+		"email":          user.Email,
+		"name":           user.Name,
+		"token":          rawToken,
+		"email_verified": user.EmailVerified,
 	})
 }
 
@@ -480,12 +522,13 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 	}
 	used := s.userUsedBytes(user.ID)
 	writeJSON(w, http.StatusOK, map[string]any{
-		"ok":          true,
-		"user_id":     user.ID,
-		"email":       user.Email,
-		"name":        user.Name,
-		"used_bytes":  used,
-		"quota_bytes": s.opts.QuotaBytes,
+		"ok":             true,
+		"user_id":        user.ID,
+		"email":          user.Email,
+		"name":           user.Name,
+		"email_verified": user.EmailVerified,
+		"used_bytes":     used,
+		"quota_bytes":    s.opts.QuotaBytes,
 	})
 }
 
@@ -502,6 +545,411 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (s *Server) handleVerifyEmail(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeErr(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	var req struct {
+		Email string `json:"email"`
+		Code  string `json:"code"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 16<<10)).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid JSON payload")
+		return
+	}
+	email := normalizeEmail(req.Email)
+	if u, ok := s.authenticate(r); ok && email == "" {
+		email = u.Email
+	}
+	code := strings.TrimSpace(req.Code)
+	if email == "" || code == "" {
+		writeErr(w, http.StatusBadRequest, "請輸入驗證碼")
+		return
+	}
+	if err := s.consumeVerifyCode(email, code); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "email_verified": true})
+}
+
+func (s *Server) handleVerifyLink(w http.ResponseWriter, r *http.Request) {
+	email := normalizeEmail(r.URL.Query().Get("email"))
+	code := strings.TrimSpace(r.URL.Query().Get("code"))
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if email == "" || code == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = fmt.Fprint(w, renderEmailShell("驗證連結無效", "缺少必要參數，請回到 Raglex 重新寄送驗證信。", "", "", "", "Raglex Cloud"))
+		return
+	}
+	if err := s.consumeVerifyCode(email, code); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = fmt.Fprint(w, renderEmailShell("驗證失敗", err.Error(), "", "", "", "請回到 Raglex 桌面版重新寄送驗證信。"))
+		return
+	}
+	_, _ = fmt.Fprint(w, renderEmailShell("電子信箱驗證成功", fmt.Sprintf("帳號 %s 已完成信箱驗證，您現在可以回到 Raglex 繼續使用雲端同步功能。", email), "", "", "", "Raglex Cloud"))
+}
+
+func (s *Server) handleResendVerify(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeErr(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	user, ok := s.authenticate(r)
+	if !ok {
+		writeErr(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	if user.EmailVerified {
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "email_verified": true})
+		return
+	}
+	if !s.mailerEnabled() {
+		writeErr(w, http.StatusServiceUnavailable, "郵件服務尚未設定")
+		return
+	}
+	if s.isCodeRateLimited("verify", user.Email, 60*time.Second) {
+		writeErr(w, http.StatusTooManyRequests, "寄信過於頻繁，請稍候 1 分鐘再試")
+		return
+	}
+	code, err := s.issueAuthCode("verify", user, 30*time.Minute)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if err := s.sendVerificationEmail(r.Context(), user, code); err != nil {
+		log.Printf("error: resend verification email to %s: %v", user.Email, err)
+		writeErr(w, http.StatusBadGateway, "郵件發送失敗，請稍後再試")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "sent": true})
+}
+
+func (s *Server) handleForgotPassword(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeErr(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	if !s.mailerEnabled() {
+		writeErr(w, http.StatusServiceUnavailable, "郵件服務尚未設定")
+		return
+	}
+	var req struct {
+		Email string `json:"email"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 16<<10)).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid JSON payload")
+		return
+	}
+	email := normalizeEmail(req.Email)
+	if !isValidEmail(email) {
+		writeErr(w, http.StatusBadRequest, "請輸入有效的電子信箱格式")
+		return
+	}
+	if s.isCodeRateLimited("reset", email, 60*time.Second) {
+		writeErr(w, http.StatusTooManyRequests, "寄信過於頻繁，請稍候 1 分鐘再試")
+		return
+	}
+
+	user, found := s.findUserByEmail(email)
+	if found {
+		if code, err := s.issueAuthCode("reset", user, 15*time.Minute); err == nil {
+			if err := s.sendPasswordResetEmail(r.Context(), user, code); err != nil {
+				log.Printf("error: send reset email to %s: %v", user.Email, err)
+				writeErr(w, http.StatusBadGateway, "郵件發送失敗，請稍後再試")
+				return
+			}
+		}
+	}
+	// Return uniform response regardless of whether email exists (prevents account enumeration).
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "sent": true})
+}
+
+func (s *Server) handleResetPassword(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeErr(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	var req struct {
+		Email       string `json:"email"`
+		Code        string `json:"code"`
+		NewPassword string `json:"new_password"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 16<<10)).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid JSON payload")
+		return
+	}
+	email := normalizeEmail(req.Email)
+	code := strings.TrimSpace(req.Code)
+	if !isValidEmail(email) || code == "" {
+		writeErr(w, http.StatusBadRequest, "請輸入電子信箱與重設驗證碼")
+		return
+	}
+	if len(req.NewPassword) < 6 || len(req.NewPassword) > 128 {
+		writeErr(w, http.StatusBadRequest, "新密碼長度須為 6 至 128 個字元")
+		return
+	}
+
+	saltHex, hashHex, err := hashUserPassword(req.NewPassword)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "password hashing failed")
+		return
+	}
+	rawToken, tokHash, err := generateToken()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "token generation failed")
+		return
+	}
+
+	var updatedUser User
+	var badCode string
+	err = s.db.Update(func(tx *bbolt.Tx) error {
+		codeKey := []byte("reset:" + email)
+		codeB := tx.Bucket(bucketAuthCodes)
+		rawRec := codeB.Get(codeKey)
+		if rawRec == nil {
+			badCode = "重設驗證碼無效或已過期"
+			return nil
+		}
+		var rec authCodeRecord
+		if err := json.Unmarshal(rawRec, &rec); err != nil || rec.Used || time.Now().UTC().After(rec.ExpiresAt) {
+			badCode = "重設驗證碼無效或已過期"
+			return nil
+		}
+		if subtle.ConstantTimeCompare([]byte(sha256Hex(code)), []byte(rec.CodeHash)) != 1 {
+			badCode = "重設驗證碼錯誤"
+			return nil
+		}
+
+		uid := tx.Bucket(bucketUsersByEmail).Get([]byte(email))
+		if uid == nil {
+			badCode = "找不到對應帳號"
+			return nil
+		}
+		rawUser := tx.Bucket(bucketUsersByID).Get(uid)
+		if rawUser == nil || json.Unmarshal(rawUser, &updatedUser) != nil {
+			badCode = "找不到對應帳號"
+			return nil
+		}
+		updatedUser.PasswordSalt = saltHex
+		updatedUser.PasswordHash = hashHex
+		updatedUser.EmailVerified = true
+		newRawUser, err := json.Marshal(updatedUser)
+		if err != nil {
+			return err
+		}
+		if err := tx.Bucket(bucketUsersByID).Put(uid, newRawUser); err != nil {
+			return err
+		}
+
+		// Mark code used.
+		rec.Used = true
+		if rawUsed, err := json.Marshal(rec); err == nil {
+			_ = codeB.Put(codeKey, rawUsed)
+		}
+
+		// Revoke all previous bearer tokens for this user.
+		tokB := tx.Bucket(bucketTokens)
+		var toDel [][]byte
+		_ = tokB.ForEach(func(k, v []byte) error {
+			var tr tokenRecord
+			if json.Unmarshal(v, &tr) == nil && tr.UserID == updatedUser.ID {
+				cp := make([]byte, len(k))
+				copy(cp, k)
+				toDel = append(toDel, cp)
+			}
+			return nil
+		})
+		for _, k := range toDel {
+			_ = tokB.Delete(k)
+		}
+
+		now := time.Now().UTC()
+		rawTok, _ := json.Marshal(tokenRecord{
+			UserID:    updatedUser.ID,
+			CreatedAt: now,
+			ExpiresAt: now.Add(tokenTTL),
+		})
+		return tokB.Put([]byte(tokHash), rawTok)
+	})
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if badCode != "" {
+		writeErr(w, http.StatusBadRequest, badCode)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":             true,
+		"user_id":        updatedUser.ID,
+		"email":          updatedUser.Email,
+		"name":           updatedUser.Name,
+		"token":          rawToken,
+		"email_verified": true,
+	})
+}
+
+func (s *Server) findUserByEmail(email string) (User, bool) {
+	var user User
+	var found bool
+	_ = s.db.View(func(tx *bbolt.Tx) error {
+		uid := tx.Bucket(bucketUsersByEmail).Get([]byte(email))
+		if uid == nil {
+			return nil
+		}
+		raw := tx.Bucket(bucketUsersByID).Get(uid)
+		if raw != nil && json.Unmarshal(raw, &user) == nil {
+			found = true
+		}
+		return nil
+	})
+	return user, found
+}
+
+func (s *Server) isCodeRateLimited(kind, email string, window time.Duration) bool {
+	var limited bool
+	_ = s.db.View(func(tx *bbolt.Tx) error {
+		raw := tx.Bucket(bucketAuthCodes).Get([]byte(kind + ":" + email))
+		if raw == nil {
+			return nil
+		}
+		var rec authCodeRecord
+		if json.Unmarshal(raw, &rec) == nil && time.Since(rec.CreatedAt) < window {
+			limited = true
+		}
+		return nil
+	})
+	return limited
+}
+
+func (s *Server) issueAuthCode(kind string, user User, ttl time.Duration) (string, error) {
+	n, err := rand.Int(rand.Reader, big.NewInt(1_000_000))
+	if err != nil {
+		return "", err
+	}
+	code := fmt.Sprintf("%06d", n.Int64())
+	now := time.Now().UTC()
+	rec := authCodeRecord{
+		Kind:      kind,
+		UserID:    user.ID,
+		Email:     user.Email,
+		CodeHash:  sha256Hex(code),
+		CreatedAt: now,
+		ExpiresAt: now.Add(ttl),
+	}
+	err = s.db.Update(func(tx *bbolt.Tx) error {
+		raw, err := json.Marshal(rec)
+		if err != nil {
+			return err
+		}
+		return tx.Bucket(bucketAuthCodes).Put([]byte(kind+":"+user.Email), raw)
+	})
+	return code, err
+}
+
+func (s *Server) consumeVerifyCode(email, code string) error {
+	var failMsg string
+	err := s.db.Update(func(tx *bbolt.Tx) error {
+		codeKey := []byte("verify:" + email)
+		codeB := tx.Bucket(bucketAuthCodes)
+		rawRec := codeB.Get(codeKey)
+		if rawRec == nil {
+			failMsg = "驗證碼無效或已過期"
+			return nil
+		}
+		var rec authCodeRecord
+		if err := json.Unmarshal(rawRec, &rec); err != nil || rec.Used || time.Now().UTC().After(rec.ExpiresAt) {
+			failMsg = "驗證碼無效或已過期"
+			return nil
+		}
+		if subtle.ConstantTimeCompare([]byte(sha256Hex(code)), []byte(rec.CodeHash)) != 1 {
+			failMsg = "驗證碼錯誤"
+			return nil
+		}
+		uid := tx.Bucket(bucketUsersByEmail).Get([]byte(email))
+		if uid == nil {
+			failMsg = "找不到對應帳號"
+			return nil
+		}
+		var u User
+		rawU := tx.Bucket(bucketUsersByID).Get(uid)
+		if rawU == nil || json.Unmarshal(rawU, &u) != nil {
+			failMsg = "找不到對應帳號"
+			return nil
+		}
+		u.EmailVerified = true
+		updatedU, err := json.Marshal(u)
+		if err != nil {
+			return err
+		}
+		if err := tx.Bucket(bucketUsersByID).Put(uid, updatedU); err != nil {
+			return err
+		}
+		rec.Used = true
+		if rawUsed, err := json.Marshal(rec); err == nil {
+			_ = codeB.Put(codeKey, rawUsed)
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	if failMsg != "" {
+		return errors.New(failMsg)
+	}
+	return nil
+}
+
+func (s *Server) sendVerificationEmail(ctx context.Context, user User, code string) error {
+	verifyURL := fmt.Sprintf("https://%s/verify?email=%s&code=%s",
+		s.opts.PublicHost, url.QueryEscape(user.Email), url.QueryEscape(code))
+	subject := "[Raglex Cloud] 驗證您的電子信箱"
+	text := fmt.Sprintf("您好 %s，\n\n感謝註冊 Raglex Cloud！\n您的 6 位數信箱驗證碼為：%s（30 分鐘內有效）\n\n也可以直接點擊此連結完成驗證：\n%s\n\n如果這不是您本人操作，請忽略此信件。",
+		user.Name, code, verifyURL)
+	htmlBody := renderEmailShell(
+		"驗證您的電子信箱",
+		fmt.Sprintf("您好 %s，請於 Raglex 桌面版輸入以下 6 位數驗證碼，或點擊下方按鈕一鍵驗證信箱（30 分鐘內有效）。", user.Name),
+		code,
+		"一鍵驗證電子信箱",
+		verifyURL,
+		"若這不是您本人的操作，請安心忽略這封信件。",
+	)
+	return s.opts.Mailer.Send(ctx, user.Email, subject, text, htmlBody)
+}
+
+func (s *Server) sendPasswordResetEmail(ctx context.Context, user User, code string) error {
+	subject := "[Raglex Cloud] 重設密碼驗證碼"
+	text := fmt.Sprintf("您好 %s，\n\n我們收到了您的密碼重設請求。\n您的 6 位數重設驗證碼為：%s（15 分鐘內有效）\n\n請回到 Raglex 桌面版「偏好設定 → 帳號與雲端 → 忘記密碼」輸入驗證碼並設定新密碼。\n\n若非本人操作，請忽略此信件，您的密碼不會有任何變更。",
+		user.Name, code)
+	htmlBody := renderEmailShell(
+		"重設您的 Raglex Cloud 密碼",
+		fmt.Sprintf("您好 %s，請在 Raglex 桌面版輸入以下 6 位數重設碼來設定新密碼（15 分鐘內有效）。重設完成後，所有舊裝置登入狀態將自動登出。", user.Name),
+		code,
+		"",
+		"",
+		"若非您本人申請重設密碼，請忽略此信件，您的帳號維持安全。",
+	)
+	return s.opts.Mailer.Send(ctx, user.Email, subject, text, htmlBody)
+}
+
+func (s *Server) sendInviteEmail(ctx context.Context, toEmail string, inv InviteCode) error {
+	subject := "[Raglex Cloud] 您的專屬邀請碼已送達"
+	text := fmt.Sprintf("您好，\n\n您受邀加入 Raglex Cloud（https://%s）！\n\n您的專屬邀請碼：%s\n\n開啟 Raglex 桌面版 → 偏好設定 → 帳號與雲端，輸入您的信箱、密碼與邀請碼即可完成註冊並開始跨裝置雲端同步。",
+		s.opts.PublicHost, inv.Code)
+	htmlBody := renderEmailShell(
+		"您受邀加入 Raglex Cloud",
+		fmt.Sprintf("開啟 Raglex 桌面版「偏好設定 → 帳號與雲端」，填入以下專屬邀請碼即可註冊並啟用雲端同步（端點：https://%s）。", html.EscapeString(s.opts.PublicHost)),
+		inv.Code,
+		"",
+		"",
+		"此邀請碼請妥善保管，勿隨意轉傳。",
+	)
+	return s.opts.Mailer.Send(ctx, toEmail, subject, text, htmlBody)
 }
 
 // --- Admin Invite & User Management ---
@@ -550,6 +998,7 @@ func (s *Server) handleAdminInvites(w http.ResponseWriter, r *http.Request) {
 			MaxUses      int    `json:"max_uses"`
 			Note         string `json:"note"`
 			ExpiresHours int    `json:"expires_hours"`
+			SendTo       string `json:"send_to"`
 		}
 		_ = json.NewDecoder(io.LimitReader(r.Body, 16<<10)).Decode(&req)
 		code := normalizeInviteCode(req.Code)
@@ -596,7 +1045,24 @@ func (s *Server) handleAdminInvites(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusConflict, "invite code already exists")
 			return
 		}
-		writeJSON(w, http.StatusCreated, map[string]any{"ok": true, "invite": inv})
+		emailed := false
+		emailErr := ""
+		if to := normalizeEmail(req.SendTo); isValidEmail(to) {
+			if s.mailerEnabled() {
+				if err := s.sendInviteEmail(r.Context(), to, inv); err != nil {
+					emailErr = err.Error()
+				} else {
+					emailed = true
+				}
+			} else {
+				emailErr = "mailer not configured"
+			}
+		}
+		resp := map[string]any{"ok": true, "invite": inv, "emailed": emailed}
+		if emailErr != "" {
+			resp["email_error"] = emailErr
+		}
+		writeJSON(w, http.StatusCreated, resp)
 
 	default:
 		writeErr(w, http.StatusMethodNotAllowed, "method not allowed")

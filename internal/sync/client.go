@@ -71,7 +71,8 @@ func SyncNow(ctx context.Context, cfg ClientConfig, lib *library.Library, projec
 	}
 	defer localStore.Close()
 
-	hc := &http.Client{Timeout: 60 * time.Second}
+	metaHC := &http.Client{Timeout: 60 * time.Second}
+	blobHC := &http.Client{Timeout: 15 * time.Minute}
 	doReq := func(method, path string, body io.Reader, ctype string) (*http.Response, error) {
 		req, err := http.NewRequestWithContext(ctx, method, base+path, body)
 		if err != nil {
@@ -83,7 +84,10 @@ func SyncNow(ctx context.Context, cfg ClientConfig, lib *library.Library, projec
 		if ctype != "" {
 			req.Header.Set("Content-Type", ctype)
 		}
-		return hc.Do(req)
+		if strings.HasPrefix(path, "/v1/blobs/") {
+			return blobHC.Do(req)
+		}
+		return metaHC.Do(req)
 	}
 
 	// 1. Collect local assets and check which SHA-256 blobs are missing remotely.
@@ -142,9 +146,16 @@ func SyncNow(ctx context.Context, cfg ClientConfig, lib *library.Library, projec
 		}
 		var chkOut struct {
 			Missing []string `json:"missing"`
+			Error   string   `json:"error"`
 		}
 		_ = json.NewDecoder(resp.Body).Decode(&chkOut)
 		_ = resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			if chkOut.Error != "" {
+				return rep, fmt.Errorf("sync check failed: %s", chkOut.Error)
+			}
+			return rep, fmt.Errorf("sync check failed: HTTP %d", resp.StatusCode)
+		}
 
 		for _, mh := range chkOut.Missing {
 			p := hashToPath[mh]
@@ -160,10 +171,19 @@ func SyncNow(ctx context.Context, cfg ClientConfig, lib *library.Library, projec
 			if err != nil {
 				return rep, err
 			}
+			var upOut struct {
+				Error string `json:"error"`
+			}
+			_ = json.NewDecoder(io.LimitReader(upResp.Body, 16<<10)).Decode(&upOut)
 			_, _ = io.Copy(io.Discard, upResp.Body)
 			_ = upResp.Body.Close()
 			if upResp.StatusCode == http.StatusOK {
 				rep.UploadedBlobs++
+			} else if upResp.StatusCode == http.StatusRequestEntityTooLarge || upResp.StatusCode == http.StatusUnauthorized {
+				if upOut.Error != "" {
+					return rep, fmt.Errorf("blob upload failed: %s", upOut.Error)
+				}
+				return rep, fmt.Errorf("blob upload failed: HTTP %d", upResp.StatusCode)
 			}
 		}
 	}

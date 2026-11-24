@@ -438,9 +438,14 @@ type App struct {
 	accountEmail         string
 	accountName          string
 	accountToken         string
+	accountVerified      bool
 	authEmailBuf         string
 	authPassBuf          string
 	authInviteBuf        string
+	authVerifyCodeBuf    string
+	authResetMode        bool
+	authResetCodeBuf     string
+	authResetNewPassBuf  string
 	authBusy             bool
 	authStatusMsg        string
 	pairForceRelay       bool

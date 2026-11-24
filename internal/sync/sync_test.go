@@ -216,3 +216,29 @@ func TestPublicShareLinkPasswordAndViewer(t *testing.T) {
 		t.Fatalf("expected 200 public viewer with asset, status=%d body=%s", r2.StatusCode, string(body))
 	}
 }
+
+func TestOpenStoreConcurrentSameProcess(t *testing.T) {
+	dir := t.TempDir()
+	s1, err := OpenStore(dir)
+	if err != nil {
+		t.Fatalf("first OpenStore failed: %v", err)
+	}
+	defer s1.Close()
+
+	// Simulates built-in Companion Server holding sync.db open while desktop
+	// SyncNow opens the exact same library sync.db concurrently.
+	s2, err := OpenStore(dir)
+	if err != nil {
+		t.Fatalf("second OpenStore in same process failed (expected shared ref): %v", err)
+	}
+	if err := s2.SetCursor("https://cloud.raglex.sorai.tw", 42); err != nil {
+		t.Fatalf("SetCursor on s2 failed: %v", err)
+	}
+	if err := s2.Close(); err != nil {
+		t.Fatalf("Close s2 failed: %v", err)
+	}
+	// Closing s2 MUST NOT close s1's underlying bbolt handle.
+	if got := s1.GetCursor("https://cloud.raglex.sorai.tw"); got != 42 {
+		t.Fatalf("GetCursor on s1 after s2.Close() = %d, want 42", got)
+	}
+}

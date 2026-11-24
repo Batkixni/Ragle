@@ -2,11 +2,14 @@ package cloud
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
+	"strings"
 	"testing"
 )
 
@@ -198,4 +201,123 @@ func TestCloudInviteOnlyRegistrationAndAdminAPI(t *testing.T) {
 		t.Fatalf("expected 403 on exhausted invite code, got %d", r2.StatusCode)
 	}
 	_ = r2.Body.Close()
+}
+
+type mockMail struct {
+	to, subject, text, html string
+}
+
+type mockMailer struct {
+	sent []mockMail
+}
+
+func (m *mockMailer) Enabled() bool { return true }
+func (m *mockMailer) Send(_ context.Context, to, subject, text, htmlBody string) error {
+	m.sent = append(m.sent, mockMail{to: to, subject: subject, text: text, html: htmlBody})
+	return nil
+}
+
+func TestCloudEmailVerificationPasswordResetAndInviteMail(t *testing.T) {
+	mailer := &mockMailer{}
+	srv, err := Open(Options{
+		DataDir:       t.TempDir(),
+		BlobDir:       t.TempDir(),
+		PublicHost:    "cloud.raglex.sorai.tw",
+		AllowRegister: true,
+		InviteOnly:    true,
+		AdminToken:    "adm-secret",
+		Mailer:        mailer,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer srv.Close()
+	ts := httptest.NewServer(srv)
+	defer ts.Close()
+
+	// 1. Admin creates invite AND emails it to friend@sorai.tw.
+	mkReq, _ := http.NewRequest(http.MethodPost, ts.URL+"/api/v1/admin/invites", bytes.NewReader([]byte(`{"max_uses":1,"note":"friend","send_to":"friend@sorai.tw"}`)))
+	mkReq.Header.Set("Authorization", "Bearer adm-secret")
+	mkResp, _ := http.DefaultClient.Do(mkReq)
+	var mkOut struct {
+		OK      bool       `json:"ok"`
+		Emailed bool       `json:"emailed"`
+		Invite  InviteCode `json:"invite"`
+	}
+	_ = json.NewDecoder(mkResp.Body).Decode(&mkOut)
+	_ = mkResp.Body.Close()
+	if !mkOut.OK || !mkOut.Emailed || len(mailer.sent) != 1 || !strings.Contains(mailer.sent[0].text, mkOut.Invite.Code) {
+		t.Fatalf("invite email failed: out=%+v sent=%d", mkOut, len(mailer.sent))
+	}
+
+	// 2. Register triggers automatic verification email with 6-digit code.
+	regBody, _ := json.Marshal(map[string]string{
+		"email":       "friend@sorai.tw",
+		"password":    "oldpass123",
+		"invite_code": mkOut.Invite.Code,
+	})
+	regResp, _ := http.Post(ts.URL+"/api/v1/auth/register", "application/json", bytes.NewReader(regBody))
+	var regOut struct {
+		Token            string `json:"token"`
+		VerificationSent bool   `json:"verification_sent"`
+	}
+	_ = json.NewDecoder(regResp.Body).Decode(&regOut)
+	_ = regResp.Body.Close()
+	if !regOut.VerificationSent || len(mailer.sent) != 2 {
+		t.Fatalf("expected verification email sent on register, sent=%d", len(mailer.sent))
+	}
+	sixDigit := regexp.MustCompile(`\b(\d{6})\b`)
+	verifyMatch := sixDigit.FindStringSubmatch(mailer.sent[1].text)
+	if len(verifyMatch) < 2 {
+		t.Fatalf("no 6-digit verification code in email: %s", mailer.sent[1].text)
+	}
+
+	// 3. Verify email using the 6-digit code.
+	vBody, _ := json.Marshal(map[string]string{"code": verifyMatch[1]})
+	vReq, _ := http.NewRequest(http.MethodPost, ts.URL+"/api/v1/auth/verify-email", bytes.NewReader(vBody))
+	vReq.Header.Set("Authorization", "Bearer "+regOut.Token)
+	vResp, _ := http.DefaultClient.Do(vReq)
+	if vResp.StatusCode != http.StatusOK {
+		t.Fatalf("verify-email failed: %d", vResp.StatusCode)
+	}
+	_ = vResp.Body.Close()
+
+	// 4. Forgot password sends 6-digit reset code.
+	fpResp, _ := http.Post(ts.URL+"/api/v1/auth/forgot-password", "application/json", bytes.NewReader([]byte(`{"email":"friend@sorai.tw"}`)))
+	if fpResp.StatusCode != http.StatusOK || len(mailer.sent) != 3 {
+		t.Fatalf("forgot-password failed: status=%d sent=%d", fpResp.StatusCode, len(mailer.sent))
+	}
+	_ = fpResp.Body.Close()
+	resetMatch := sixDigit.FindStringSubmatch(mailer.sent[2].text)
+	if len(resetMatch) < 2 {
+		t.Fatalf("no 6-digit reset code in email: %s", mailer.sent[2].text)
+	}
+
+	// 5. Reset password succeeds, revokes old token, and allows login with new password.
+	rpBody, _ := json.Marshal(map[string]string{
+		"email":        "friend@sorai.tw",
+		"code":         resetMatch[1],
+		"new_password": "newpass456",
+	})
+	rpResp, _ := http.Post(ts.URL+"/api/v1/auth/reset-password", "application/json", bytes.NewReader(rpBody))
+	if rpResp.StatusCode != http.StatusOK {
+		t.Fatalf("reset-password failed: %d", rpResp.StatusCode)
+	}
+	_ = rpResp.Body.Close()
+
+	// Old token must now be revoked (401).
+	meOld, _ := http.NewRequest(http.MethodGet, ts.URL+"/api/v1/auth/me", nil)
+	meOld.Header.Set("Authorization", "Bearer "+regOut.Token)
+	meOldResp, _ := http.DefaultClient.Do(meOld)
+	if meOldResp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected old token revoked after password reset (401), got %d", meOldResp.StatusCode)
+	}
+	_ = meOldResp.Body.Close()
+
+	// Login with new password succeeds.
+	loginNew, _ := http.Post(ts.URL+"/api/v1/auth/login", "application/json", bytes.NewReader([]byte(`{"email":"friend@sorai.tw","password":"newpass456"}`)))
+	if loginNew.StatusCode != http.StatusOK {
+		t.Fatalf("login with new password failed: %d", loginNew.StatusCode)
+	}
+	_ = loginNew.Body.Close()
 }

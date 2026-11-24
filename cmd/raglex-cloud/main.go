@@ -52,11 +52,19 @@ func main() {
 	allowReg := flag.Bool("allow-register", envBool("RAGLEX_CLOUD_ALLOW_REGISTER", true), "Allow account registration")
 	inviteOnly := flag.Bool("invite-only", envBool("RAGLEX_CLOUD_INVITE_ONLY", true), "Require a valid invite code to register")
 	adminToken := flag.String("admin-token", envOr("RAGLEX_CLOUD_ADMIN_TOKEN", ""), "Bearer token for /api/v1/admin/* invite management")
+	openmailKey := flag.String("openmail-key", envOr("OPENMAIL_API_KEY", ""), "OpenMail API key for transactional account emails")
+	openmailInbox := flag.String("openmail-inbox", envOr("OPENMAIL_INBOX_ID", ""), "OpenMail inbox ID (auto-resolved from OPENMAIL_FROM if empty)")
+	openmailFrom := flag.String("openmail-from", envOr("OPENMAIL_FROM", "raglex@omail.sh"), "OpenMail sender address")
 	flag.Parse()
 
 	var quotaBytes int64
 	if *quotaGB > 0 {
 		quotaBytes = *quotaGB << 30
+	}
+
+	var mailer cloud.Mailer
+	if strings.TrimSpace(*openmailKey) != "" {
+		mailer = cloud.NewOpenMailClient(*openmailKey, *openmailInbox, *openmailFrom)
 	}
 
 	srv, err := cloud.Open(cloud.Options{
@@ -67,6 +75,7 @@ func main() {
 		AllowRegister: *allowReg,
 		InviteOnly:    *inviteOnly,
 		AdminToken:    *adminToken,
+		Mailer:        mailer,
 		SignalTTL:     5 * time.Minute,
 	})
 	if err != nil {
@@ -81,8 +90,8 @@ func main() {
 	}
 
 	go func() {
-		log.Printf("raglex-cloud listening on %s (host=%s data=%s blobs=%s quota=%dGiB invite_only=%v)",
-			*addr, *publicHost, *dataDir, *blobDir, *quotaGB, *inviteOnly)
+		log.Printf("raglex-cloud listening on %s (host=%s data=%s blobs=%s quota=%dGiB invite_only=%v mailer=%v)",
+			*addr, *publicHost, *dataDir, *blobDir, *quotaGB, *inviteOnly, mailer != nil && mailer.Enabled())
 		if err := httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("listen: %v", err)
 		}

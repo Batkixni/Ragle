@@ -22,6 +22,15 @@ case "$CMD" in
       -d "{\"max_uses\":$MAX_USES,\"note\":\"$NOTE\",\"expires_hours\":$EXP_HOURS}"
     echo ""
     ;;
+  send)
+    TO_EMAIL="${2:?Usage: $0 send friend@example.com [note]}"
+    NOTE="${3:-$TO_EMAIL}"
+    curl -sS -X POST "$API/api/v1/admin/invites" \
+      -H "Authorization: Bearer $RAGLEX_CLOUD_ADMIN_TOKEN" \
+      -H "Content-Type: application/json" \
+      -d "{\"max_uses\":1,\"note\":\"$NOTE\",\"send_to\":\"$TO_EMAIL\"}"
+    echo ""
+    ;;
   list)
     curl -sS "$API/api/v1/admin/invites" \
       -H "Authorization: Bearer $RAGLEX_CLOUD_ADMIN_TOKEN"

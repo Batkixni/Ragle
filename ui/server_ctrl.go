@@ -515,11 +515,13 @@ func (a *App) submitCloudAuth(register bool) {
 			resp, err = http.DefaultClient.Do(req)
 		}
 		var out struct {
-			OK    bool   `json:"ok"`
-			Token string `json:"token"`
-			Email string `json:"email"`
-			Name  string `json:"name"`
-			Error string `json:"error"`
+			OK               bool   `json:"ok"`
+			Token            string `json:"token"`
+			Email            string `json:"email"`
+			Name             string `json:"name"`
+			EmailVerified    bool   `json:"email_verified"`
+			VerificationSent bool   `json:"verification_sent"`
+			Error            string `json:"error"`
 		}
 		var errMsg string
 		if err != nil {
@@ -547,9 +549,291 @@ func (a *App) submitCloudAuth(register bool) {
 			}
 			a.accountName = out.Name
 			a.accountToken = out.Token
+			a.accountVerified = out.EmailVerified
 			a.authPassBuf = ""
 			a.authInviteBuf = ""
 			a.authStatusMsg = fmt.Sprintf(a.t("account.signedInAs"), a.accountEmail)
+			if out.VerificationSent {
+				a.authStatusMsg = a.t("account.verifySent")
+			}
+			a.syncConfigFromState()
+			a.notify(a.authStatusMsg)
+		}
+		if win == nil {
+			finish()
+			return
+		}
+		win.Update(func() {
+			if !a.isClosed() {
+				finish()
+			}
+		})
+	}
+	if win == nil {
+		run()
+		return
+	}
+	go run()
+}
+
+func (a *App) submitVerifyEmail() {
+	code := strings.TrimSpace(a.authVerifyCodeBuf)
+	if a.authBusy || a.accountToken == "" || code == "" {
+		return
+	}
+	a.authBusy = true
+	a.authStatusMsg = a.t("account.signingIn")
+	tok := a.accountToken
+	email := a.accountEmail
+	win := a.win
+	run := func() {
+		body, _ := json.Marshal(map[string]string{"email": email, "code": code})
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, config.DefaultCloudEndpoint+"/api/v1/auth/verify-email", strings.NewReader(string(body)))
+		var resp *http.Response
+		if err == nil {
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Authorization", "Bearer "+tok)
+			resp, err = http.DefaultClient.Do(req)
+		}
+		var out struct {
+			OK    bool   `json:"ok"`
+			Error string `json:"error"`
+		}
+		errMsg := ""
+		if err != nil {
+			errMsg = fmt.Sprintf(a.t("account.unreachable"), config.DefaultCloudEndpoint)
+		} else {
+			defer resp.Body.Close()
+			_ = json.NewDecoder(resp.Body).Decode(&out)
+			if resp.StatusCode < 200 || resp.StatusCode >= 300 || !out.OK {
+				errMsg = out.Error
+				if errMsg == "" {
+					errMsg = fmt.Sprintf("HTTP %d", resp.StatusCode)
+				}
+			}
+		}
+		finish := func() {
+			a.authBusy = false
+			if errMsg != "" {
+				a.authStatusMsg = errMsg
+				return
+			}
+			a.accountVerified = true
+			a.authVerifyCodeBuf = ""
+			a.authStatusMsg = a.t("account.verifyOK")
+			a.notify(a.authStatusMsg)
+		}
+		if win == nil {
+			finish()
+			return
+		}
+		win.Update(func() {
+			if !a.isClosed() {
+				finish()
+			}
+		})
+	}
+	if win == nil {
+		run()
+		return
+	}
+	go run()
+}
+
+func (a *App) resendVerifyEmail() {
+	if a.authBusy || a.accountToken == "" {
+		return
+	}
+	a.authBusy = true
+	a.authStatusMsg = a.t("account.signingIn")
+	tok := a.accountToken
+	win := a.win
+	run := func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, config.DefaultCloudEndpoint+"/api/v1/auth/resend-verify", nil)
+		var resp *http.Response
+		if err == nil {
+			req.Header.Set("Authorization", "Bearer "+tok)
+			resp, err = http.DefaultClient.Do(req)
+		}
+		var out struct {
+			OK            bool   `json:"ok"`
+			EmailVerified bool   `json:"email_verified"`
+			Error         string `json:"error"`
+		}
+		errMsg := ""
+		if err != nil {
+			errMsg = fmt.Sprintf(a.t("account.unreachable"), config.DefaultCloudEndpoint)
+		} else {
+			defer resp.Body.Close()
+			_ = json.NewDecoder(resp.Body).Decode(&out)
+			if resp.StatusCode < 200 || resp.StatusCode >= 300 || !out.OK {
+				errMsg = out.Error
+				if errMsg == "" {
+					errMsg = fmt.Sprintf("HTTP %d", resp.StatusCode)
+				}
+			}
+		}
+		finish := func() {
+			a.authBusy = false
+			if errMsg != "" {
+				a.authStatusMsg = errMsg
+				return
+			}
+			if out.EmailVerified {
+				a.accountVerified = true
+				a.authStatusMsg = a.t("account.verifyOK")
+			} else {
+				a.authStatusMsg = a.t("account.verifySent")
+			}
+			a.notify(a.authStatusMsg)
+		}
+		if win == nil {
+			finish()
+			return
+		}
+		win.Update(func() {
+			if !a.isClosed() {
+				finish()
+			}
+		})
+	}
+	if win == nil {
+		run()
+		return
+	}
+	go run()
+}
+
+func (a *App) sendPasswordResetCode() {
+	email := strings.TrimSpace(a.authEmailBuf)
+	if a.authBusy || email == "" {
+		a.authStatusMsg = a.t("account.needCreds")
+		return
+	}
+	a.authBusy = true
+	a.authStatusMsg = a.t("account.signingIn")
+	win := a.win
+	run := func() {
+		body, _ := json.Marshal(map[string]string{"email": email})
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, config.DefaultCloudEndpoint+"/api/v1/auth/forgot-password", strings.NewReader(string(body)))
+		var resp *http.Response
+		if err == nil {
+			req.Header.Set("Content-Type", "application/json")
+			resp, err = http.DefaultClient.Do(req)
+		}
+		var out struct {
+			OK    bool   `json:"ok"`
+			Error string `json:"error"`
+		}
+		errMsg := ""
+		if err != nil {
+			errMsg = fmt.Sprintf(a.t("account.unreachable"), config.DefaultCloudEndpoint)
+		} else {
+			defer resp.Body.Close()
+			_ = json.NewDecoder(resp.Body).Decode(&out)
+			if resp.StatusCode < 200 || resp.StatusCode >= 300 || !out.OK {
+				errMsg = out.Error
+				if errMsg == "" {
+					errMsg = fmt.Sprintf("HTTP %d", resp.StatusCode)
+				}
+			}
+		}
+		finish := func() {
+			a.authBusy = false
+			if errMsg != "" {
+				a.authStatusMsg = errMsg
+				return
+			}
+			a.authStatusMsg = a.t("account.resetSent")
+			a.notify(a.authStatusMsg)
+		}
+		if win == nil {
+			finish()
+			return
+		}
+		win.Update(func() {
+			if !a.isClosed() {
+				finish()
+			}
+		})
+	}
+	if win == nil {
+		run()
+		return
+	}
+	go run()
+}
+
+func (a *App) submitPasswordReset() {
+	email := strings.TrimSpace(a.authEmailBuf)
+	code := strings.TrimSpace(a.authResetCodeBuf)
+	newPass := a.authResetNewPassBuf
+	if a.authBusy || email == "" || code == "" || newPass == "" {
+		a.authStatusMsg = a.t("account.needCreds")
+		return
+	}
+	a.authBusy = true
+	a.authStatusMsg = a.t("account.signingIn")
+	win := a.win
+	run := func() {
+		body, _ := json.Marshal(map[string]string{
+			"email":        email,
+			"code":         code,
+			"new_password": newPass,
+		})
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, config.DefaultCloudEndpoint+"/api/v1/auth/reset-password", strings.NewReader(string(body)))
+		var resp *http.Response
+		if err == nil {
+			req.Header.Set("Content-Type", "application/json")
+			resp, err = http.DefaultClient.Do(req)
+		}
+		var out struct {
+			OK            bool   `json:"ok"`
+			Token         string `json:"token"`
+			Email         string `json:"email"`
+			Name          string `json:"name"`
+			EmailVerified bool   `json:"email_verified"`
+			Error         string `json:"error"`
+		}
+		errMsg := ""
+		if err != nil {
+			errMsg = fmt.Sprintf(a.t("account.unreachable"), config.DefaultCloudEndpoint)
+		} else {
+			defer resp.Body.Close()
+			_ = json.NewDecoder(resp.Body).Decode(&out)
+			if resp.StatusCode < 200 || resp.StatusCode >= 300 || out.Token == "" {
+				errMsg = out.Error
+				if errMsg == "" {
+					errMsg = fmt.Sprintf("HTTP %d", resp.StatusCode)
+				}
+			}
+		}
+		finish := func() {
+			a.authBusy = false
+			if errMsg != "" {
+				a.authStatusMsg = errMsg
+				return
+			}
+			a.accountEmail = out.Email
+			if a.accountEmail == "" {
+				a.accountEmail = email
+			}
+			a.accountName = out.Name
+			a.accountToken = out.Token
+			a.accountVerified = out.EmailVerified
+			a.authResetMode = false
+			a.authResetCodeBuf = ""
+			a.authResetNewPassBuf = ""
+			a.authPassBuf = ""
+			a.authStatusMsg = a.t("account.resetOK")
 			a.syncConfigFromState()
 			a.notify(a.authStatusMsg)
 		}
@@ -574,7 +858,9 @@ func (a *App) signOutAccount() {
 	a.accountEmail = ""
 	a.accountName = ""
 	a.accountToken = ""
+	a.accountVerified = false
 	a.authPassBuf = ""
+	a.authVerifyCodeBuf = ""
 	a.authStatusMsg = ""
 	a.syncConfigFromState()
 	a.notify(a.t("account.signedOut"))

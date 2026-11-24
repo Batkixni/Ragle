@@ -14,7 +14,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"go.etcd.io/bbolt"
@@ -72,17 +74,54 @@ func hashPassword(salt, pw string) string {
 	return hex.EncodeToString(h[:])
 }
 
-// Store persists sync oplog entries and public share links in a dedicated bbolt file.
-type Store struct {
-	db *bbolt.DB
+type sharedSyncDB struct {
+	db   *bbolt.DB
+	refs int
 }
 
-// OpenStore opens (or creates) <root>/sync.db.
+var (
+	openSyncDBMu sync.Mutex
+	openSyncDBs  = map[string]*sharedSyncDB{}
+)
+
+func syncDBKey(path string) string {
+	if abs, err := filepath.Abs(path); err == nil {
+		path = abs
+	}
+	path = filepath.Clean(path)
+	if runtime.GOOS == "windows" {
+		path = strings.ToLower(path)
+	}
+	return path
+}
+
+// Store persists sync oplog entries and public share links in a dedicated bbolt file.
+type Store struct {
+	key    string
+	db     *bbolt.DB
+	mu     sync.Mutex
+	closed bool
+}
+
+// OpenStore opens (or creates) <root>/sync.db. Multiple callers in the same
+// process (such as the built-in Companion Server and desktop SyncNow) safely
+// share one reference-counted bbolt handle without flock timeouts.
 func OpenStore(root string) (*Store, error) {
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		return nil, err
 	}
-	db, err := bbolt.Open(filepath.Join(root, "sync.db"), 0o600, &bbolt.Options{Timeout: 3 * time.Second})
+	dbPath := filepath.Join(root, "sync.db")
+	key := syncDBKey(dbPath)
+
+	openSyncDBMu.Lock()
+	defer openSyncDBMu.Unlock()
+
+	if existing, ok := openSyncDBs[key]; ok && existing.refs > 0 {
+		existing.refs++
+		return &Store{key: key, db: existing.db}, nil
+	}
+
+	db, err := bbolt.Open(dbPath, 0o600, &bbolt.Options{Timeout: 5 * time.Second})
 	if err != nil {
 		return nil, err
 	}
@@ -98,15 +137,37 @@ func OpenStore(root string) (*Store, error) {
 		_ = db.Close()
 		return nil, err
 	}
-	return &Store{db: db}, nil
+	openSyncDBs[key] = &sharedSyncDB{db: db, refs: 1}
+	return &Store{key: key, db: db}, nil
 }
 
-// Close closes the underlying bbolt database.
+// Close releases this Store reference and closes the underlying bbolt database
+// once no callers in this process still hold it open.
 func (s *Store) Close() error {
-	if s == nil || s.db == nil {
+	if s == nil {
 		return nil
 	}
-	return s.db.Close()
+	s.mu.Lock()
+	if s.closed || s.db == nil {
+		s.mu.Unlock()
+		return nil
+	}
+	s.closed = true
+	key := s.key
+	db := s.db
+	s.mu.Unlock()
+
+	openSyncDBMu.Lock()
+	defer openSyncDBMu.Unlock()
+	if sh, ok := openSyncDBs[key]; ok {
+		sh.refs--
+		if sh.refs <= 0 {
+			delete(openSyncDBs, key)
+			return db.Close()
+		}
+		return nil
+	}
+	return db.Close()
 }
 
 func seqKey(seq uint64) []byte {
