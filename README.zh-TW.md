@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/screenshots/cover.png" alt="Raglex — 原生離線優先視覺素材庫與無限靈感白板" width="100%" />
+  <img src="docs/screenshots/cover-zh.png" alt="Raglex — 原生離線優先視覺素材庫與無限靈感白板" width="100%" />
 </p>
 
 <p align="center">
