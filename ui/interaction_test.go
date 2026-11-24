@@ -8,6 +8,7 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -591,13 +592,19 @@ func TestGlobalShortcutsAndMarqueeBoxSelection(t *testing.T) {
 		t.Fatal("Escape did not close Preferences")
 	}
 
-	// 6. Global Delete opens batch delete confirmation dialog.
+	// 6. Global Delete opens asset delete confirmation modal with permanent-delete unchecked by default.
 	tt.Key(0, gui.KeyDelete)
-	if !a.askOpen {
-		t.Fatal("global Delete did not open confirmation dialog")
+	if !a.delAssetOpen {
+		t.Fatal("global Delete did not open asset delete modal")
+	}
+	if a.delAssetPermanent {
+		t.Fatal("permanent disk delete checkbox must default to unchecked")
 	}
 	tt.Key(0, gui.KeyEscape)
 	tt.Frame()
+	if a.delAssetOpen {
+		t.Fatal("Escape did not close asset delete modal")
+	}
 
 	// 7. Rubber-band marquee drag on empty space selects intersecting cards live
 	// across Bento, Waterfall Masonry, AND Grid layouts!
@@ -1225,6 +1232,12 @@ func TestFoldersSidebarSwitcherAndSyncBar(t *testing.T) {
 	if !tt.HasText("自動背景同步") || !tt.HasText("選擇性資料夾同步") || !tt.HasText("好友協作空間") {
 		t.Fatalf("expected unlocked Sync & Collab tab to show auto-sync, selective folder sync & collab spaces, texts=%v", tt.Texts())
 	}
+	if !a.syncE2EEEnabled || !strings.HasPrefix(a.syncE2EEPassphrase, "rglx-aes256-") {
+		t.Fatalf("expected E2EE enabled by default with auto-generated rglx-aes256- key, got enabled=%v key=%q", a.syncE2EEEnabled, a.syncE2EEPassphrase)
+	}
+	if !tt.HasText("另存金鑰檔") || !tt.HasText("載入金鑰檔") || !tt.HasText("重新產生") {
+		t.Fatalf("expected E2EE key backup/load/regen controls in Sync & Collab tab, texts=%v", tt.Texts())
+	}
 	a.settingsOpen = false
 
 	// 12. Receive modal detects CLB-XXXX-XXXX collaboration invite codes cleanly.
@@ -1245,4 +1258,94 @@ func TestFoldersSidebarSwitcherAndSyncBar(t *testing.T) {
 	}
 	a.settingsOpen = false
 	a.setLang(i18n.ZhHant)
+}
+
+func TestDeleteAssetModalPermanentDiskOption(t *testing.T) {
+	root := t.TempDir()
+	srcDir := t.TempDir()
+	keepPath := filepath.Join(srcDir, "keep-me.png")
+	permPath := filepath.Join(srcDir, "nuke-me.png")
+	writeSamplePNG(t, keepPath, 64, 64, color.RGBA{R: 40, G: 120, B: 220, A: 255})
+	writeSamplePNG(t, permPath, 72, 64, color.RGBA{R: 220, G: 60, B: 60, A: 255})
+
+	lib, err := library.Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lib.Close()
+
+	res, err := lib.Import(context.Background(), []string{keepPath, permPath}, model.StorageIndex, nil, nil)
+	if err != nil || res.Added != 2 {
+		t.Fatalf("import failed: %+v %v", res, err)
+	}
+
+	a := NewApp()
+	a.lib = lib
+	a.projects = project.New(lib.DB)
+	a.lang = i18n.ZhHant
+	a.cfg.LibraryPath = root
+	a.screen = screenLibrary
+	a.reload()
+
+	tt := gui.NewTester(a.View, 1280, 820)
+	tt.Advance(250 * time.Millisecond)
+
+	var keepAsset, permAsset model.Asset
+	for _, as := range a.assets {
+		if as.Path == keepPath {
+			keepAsset = as
+		} else if as.Path == permPath {
+			permAsset = as
+		}
+	}
+	if keepAsset.ID == "" || permAsset.ID == "" {
+		t.Fatalf("expected both imported assets in a.assets")
+	}
+
+	// 1. Default delete (unchecked) keeps original file on disk.
+	a.deleteAssetPrompt(keepAsset)
+	tt.Frame()
+	tt.Advance(250 * time.Millisecond)
+	if !a.delAssetOpen || a.delAssetPermanent {
+		t.Fatalf("expected modal open with permanent=false, got open=%v perm=%v", a.delAssetOpen, a.delAssetPermanent)
+	}
+	if !tt.HasText(a.t("library.deletePermanentCheck")) {
+		t.Fatalf("expected permanent delete checkbox in modal, texts=%v", tt.Texts())
+	}
+	if err := tt.Click(a.t("common.delete")); err != nil {
+		t.Fatalf("failed clicking delete button: %v", err)
+	}
+	tt.Frame()
+	tt.Advance(250 * time.Millisecond)
+	if _, err := os.Stat(keepPath); err != nil {
+		t.Fatalf("default delete should keep original file on disk: %v", err)
+	}
+
+	// 2. Checking permanent delete arms warning & permanently deletes file on disk.
+	a.deleteAssetPrompt(permAsset)
+	tt.Frame()
+	tt.Advance(250 * time.Millisecond)
+	if a.delAssetPermanent {
+		t.Fatalf("permanent checkbox must reset to false on reopen")
+	}
+	if !tt.HasText(a.t("library.deletePermanentCheck")) {
+		t.Fatalf("step 2 modal missing checkbox text! open=%v ids=%v texts=%v", a.delAssetOpen, a.delAssetIDs, tt.Texts())
+	}
+	if err := tt.Click(a.t("library.deletePermanentCheck")); err != nil {
+		t.Fatalf("failed clicking permanent delete checkbox: %v (texts=%v)", err, tt.Texts())
+	}
+	tt.Advance(250 * time.Millisecond)
+	if !a.delAssetPermanent {
+		t.Fatalf("clicking permanent delete checkbox did not arm permanent delete")
+	}
+	if !tt.HasText(a.t("library.deletePermanentBtn")) {
+		t.Fatalf("expected confirm button label to switch to %q, texts=%v", a.t("library.deletePermanentBtn"), tt.Texts())
+	}
+	if err := tt.Click(a.t("library.deletePermanentBtn")); err != nil {
+		t.Fatalf("failed clicking permanent delete submit button: %v", err)
+	}
+	tt.Advance(250 * time.Millisecond)
+	if _, err := os.Stat(permPath); !os.IsNotExist(err) {
+		t.Fatalf("permanent delete should have removed %s from disk, stat err=%v", permPath, err)
+	}
 }

@@ -1619,18 +1619,62 @@ func (a *App) settingsSyncTab(c *gui.Context) {
 			TextColor(a.pal.inkMuted).
 			Padding(0, 10, 4, 35)
 	}
-	a.settingsItemRow(c, "sync-e2ee-key", iconLock, a.t("sync.e2eeTitle"), a.t("sync.e2eeTip"), func() {
-		gui.TextInput(c.Key("pref-sync-e2ee"), &a.syncE2EEPassphrase).
-			Placeholder(a.t("sync.e2eePh")).
-			Password().
-			Width(240).
-			OnChange(func() { a.syncConfigFromState() })
+	if a.syncE2EEEnabled && strings.TrimSpace(a.syncE2EEPassphrase) == "" {
+		a.ensureSyncE2EEKey()
+	}
+	a.settingsSwitchRowTip(c, "sync-e2ee-on", iconLock, a.t("sync.e2eeTitle"), a.t("sync.e2eeTip"), &a.syncE2EEEnabled, func() {
+		if a.syncE2EEEnabled {
+			a.ensureSyncE2EEKey()
+		}
+		a.syncConfigFromState()
 	})
-	if strings.TrimSpace(a.syncE2EEPassphrase) != "" {
-		gui.Row(c).FillWidth().Padding(0, 10, 4, 35).Gap(6).AlignItems(gui.Center).Children(func() {
-			gui.Box(c).Size(7, 7).Radius(radiusPill).Background(gui.Hex("#10B981"))
-			gui.Text(c, a.t("sync.e2eeActive")).FontSize(11).TextColor(gui.Hex("#10B981")).SingleLine()
-		})
+	if a.syncE2EEEnabled {
+		gui.Column(c).
+			FillWidth().
+			Padding(10, 12).
+			Margin(2, 10, 8, 10).
+			Gap(8).
+			Radius(radiusControl).
+			Background(a.pal.surfaceMuted).
+			Border(1, a.chromeHairline()).
+			Children(func() {
+				gui.Row(c).FillWidth().Gap(6).AlignItems(gui.Center).Children(func() {
+					gui.Box(c).Size(7, 7).Radius(radiusPill).Background(gui.Hex("#10B981"))
+					gui.Text(c, a.t("sync.e2eeActive")).FontSize(11).Bold().TextColor(gui.Hex("#10B981")).SingleLine()
+				})
+				gui.Row(c).FillWidth().Gap(6).AlignItems(gui.Center).Children(func() {
+					inp := gui.TextInput(c.Key("pref-sync-e2ee"), &a.syncE2EEPassphrase).
+						Placeholder(a.t("sync.e2eePh")).
+						Grow(1).
+						OnChange(func() { a.syncConfigFromState() })
+					if !a.syncE2EEReveal {
+						inp.Password()
+					}
+					revealTip := a.t("sync.e2eeReveal")
+					if a.syncE2EEReveal {
+						revealTip = a.t("sync.e2eeHide")
+					}
+					a.iconButton(c, "sync-e2ee-eye", iconEye, revealTip, a.syncE2EEReveal).OnClick(func() {
+						a.syncE2EEReveal = !a.syncE2EEReveal
+					})
+					a.iconButton(c, "sync-e2ee-copy", iconCopy, a.t("common.copy"), false).OnClick(func() {
+						services.WriteClipboard(a.ensureSyncE2EEKey())
+						a.notify(a.t("common.copied"))
+					})
+				})
+				gui.Row(c).FillWidth().Gap(6).AlignItems(gui.Center).Wrap().Children(func() {
+					a.toolButton(c, "sync-e2ee-save", iconExport, a.t("sync.e2eeSaveFile"), false).OnClick(func() {
+						a.exportSyncE2EEKeyFile()
+					})
+					a.toolButton(c, "sync-e2ee-load", iconImport, a.t("sync.e2eeLoadFile"), false).OnClick(func() {
+						a.importSyncE2EEKeyFile()
+					})
+					a.toolButton(c, "sync-e2ee-regen", iconRefresh, a.t("sync.e2eeRegen"), false).OnClick(func() {
+						a.regenerateSyncE2EEKeyPrompt()
+					})
+				})
+				gui.Text(c, a.t("sync.e2eeBackupHint")).FontSize(11).TextColor(a.pal.inkMuted).LineHeight(1.4)
+			})
 	}
 
 	// 1. 選擇性資料夾同步（節省 20 GB 雲端配額）

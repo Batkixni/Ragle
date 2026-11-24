@@ -1,0 +1,20 @@
+{
+  "$schema": "https://raw.githubusercontent.com/cloudflare/workers-sdk/main/packages/wrangler/config-schema.json",
+  "name": "raglex-web",
+  "compatibility_date": "2026-11-24",
+  "assets": {
+    "directory": "./public",
+    "html_handling": "auto-trailing-slash",
+    "not_found_handling": "404-page"
+  },
+  "routes": [
+    {
+      "pattern": "raglex.sorai.tw",
+      "custom_domain": true
+    },
+    {
+      "pattern": "ranglex.sorai.tw",
+      "custom_domain": true
+    }
+  ]
+}

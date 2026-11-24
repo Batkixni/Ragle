@@ -33,6 +33,7 @@ func (a *App) View(c *gui.Context) {
 		a.editFolderModal(c)
 		a.deleteFolderModal(c)
 		a.batchDeleteFoldersModal(c)
+		a.deleteAssetModal(c)
 		a.webImportModal(c)
 		a.watchFoldersModal(c)
 		a.shareModal(c)

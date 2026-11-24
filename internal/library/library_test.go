@@ -328,6 +328,78 @@ func TestDeleteBatchPreservesOriginals(t *testing.T) {
 	}
 }
 
+func TestDeleteWithPermanentDiskDelete(t *testing.T) {
+	root := t.TempDir()
+	lib, err := Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lib.Close()
+
+	src := t.TempDir()
+	keepSrc := filepath.Join(src, "keep.png")
+	permSingle := filepath.Join(src, "perm-single.png")
+	permBatchA := filepath.Join(src, "perm-batch-a.png")
+	permBatchB := filepath.Join(src, "perm-batch-b.png")
+	writePNG(t, keepSrc, 12)
+	writePNG(t, permSingle, 14)
+	writePNG(t, permBatchA, 16)
+	writePNG(t, permBatchB, 18)
+
+	rKeep, err := lib.Import(context.Background(), []string{keepSrc}, model.StorageIndex, nil, nil)
+	if err != nil || rKeep.Added != 1 {
+		t.Fatalf("import keepSrc failed: %+v %v", rKeep, err)
+	}
+	rSingle, err := lib.Import(context.Background(), []string{permSingle}, model.StorageIndex, nil, nil)
+	if err != nil || rSingle.Added != 1 {
+		t.Fatalf("import permSingle failed: %+v %v", rSingle, err)
+	}
+	rBatch, err := lib.Import(context.Background(), []string{permBatchA, permBatchB}, model.StorageIndex, nil, nil)
+	if err != nil || rBatch.Added != 2 {
+		t.Fatalf("import batch failed: %+v %v", rBatch, err)
+	}
+
+	// Default Delete preserves original disk file.
+	if err := lib.Delete(rKeep.Items[0].AssetID); err != nil {
+		t.Fatalf("Delete failed: %v", err)
+	}
+	if _, err := os.Stat(keepSrc); err != nil {
+		t.Fatalf("expected default Delete to keep %s, got %v", keepSrc, err)
+	}
+
+	// Single DeleteWithOptions(PermanentDiskDelete: true) removes original disk file.
+	if err := lib.DeleteWithOptions(rSingle.Items[0].AssetID, DeleteOptions{PermanentDiskDelete: true}); err != nil {
+		t.Fatalf("DeleteWithOptions permanent failed: %v", err)
+	}
+	if _, err := os.Stat(permSingle); !os.IsNotExist(err) {
+		t.Fatalf("expected %s to be permanently removed, stat err=%v", permSingle, err)
+	}
+
+	// Batch DeleteBatchWithOptions(PermanentDiskDelete: true) removes all indexed disk files.
+	n, err := lib.DeleteBatchWithOptions(
+		[]string{rBatch.Items[0].AssetID, rBatch.Items[1].AssetID},
+		DeleteOptions{PermanentDiskDelete: true},
+	)
+	if err != nil || n != 2 {
+		t.Fatalf("DeleteBatchWithOptions got n=%d err=%v", n, err)
+	}
+	for _, p := range []string{permBatchA, permBatchB} {
+		if _, err := os.Stat(p); !os.IsNotExist(err) {
+			t.Fatalf("expected %s to be permanently removed, stat err=%v", p, err)
+		}
+	}
+
+	// Safety guard: removeRegularFile must never delete a directory.
+	guardDir := filepath.Join(src, "keep-dir")
+	if err := os.MkdirAll(guardDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	removeRegularFile(guardDir)
+	if _, err := os.Stat(guardDir); err != nil {
+		t.Fatalf("removeRegularFile must never delete directories: %v", err)
+	}
+}
+
 func TestReorderTagsPersistsCustomOrder(t *testing.T) {
 	lib, err := Open(t.TempDir())
 	if err != nil {

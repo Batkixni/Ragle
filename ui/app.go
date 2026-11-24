@@ -250,6 +250,9 @@ type App struct {
 	batchDelFoldersOpen    bool
 	batchDelFolderIDs      map[string]bool
 	batchDelIncludeSubs    bool
+	delAssetOpen           bool
+	delAssetIDs            []string
+	delAssetPermanent      bool
 
 	// Inspector persistent bound state (avoids local-variable loss on rebuild).
 	inspectorAssetID  string
@@ -485,7 +488,9 @@ type App struct {
 	syncProvider         string // "cloud" (default) or "selfhost"
 	syncServerURL        string
 	syncToken            string
+	syncE2EEEnabled      bool
 	syncE2EEPassphrase   string
+	syncE2EEReveal       bool
 	autoSync             bool
 	syncBusy             bool
 	syncHidden           bool
@@ -744,6 +749,7 @@ func NewApp() *App {
 		libraryPercent:       74,
 		autoCheckUpdates:     true,
 		updateBetaChannel:    false,
+		syncE2EEEnabled:      true,
 		selectedNav:          "tag-all",
 		lastNav:              "tag-all",
 	}
@@ -890,7 +896,18 @@ func (a *App) applyConfig(cfg config.Config) {
 	}
 	a.syncServerURL = cfg.SyncServerURL
 	a.syncToken = cfg.SyncToken
+	a.syncE2EEEnabled = config.BoolOr(cfg.SyncE2EEEnabled, true)
 	a.syncE2EEPassphrase = cfg.SyncE2EEPassphrase
+	if a.syncE2EEEnabled && strings.TrimSpace(a.syncE2EEPassphrase) == "" {
+		if gen, err := rsync.GenerateE2EEKey(); err == nil {
+			a.syncE2EEPassphrase = gen
+			a.cfg.SyncE2EEEnabled = config.BoolPtr(true)
+			a.cfg.SyncE2EEPassphrase = gen
+			if strings.TrimSpace(a.cfg.LibraryPath) != "" || strings.TrimSpace(a.accountToken) != "" || strings.TrimSpace(a.syncToken) != "" {
+				_ = config.Save(a.cfg)
+			}
+		}
+	}
 	a.accountEmail = strings.TrimSpace(cfg.AccountEmail)
 	a.accountName = strings.TrimSpace(cfg.AccountName)
 	a.accountToken = strings.TrimSpace(cfg.AccountToken)
@@ -980,6 +997,7 @@ func (a *App) syncConfigFromState() {
 	a.cfg.SyncProvider = a.syncProvider
 	a.cfg.SyncServerURL = strings.TrimSpace(a.syncServerURL)
 	a.cfg.SyncToken = strings.TrimSpace(a.syncToken)
+	a.cfg.SyncE2EEEnabled = config.BoolPtr(a.syncE2EEEnabled)
 	a.cfg.SyncE2EEPassphrase = strings.TrimSpace(a.syncE2EEPassphrase)
 	a.cfg.AccountEmail = strings.TrimSpace(a.accountEmail)
 	a.cfg.AccountName = strings.TrimSpace(a.accountName)
@@ -3341,8 +3359,147 @@ func (a *App) referenceSelected() {
 }
 
 func (a *App) deleteAssetPrompt(asset model.Asset) {
-	id := asset.ID
-	a.ask(a.t("library.delete"), a.deleteAssetCopy(asset), a.t("common.delete"), func() {
+	if a.lib == nil || asset.ID == "" {
+		return
+	}
+	a.openDeleteAssetModal([]string{asset.ID})
+}
+
+func (a *App) openDeleteAssetModal(ids []string) {
+	if len(ids) == 0 || a.lib == nil {
+		return
+	}
+	seen := make(map[string]bool, len(ids))
+	clean := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if id == "" || seen[id] {
+			continue
+		}
+		seen[id] = true
+		clean = append(clean, id)
+	}
+	if len(clean) == 0 {
+		return
+	}
+	a.delAssetIDs = clean
+	a.delAssetPermanent = false // always opt-in per delete action
+	a.delAssetOpen = true
+}
+
+func (a *App) deleteAssetModal(c *gui.Context) {
+	if !a.delAssetOpen || len(a.delAssetIDs) == 0 {
+		return
+	}
+	single := len(a.delAssetIDs) == 1
+	var singleAsset model.Asset
+	if single {
+		singleAsset = a.assetByID[a.delAssetIDs[0]]
+	}
+
+	hasExternalDiskFile := false
+	hasMoveMode := false
+	for _, id := range a.delAssetIDs {
+		asset, ok := a.assetByID[id]
+		if !ok {
+			continue
+		}
+		switch asset.StorageMode {
+		case model.StorageMove:
+			hasMoveMode = true
+		case model.StorageCopy:
+			// library copy is already removed on delete; external original path is not tracked
+		default: // StorageIndex / "" / StorageSymlink
+			if strings.TrimSpace(asset.Path) != "" {
+				hasExternalDiskFile = true
+			}
+		}
+	}
+
+	title := fmt.Sprintf("%s (%d)", a.t("batch.delete"), len(a.delAssetIDs))
+	if single {
+		name := a.assetName(singleAsset)
+		if name != "" {
+			title = a.t("library.delete") + " · " + name
+		} else {
+			title = a.t("library.delete")
+		}
+	}
+
+	permanentArmed := a.delAssetPermanent && hasExternalDiskFile
+	var body string
+	if permanentArmed {
+		if single {
+			body = fmt.Sprintf(a.t("library.deletePermanentWarnSingle"), a.assetName(singleAsset))
+		} else {
+			body = fmt.Sprintf(a.t("library.deletePermanentWarnBatch"), len(a.delAssetIDs))
+		}
+	} else if single {
+		body = a.deleteAssetCopy(singleAsset)
+	} else {
+		body = a.batchDeleteMessage(a.delAssetIDs)
+	}
+
+	a.styledDialog(c, "del-asset-modal", &a.delAssetOpen, 440, 0, func(_ gui.Element) {
+		gui.Column(c).Padding(22, 24).Gap(14).Children(func() {
+			gui.Row(c).FillWidth().Gap(8).AlignItems(gui.Center).Children(func() {
+				gui.Text(c, title).FontSize(15).Bold().Grow(1).SingleLine()
+				a.iconButton(c, "da-close", iconX, a.t("common.close"), false).OnClick(func() {
+					a.delAssetOpen = false
+				})
+			})
+			if permanentArmed {
+				gui.Box(c).
+					FillWidth().
+					Padding(10, 12).
+					Radius(radiusControl).
+					Background(gui.RGBA(239, 68, 68, 0.10)).
+					Border(1, gui.RGBA(239, 68, 68, 0.35)).
+					Children(func() {
+						gui.Text(c, body).FontSize(12.5).TextColor(a.pal.danger).LineHeight(1.5)
+					})
+			} else {
+				gui.Text(c, body).FontSize(12.5).TextColor(a.pal.inkSecondary).LineHeight(1.5)
+			}
+			if hasExternalDiskFile {
+				gui.Checkbox(c.Key("da-perm-disk"), &a.delAssetPermanent, a.t("library.deletePermanentCheck"))
+			}
+			gui.Box(c).FillWidth().Height(1).Background(a.chromeHairline())
+			gui.Row(c).FillWidth().Gap(8).Justify(gui.End).Children(func() {
+				a.arcButton(c, "da-cancel", a.t("common.cancel"), false).OnClick(func() {
+					a.delAssetOpen = false
+				})
+				if permanentArmed {
+					a.arcDangerButton(c, "da-submit", a.t("library.deletePermanentBtn")).OnClick(func() {
+						a.executeDeleteAssets()
+					})
+				} else if hasMoveMode {
+					a.arcDangerButton(c, "da-submit", a.t("common.delete")).OnClick(func() {
+						a.executeDeleteAssets()
+					})
+				} else {
+					a.arcButton(c, "da-submit", a.t("common.delete"), true).OnClick(func() {
+						a.executeDeleteAssets()
+					})
+				}
+			})
+		})
+	})
+}
+
+func (a *App) executeDeleteAssets() {
+	list := append([]string(nil), a.delAssetIDs...)
+	permanent := a.delAssetPermanent
+	a.delAssetOpen = false
+	a.delAssetIDs = nil
+	a.delAssetPermanent = false
+	if len(list) == 0 || a.lib == nil {
+		return
+	}
+
+	opts := library.DeleteOptions{PermanentDiskDelete: permanent}
+
+	if len(list) == 1 {
+		id := list[0]
 		if a.session != nil {
 			var drop []string
 			for _, item := range a.session.Items {
@@ -3359,7 +3516,7 @@ func (a *App) deleteAssetPrompt(asset model.Asset) {
 		if a.backupBeforeDelete && a.lib != nil {
 			_ = a.lib.DB.Backup()
 		}
-		if err := a.lib.Delete(id); err != nil {
+		if err := a.lib.DeleteWithOptions(id, opts); err != nil {
 			a.status = err.Error()
 			return
 		}
@@ -3368,9 +3525,62 @@ func (a *App) deleteAssetPrompt(asset model.Asset) {
 			a.previewOpen = false
 			a.previewBitmap = nil
 		}
+		a.clearSelection()
 		a.assetIndex = -1
 		a.reload()
-	})
+		return
+	}
+
+	idSet := make(map[string]bool, len(list))
+	for _, id := range list {
+		idSet[id] = true
+		delete(a.bitmaps, id)
+		if a.previewAssetID == id {
+			a.closePreview()
+		}
+	}
+	if a.session != nil {
+		var drop []string
+		for _, item := range a.session.Items {
+			if item.Kind == model.KindImage && idSet[item.AssetID] {
+				drop = append(drop, item.ID)
+			}
+		}
+		if len(drop) > 0 {
+			a.session.Delete(drop)
+			a.flushBoard(true)
+		}
+	}
+
+	finish := func(deleted int, err error) {
+		a.clearSelection()
+		a.assetIndex = -1
+		if err != nil {
+			a.notify(err.Error())
+		} else {
+			a.notify(fmt.Sprintf(a.t("batch.deleted"), deleted))
+		}
+		a.reload()
+	}
+
+	if a.win == nil {
+		deleted, err := a.lib.DeleteBatchWithOptions(list, opts)
+		finish(deleted, err)
+		return
+	}
+
+	lib := a.lib
+	win := a.win
+	a.notify(fmt.Sprintf(a.t("batch.deleting"), len(list)))
+	go func() {
+		deleted, err := lib.DeleteBatchWithOptions(list, opts)
+		win.Update(func() {
+			if a.isClosed() || a.lib != lib {
+				return
+			}
+			finish(deleted, err)
+		})
+	}()
 }
 
 func (a *App) assetName(asset model.Asset) string {
@@ -3719,6 +3929,9 @@ func (a *App) canRunLibraryShortcut() bool {
 		!a.editTagOpen &&
 		!a.shareOpen &&
 		!a.pairRecvOpen &&
+		!a.delAssetOpen &&
+		!a.delFolderOpen &&
+		!a.batchDelFoldersOpen &&
 		!a.askOpen
 }
 
@@ -4077,69 +4290,7 @@ func (a *App) batchDeletePrompt(ids []string) {
 	if len(ids) == 0 || a.lib == nil {
 		return
 	}
-	if len(ids) == 1 {
-		if asset, ok := a.assetByID[ids[0]]; ok {
-			a.deleteAssetPrompt(asset)
-			return
-		}
-	}
-	list := append([]string(nil), ids...)
-	msg := a.batchDeleteMessage(list)
-	a.ask(a.t("batch.delete"), msg, a.t("common.delete"), func() {
-		if a.lib == nil {
-			return
-		}
-		idSet := make(map[string]bool, len(list))
-		for _, id := range list {
-			idSet[id] = true
-			delete(a.bitmaps, id)
-			if a.previewAssetID == id {
-				a.closePreview()
-			}
-		}
-		if a.session != nil {
-			var drop []string
-			for _, item := range a.session.Items {
-				if item.Kind == model.KindImage && idSet[item.AssetID] {
-					drop = append(drop, item.ID)
-				}
-			}
-			if len(drop) > 0 {
-				a.session.Delete(drop)
-				a.flushBoard(true)
-			}
-		}
-
-		finish := func(deleted int, err error) {
-			a.clearSelection()
-			a.assetIndex = -1
-			if err != nil {
-				a.notify(err.Error())
-			} else {
-				a.notify(fmt.Sprintf(a.t("batch.deleted"), deleted))
-			}
-			a.reload()
-		}
-
-		if a.win == nil {
-			deleted, err := a.lib.DeleteBatch(list)
-			finish(deleted, err)
-			return
-		}
-
-		lib := a.lib
-		win := a.win
-		a.notify(fmt.Sprintf(a.t("batch.deleting"), len(list)))
-		go func() {
-			deleted, err := lib.DeleteBatch(list)
-			win.Update(func() {
-				if a.isClosed() || a.lib != lib {
-					return
-				}
-				finish(deleted, err)
-			})
-		}()
-	})
+	a.openDeleteAssetModal(ids)
 }
 
 // --- Hierarchical Tag Management & Color Helpers ---

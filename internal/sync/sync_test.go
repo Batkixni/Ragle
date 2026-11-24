@@ -455,3 +455,36 @@ func TestSyncZeroKnowledgeE2EE(t *testing.T) {
 		t.Fatalf("decrypted asset tags mismatch: %+v", snapC.AssetTags[got.ID])
 	}
 }
+
+func TestGenerateAndParseE2EEKeyAndSync(t *testing.T) {
+	k1, err := GenerateE2EEKey()
+	if err != nil {
+		t.Fatalf("GenerateE2EEKey failed: %v", err)
+	}
+	k2, err := GenerateE2EEKey()
+	if err != nil {
+		t.Fatalf("GenerateE2EEKey 2nd failed: %v", err)
+	}
+	if !strings.HasPrefix(k1, E2EEKeyPrefix) || k1 == k2 {
+		t.Fatalf("expected distinct prefixed random keys, got k1=%q k2=%q", k1, k2)
+	}
+	rawKey, err := deriveE2EEKey(k1)
+	if err != nil || len(rawKey) != 32 {
+		t.Fatalf("expected 32-byte raw AES-256 key, got len=%d err=%v", len(rawKey), err)
+	}
+	exported := FormatE2EEKeyFile(k1, "artist@sorai.tw")
+	parsed := ParseE2EEKeyFile(exported)
+	if parsed != k1 {
+		t.Fatalf("ParseE2EEKeyFile roundtrip mismatch: got %q want %q", parsed, k1)
+	}
+
+	plain := []byte("top-secret-storyboard-frame-bytes")
+	ct, ctHash, err := encryptBlob(rawKey, "plainhash123", plain)
+	if err != nil || ctHash == "" || bytes.Contains(ct, plain) {
+		t.Fatalf("encryptBlob failed or leaked plaintext: err=%v", err)
+	}
+	dec, err := decryptBlob(rawKey, "plainhash123", ct)
+	if err != nil || !bytes.Equal(dec, plain) {
+		t.Fatalf("decryptBlob mismatch: err=%v", err)
+	}
+}

@@ -4,6 +4,8 @@
 /release/
 /resources/
 /.mygo/
+/.wrangler/
+website/.wrangler/
 *.exe
 *.dll
 *.so

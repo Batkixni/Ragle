@@ -4,6 +4,20 @@ All notable changes to **Raglex** are documented in this file.
 
 ---
 
+## [v0.4.5] - 2026-11-24
+
+### ✨ 新功能與安全性強化 / What's New
+- **刪除素材新增「同時永久刪除硬碟實體檔案」勾選項目**：
+  - 單筆刪除與批次刪除統一升級為全新確認彈窗；當選取項目包含索引（Index）或捷徑（Symlink）檔案時提供明確勾選框（每次開啟預設皆為未勾選，避免誤刪）。
+  - 勾選後即時切換紅色警告提示與紅色 `永久刪除` 按鈕，並內建防呆機制絕不誤刪資料夾。
+- **端對端加密（AES-256-GCM）預設開啟 ＋ 自動產生隨機 256-bit AES 金鑰**：
+  - 於 **偏好設定 → 同步與協作** 預設開啟零知識端對端加密，自動以 `crypto/rand` 產生 256-bit 隨機金鑰（`rglx-aes256-...`），開箱即保護所有個人同步檔案與中繼資料。
+  - 支援 **顯示 / 隱藏**、**複製**、**另存金鑰檔**（`0o600` 權限）、**載入金鑰檔**（供其他裝置快速還原解密）與 **重新產生**。
+- **插件目錄全面統一英文並上線官方社群市集 Repo**：建立公開 [`Batkixni/raglex-plugins`](https://github.com/Batkixni/raglex-plugins) 遠端插件目錄。
+- **全新 Self-Host 指南、瀏覽器擴充安裝文件與官網重構**：新增 [`docs/SELF_HOST.md`](./docs/SELF_HOST.md)、[`docs/BROWSER_EXTENSION.md`](./docs/BROWSER_EXTENSION.md)，重構中／英／日三語 README 聚焦核心原生優勢，並同步重構官網與三語 `/docs` 文件頁。
+
+---
+
 ## [v0.4.4] - 2026-11-24
 
 ### 🔒 隱私與安全性全面強化 / Privacy & Security Hardening

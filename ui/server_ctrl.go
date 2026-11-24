@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -36,6 +37,108 @@ func (a *App) ensureServerToken() string {
 		a.syncConfigFromState()
 	}
 	return a.serverToken
+}
+
+func (a *App) ensureSyncE2EEKey() string {
+	if strings.TrimSpace(a.syncE2EEPassphrase) == "" {
+		if gen, err := rsync.GenerateE2EEKey(); err == nil {
+			a.syncE2EEPassphrase = gen
+			a.syncConfigFromState()
+		}
+	}
+	return strings.TrimSpace(a.syncE2EEPassphrase)
+}
+
+func (a *App) effectiveSyncE2EEKey() string {
+	if !a.syncE2EEEnabled {
+		return ""
+	}
+	return a.ensureSyncE2EEKey()
+}
+
+func (a *App) exportSyncE2EEKeyFile() {
+	key := a.ensureSyncE2EEKey()
+	if key == "" || a.win == nil {
+		return
+	}
+	win := a.win
+	title := a.t("sync.e2eeSaveFile")
+	content := rsync.FormatE2EEKeyFile(key, a.accountEmail)
+	defName := fmt.Sprintf("raglex-e2ee-key-%s.txt", time.Now().Format("20060102"))
+	go func() {
+		dst, err := mygo.Dialog.Save(mygo.SaveDialogOptions{
+			Parent:      win,
+			Title:       title,
+			DefaultPath: defName,
+		})
+		if err != nil || strings.TrimSpace(dst) == "" {
+			return
+		}
+		writeErr := os.WriteFile(dst, []byte(content), 0o600)
+		win.Update(func() {
+			if a.isClosed() {
+				return
+			}
+			if writeErr != nil {
+				a.notify(writeErr.Error())
+				return
+			}
+			a.notify(fmt.Sprintf(a.t("sync.e2eeSaved"), filepath.Base(dst)))
+		})
+	}()
+}
+
+func (a *App) importSyncE2EEKeyFile() {
+	if a.win == nil {
+		return
+	}
+	win := a.win
+	title := a.t("sync.e2eeLoadFile")
+	go func() {
+		paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{
+			Parent: win,
+			Title:  title,
+			Filters: []mygo.FileFilter{
+				{Name: "Raglex Recovery Key (*.txt)", Extensions: []string{"txt", "key"}},
+			},
+		})
+		if err != nil || len(paths) == 0 || strings.TrimSpace(paths[0]) == "" {
+			return
+		}
+		raw, readErr := os.ReadFile(paths[0])
+		win.Update(func() {
+			if a.isClosed() {
+				return
+			}
+			if readErr != nil {
+				a.notify(readErr.Error())
+				return
+			}
+			parsed := rsync.ParseE2EEKeyFile(string(raw))
+			if parsed == "" {
+				a.notify(a.t("sync.e2eeLoadErr"))
+				return
+			}
+			a.syncE2EEEnabled = true
+			a.syncE2EEPassphrase = parsed
+			a.syncConfigFromState()
+			a.notify(a.t("sync.e2eeLoaded"))
+		})
+	}()
+}
+
+func (a *App) regenerateSyncE2EEKeyPrompt() {
+	a.ask(a.t("sync.e2eeRegenTitle"), a.t("sync.e2eeRegenBody"), a.t("sync.e2eeRegen"), func() {
+		gen, err := rsync.GenerateE2EEKey()
+		if err != nil {
+			a.notify(err.Error())
+			return
+		}
+		a.syncE2EEEnabled = true
+		a.syncE2EEPassphrase = gen
+		a.syncConfigFromState()
+		a.notify(a.t("sync.e2eeRegenDone"))
+	})
 }
 
 func (a *App) startBuiltInServer() {
@@ -1144,7 +1247,7 @@ func (a *App) runCloudSync(quiet, pullOnly bool) {
 		ServerURL:            serverURL,
 		Token:                token,
 		DeviceID:             strings.TrimSpace(a.deviceName),
-		E2EEPassphrase:       strings.TrimSpace(a.syncE2EEPassphrase),
+		E2EEPassphrase:       a.effectiveSyncE2EEKey(),
 		ExcludedFolderIDs:    exMap,
 		ExcludeUncategorized: !a.syncIncludeUncat,
 		PullOnly:             pullOnly,

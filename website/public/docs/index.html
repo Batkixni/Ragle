@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="zh-Hant" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Raglex 文件中心 — 功能介紹、Self-Host 自架與瀏覽器擴充教學</title>
+  <meta name="description" content="Raglex 完整三語使用文件：核心功能總覽、Self-Host 端對端加密同步伺服器架設、瀏覽器擴充安裝與離線收件資料夾教學。" />
+  <link rel="icon" type="image/png" href="/assets/app-icon.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&family=Noto+Sans+JP:wght@400;500;700;800&family=Noto+Sans+TC:wght@400;500;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/assets/styles.css" />
+  <script>
+    try {
+      var t = localStorage.getItem("raglex-theme");
+      if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t);
+      var l = new URLSearchParams(location.search).get("lang") || localStorage.getItem("raglex-lang");
+      if (l === "zh-Hant" || l === "en" || l === "ja") document.documentElement.lang = l;
+    } catch (e) {}
+  </script>
+</head>
+<body
+  data-title-zh="Raglex 文件中心 — 功能介紹、Self-Host 自架與瀏覽器擴充"
+  data-title-en="Raglex Docs — Features, Self-Host Sync & Browser Extension"
+  data-title-ja="Raglex ドキュメント — 機能紹介・Self-Host 構築・ブラウザ拡張"
+>
+  <header class="nav">
+    <div class="container nav-inner">
+      <a href="/" class="brand">
+        <img src="/assets/logo.png" alt="Raglex" class="brand-mark" />
+        <span>Raglex</span>
+      </a>
+      <nav class="nav-links" aria-label="Primary">
+        <a href="/" class="nav-link" data-i18n-zh="首頁" data-i18n-en="Home" data-i18n-ja="ホーム">首頁</a>
+        <a href="/docs" class="nav-link is-active" data-i18n-zh="文件與教學" data-i18n-en="Docs" data-i18n-ja="ドキュメント">文件與教學</a>
+        <a href="/#download" class="nav-link" data-i18n-zh="下載" data-i18n-en="Download" data-i18n-ja="ダウンロード">下載</a>
+        <a href="https://github.com/Batkixni/Raglex" target="_blank" rel="noopener noreferrer" class="nav-link">GitHub</a>
+      </nav>
+      <div class="nav-controls">
+        <div class="lang-pill" role="group" aria-label="Language">
+          <button type="button" class="lang-btn" data-set-lang="zh-Hant">繁中</button>
+          <button type="button" class="lang-btn" data-set-lang="en">EN</button>
+          <button type="button" class="lang-btn" data-set-lang="ja">日本語</button>
+        </div>
+        <button type="button" id="theme-toggle" class="icon-btn" aria-label="Toggle Theme">
+          <svg id="theme-icon-sun" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg>
+          <svg id="theme-icon-moon" style="display:none" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <div class="container docs-shell">
+    <!-- Sticky Sidebar TOC -->
+    <aside class="docs-sidebar" aria-label="Documentation navigation">
+      <div>
+        <div class="docs-group-label" data-i18n-zh="指南目錄" data-i18n-en="Documentation" data-i18n-ja="ドキュメント目次">指南目錄</div>
+        <nav class="docs-nav">
+          <a href="#features" data-i18n-zh="1. 核心功能與架構" data-i18n-en="1. Core Features" data-i18n-ja="1. コア機能と設計">1. 核心功能與架構</a>
+          <a href="#self-host" data-i18n-zh="2. Self-Host 自架同步指南" data-i18n-en="2. Self-Host Sync Guide" data-i18n-ja="2. Self-Host 同期構築ガイド">2. Self-Host 自架同步指南</a>
+          <a href="#extension" data-i18n-zh="3. 瀏覽器擴充安裝與使用" data-i18n-en="3. Browser Extension" data-i18n-ja="3. ブラウザ拡張機能">3. 瀏覽器擴充安裝與使用</a>
+          <a href="#signing" data-i18n-zh="4. macOS 提示與原始碼編譯" data-i18n-en="4. macOS Notice & Source Build" data-i18n-ja="4. macOS 警告とソースビルド">4. macOS 提示與原始碼編譯</a>
+        </nav>
+      </div>
+      <div>
+        <div class="docs-group-label" data-i18n-zh="延伸閱讀" data-i18n-en="Resources" data-i18n-ja="関連リンク">延伸閱讀</div>
+        <nav class="docs-nav">
+          <a href="https://github.com/Batkixni/Raglex/blob/main/docs/PLUGIN_SDK.md" target="_blank" rel="noopener noreferrer">Plugin SDK ↗</a>
+          <a href="https://github.com/Batkixni/raglex-plugins" target="_blank" rel="noopener noreferrer">Plugin Marketplace ↗</a>
+          <a href="https://github.com/Batkixni/Raglex/blob/main/PRIVACY.md" target="_blank" rel="noopener noreferrer">Privacy Policy ↗</a>
+          <a href="https://github.com/Batkixni/Raglex/blob/main/CHANGELOG.md" target="_blank" rel="noopener noreferrer">Changelog ↗</a>
+        </nav>
+      </div>
+    </aside>
+
+    <!-- Main Documentation Content -->
+    <article class="docs-article">
+      <!-- ==================== SECTION 1: FEATURES ==================== -->
+      <section id="features" class="docs-section">
+        <span class="eyebrow">01 · Core Features</span>
+
+        <div data-lang-block="zh-Hant">
+          <h1 class="docs-h1">核心功能與原生架構介紹</h1>
+          <p class="docs-lead">Raglex 以 Go + MyGo 與嵌入式 bbolt 資料庫打造，徹底避開 Electron 的記憶體與啟動開銷，專注於「檔案自主權、離線 AI 搜圖、無限參考白板與完全可自架同步」。</p>
+
+          <h3 class="docs-h3">1. 原生極速效能與跨平台體驗</h3>
+          <ul>
+            <li><strong>單一 ~21 MB 原生執行檔</strong>：無瀏覽器核心負擔，冷啟動不到 1 秒，支援 Windows 11 Acrylic、macOS Vibrancy 原生視窗按鈕與 Linux 桌面。</li>
+            <li><strong>萬筆圖庫視窗虛擬化</strong>：素材網格與白板托盤皆採虛擬化渲染，面對數萬張設計素材依然維持高幀率捲動。</li>
+          </ul>
+
+          <h3 class="docs-h3">2. 四種非破壞性存放模式（預設「索引不複製」）</h3>
+          <table class="spec-table">
+            <thead><tr><th>存放模式</th><th>磁碟行為</th><th>刪除時預設行為</th></tr></thead>
+            <tbody>
+              <tr><td><code>Index</code>（預設）</td><td><strong>完全不複製、不搬動原檔</strong>，直接索引你的原始資料夾</td><td>僅移除資料庫紀錄；可於刪除彈窗明確勾選「同時永久刪除實體檔案」</td></tr>
+              <tr><td><code>Symlink</code></td><td>於資料庫建立系統捷徑連結指向原檔</td><td>僅移除連結；勾選永久刪除時一併移除目標檔案</td></tr>
+              <tr><td><code>Copy</code></td><td>複製一份獨立副本至資料庫目錄，原檔不受影響</td><td>僅移除資料庫副本，保留原本外部檔案</td></tr>
+              <tr><td><code>Move</code></td><td>將檔案移入資料庫統一託管</td><td>永久移除資料庫內該檔案（刪除前會顯示明確警告）</td></tr>
+            </tbody>
+          </table>
+
+          <h3 class="docs-h3">3. 本機視覺 AI Embedding、OKLab 色票與離線自動分類</h3>
+          <ul>
+            <li><strong>本機視覺 AI Embedding</strong>：完全在你的電腦本機計算圖片特徵向量與感知雜湊，不需連網即可進行「以圖搜圖」與「尋找相似風格／構圖素材」。</li>
+            <li><strong>OKLab 主色票提取</strong>：匯入時自動計算 5 組代表色，右側資訊欄點擊色點即可複製 HEX，搜尋列可直接按色系篩選。</li>
+            <li><strong>本機 Ollama / Laya 智慧標籤（選配）</strong>：在偏好設定填入本機端點 URL 與視覺模型名稱，即可獲得非侵入式標籤建議，完全不經過第三方 API。</li>
+          </ul>
+
+          <h3 class="docs-h3">4. 無限參考白板 &amp; 永遠置頂浮動參考視窗</h3>
+          <ul>
+            <li>支援自由縮放平移、圖片排列、多選對齊、群組、畫框（Frame）、手繪標記筆、箭頭與多行文字筆記。</li>
+            <li>可將任一白板彈出為<strong>永遠置頂半透明參考視窗</strong>（可調透明度、縮放、灰階切換），配合 Blender、Photoshop、Figma、Clip Studio 使用。</li>
+          </ul>
+
+          <h3 class="docs-h3">5. 平行資料夾、階層標籤、版本堆疊、全媒體與插件市集</h3>
+          <ul>
+            <li><strong>整理工具</strong>：平行階層資料夾、8 色繼承標籤樹、版本堆疊（Stacks）、監控資料夾（Watch Folders）自動匯入、規則式批次重新命名（含衝突預覽與復原）。</li>
+            <li><strong>全媒體預覽</strong>：圖片、影片（隨附靜態 <code>ffmpeg</code>）、相機 RAW（<code>CR3</code>/<code>ARW</code>/<code>NEF</code>/<code>RAF</code>/<code>NAF</code>/<code>DNG</code>）、SVG、字型、音訊與 PDF。</li>
+            <li><strong>開放插件系統</strong>：透過標準 stdin/stdout JSON 協議支援任何程式語言，內建社群 PR 市集 <code>Batkixni/raglex-plugins</code>（包含 Eagle Import、重複素材掃描、色票匯出器等外掛）。</li>
+          </ul>
+        </div>
+
+        <div data-lang-block="en">
+          <h1 class="docs-h1">Core Features &amp; Native Architecture</h1>
+          <p class="docs-lead">Built with Go + MyGo and embedded bbolt, Raglex eliminates Electron overhead and centers around file ownership, offline visual AI search, infinite moodboards, and self-hosted E2EE sync.</p>
+
+          <h3 class="docs-h3">1. 100% Native Speed Across Platforms</h3>
+          <ul>
+            <li><strong>Single ~21 MB native executable</strong>: Instant cold start and minimal RAM footprint, tailored for Windows 11 Acrylic, macOS Vibrancy &amp; native traffic lights, and Linux.</li>
+            <li><strong>Viewport Virtualization</strong>: Both the library grid and board library tray virtualize rendering so 10,000+ asset collections stay responsive.</li>
+          </ul>
+
+          <h3 class="docs-h3">2. Four Storage Modes (Non-Destructive Index by Default)</h3>
+          <table class="spec-table">
+            <thead><tr><th>Mode</th><th>Disk Behavior</th><th>Default Delete Behavior</th></tr></thead>
+            <tbody>
+              <tr><td><code>Index</code> (Default)</td><td><strong>Never copies or moves files</strong> — indexes folders in place</td><td>Removes DB index only; explicit opt-in checkbox available for permanent disk deletion</td></tr>
+              <tr><td><code>Symlink</code></td><td>Creates a symlink inside the library pointing to your file</td><td>Removes symlink only; permanent checkbox also deletes the target regular file</td></tr>
+              <tr><td><code>Copy</code></td><td>Copies an independent file into the library folder</td><td>Deletes the library copy only; external original stays untouched</td></tr>
+              <tr><td><code>Move</code></td><td>Moves the file into the library folder</td><td>Permanently removes the moved file (with clear danger warning)</td></tr>
+            </tbody>
+          </table>
+
+          <h3 class="docs-h3">3. On-Device Visual AI Embedding, OKLab Palette &amp; Local Auto-Tagging</h3>
+          <ul>
+            <li><strong>Local Visual AI Embedding</strong>: Computes image feature vectors and perceptual hashes locally for instant <strong>Search by Image</strong> and visual similarity search — 100% offline.</li>
+            <li><strong>OKLab Dominant Palette</strong>: Automatically extracts 5 dominant swatches per asset; click any swatch in the Inspector to copy HEX or filter your library by color.</li>
+            <li><strong>Optional Local Ollama / Laya Vision Tagging</strong>: Connect your own local vision model to generate non-intrusive tag suggestions without sending data to cloud APIs.</li>
+          </ul>
+
+          <h3 class="docs-h3">4. Infinite Reference Boards &amp; Always-on-Top Floating Window</h3>
+          <ul>
+            <li>GPU-accelerated freeform moodboards supporting groups, frames, freehand strokes, arrows, and multiline text notes.</li>
+            <li>Pop out any board into a translucent <strong>always-on-top floating reference window</strong> with opacity, zoom, and grayscale controls over Blender, Photoshop, Figma, or Clip Studio.</li>
+          </ul>
+
+          <h3 class="docs-h3">5. Organization, Creative Media &amp; Open Plugin Marketplace</h3>
+          <ul>
+            <li><strong>Workflow</strong>: Parallel hierarchical folders, 8-color inherited tags, version stacks, Watch Folders, and rule-based Batch Rename with conflict preview &amp; undo.</li>
+            <li><strong>Media</strong>: Images, video (with bundled static <code>ffmpeg</code>), Camera RAW (<code>CR3</code>/<code>ARW</code>/<code>NEF</code>/<code>RAF</code>/<code>NAF</code>/<code>DNG</code>), SVG, fonts, audio, and PDFs.</li>
+            <li><strong>Plugin Marketplace</strong>: Any-language stdin/stdout JSON plugins distributed via <code>Batkixni/raglex-plugins</code> (including Eagle Import, Smart Duplicate Finder, Color Palette Exporter, Auto Aspect Tagger, and more).</li>
+          </ul>
+        </div>
+
+        <div data-lang-block="ja">
+          <h1 class="docs-h1">コア機能とネイティブ設計</h1>
+          <p class="docs-lead">Go + MyGo と組み込み bbolt による純ネイティブ構成。Electron の重さを排除し、ファイル所有権・ローカル視覚 AI 検索・無限ボード・Self-Host 暗号化同期を軸に設計されています。</p>
+
+          <h3 class="docs-h3">1. 100% ネイティブ高速動作</h3>
+          <ul>
+            <li><strong>約 21 MB の単一ネイティブバイナリ</strong>：瞬時に起動し、省メモリで動作。Windows 11 Acrylic、macOS Vibrancy＆ネイティブボタン、Linux に対応。</li>
+            <li><strong>ビューポート仮想化</strong>：ライブラリ一覧・ボード内トレイともに仮想化レンダリングを採用し、数万件の素材でも滑らかに動作します。</li>
+          </ul>
+
+          <h3 class="docs-h3">2. 4 種類の保存方式（デフォルトはコピー不要の Index）</h3>
+          <table class="spec-table">
+            <thead><tr><th>方式</th><th>ディスク上の動作</th><th>削除時のデフォルト動作</th></tr></thead>
+            <tbody>
+              <tr><td><code>Index</code>（初期設定）</td><td><strong>元ファイルを複製・移動せず</strong>その場で管理</td><td>DB 記録のみ削除。完全削除したい場合のみモーダル内で明示チェック可能</td></tr>
+              <tr><td><code>Symlink</code></td><td>ライブラリ内に元ファイルへのリンクを作成</td><td>リンクのみ削除（完全削除チェック時は実ファイルも削除）</td></tr>
+              <tr><td><code>Copy</code></td><td>ライブラリ内に独立コピーを作成</td><td>ライブラリ内コピーのみ削除し、外部の元ファイルは保持</td></tr>
+              <tr><td><code>Move</code></td><td>ファイルをライブラリへ移動</td><td>移動済みファイルを完全削除（警告表示あり）</td></tr>
+            </tbody>
+          </table>
+
+          <h3 class="docs-h3">3. ローカル視覚 AI Embedding・OKLab パレット・自動タグ</h3>
+          <ul>
+            <li><strong>端末内視覚 AI Embedding</strong>：特徴ベクトルと知覚ハッシュを完全オフラインで計算し、類似画像検索や画像からの検索を高速に実行。</li>
+            <li><strong>OKLab 5 色パレット</strong>：代表色を自動抽出し、ワンクリックで HEX コピーや色調フィルタが可能。</li>
+            <li><strong>ローカル Ollama / Laya 連携（任意）</strong>：自宅 PC 上のビジョンモデルと接続し、外部クラウドへ送信せずにタグ候補を提案します。</li>
+          </ul>
+
+          <h3 class="docs-h3">4. 無限リファレンスボード &amp; 最前面フローティング参照窓</h3>
+          <ul>
+            <li>グループ、フレーム、フリーハンド描画、矢印、複数行メモに対応した GPU 高速化キャンバス。</li>
+            <li>不透明度・ズーム・グレースケール切替を備えた <strong>最前面フローティング参照ウィンドウ</strong> で制作ソフトの上に常駐表示できます。</li>
+          </ul>
+
+          <h3 class="docs-h3">5. 並列フォルダ・階層タグ・クリエイティブ形式・プラグイン市場</h3>
+          <ul>
+            <li>並列階層フォルダ、8 色継承タグ、バージョンスタック、監視フォルダ、プレビュー＆元に戻す付き一括リネームを搭載。</li>
+            <li>画像・静的 <code>ffmpeg</code> 同梱動画・カメラ RAW・SVG・フォント・音声・PDF をネイティブ表示。</li>
+            <li>あらゆる言語で書ける stdin/stdout JSON プラグイン規格と公開レジストリ <code>Batkixni/raglex-plugins</code> に対応。</li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- ==================== SECTION 2: SELF-HOST ==================== -->
+      <section id="self-host" class="docs-section">
+        <span class="eyebrow">02 · Self-Host Sync Server</span>
+
+        <div data-lang-block="zh-Hant">
+          <h2 class="docs-h2">Self-Host 自架端對端加密同步伺服器</h2>
+          <p class="docs-lead">在自家 NAS、家用伺服器或 VPS 用一行 Docker 指令部署開源的 <code>raglex-server</code>，搭配 Raglex 預設開啟的 <strong>AES-256-GCM 零知識端對端加密</strong>，在多台電腦與手機間完全自主同步。</p>
+        </div>
+        <div data-lang-block="en">
+          <h2 class="docs-h2">Self-Hosting Your Own E2EE Sync Server</h2>
+          <p class="docs-lead">Run the open-source <code>raglex-server</code> on your NAS, home server, or VPS in a single Docker command — combined with Raglex's default-ON <strong>AES-256-GCM Zero-Knowledge E2EE</strong> for private multi-device sync.</p>
+        </div>
+        <div data-lang-block="ja">
+          <h2 class="docs-h2">Self-Host E2E 暗号化同期サーバー構築ガイド</h2>
+          <p class="docs-lead">自宅 NAS・ホームサーバー・VPS にオープンソースの <code>raglex-server</code> を Docker 1 コマンドで構築し、デフォルト有効の <strong>AES-256-GCM ゼロ知識 E2E 暗号化</strong> で安全にマルチデバイス同期できます。</p>
+        </div>
+
+        <h3 class="docs-h3" data-i18n-zh="方式一：Docker Compose 一鍵啟動（推薦）" data-i18n-en="Option 1: Docker Compose (Recommended)" data-i18n-ja="方法 1：Docker Compose で起動（推奨）">方式一：Docker Compose 一鍵啟動（推薦）</h3>
+        <div class="code-wrap">
+          <div class="code-head">
+            <span>macOS / Linux (Bash)</span>
+            <button type="button" class="copy-btn" data-copy-target="sh-docker-unix" data-i18n-zh="複製" data-i18n-en="Copy" data-i18n-ja="コピー">複製</button>
+          </div>
+          <pre id="sh-docker-unix">git clone https://github.com/Batkixni/Raglex.git
+cd Raglex/deploy
+export RAGLEX_TOKEN="$(openssl rand -hex 32)"
+docker compose up -d</pre>
+        </div>
+
+        <div class="code-wrap">
+          <div class="code-head">
+            <span>Windows (PowerShell)</span>
+            <button type="button" class="copy-btn" data-copy-target="sh-docker-win" data-i18n-zh="複製" data-i18n-en="Copy" data-i18n-ja="コピー">複製</button>
+          </div>
+          <pre id="sh-docker-win">git clone https://github.com/Batkixni/Raglex.git
+cd Raglex\deploy
+$env:RAGLEX_TOKEN = -join ((1..32) | ForEach-Object { "{0:x2}" -f (Get-Random -Maximum 256) })
+docker compose up -d</pre>
+        </div>
+
+        <h3 class="docs-h3" data-i18n-zh="方式二：獨立執行檔（免 Docker）" data-i18n-en="Option 2: Standalone Binary (No Docker)" data-i18n-ja="方法 2：単体バイナリ実行（Docker 不要）">方式二：獨立執行檔（免 Docker）</h3>
+        <div class="code-wrap">
+          <div class="code-head">
+            <span>raglex-server CLI</span>
+            <button type="button" class="copy-btn" data-copy-target="sh-cli" data-i18n-zh="複製" data-i18n-en="Copy" data-i18n-ja="コピー">複製</button>
+          </div>
+          <pre id="sh-cli">./raglex-server -addr ":47595" -library "/var/lib/raglex" -token "your-strong-secret-token"</pre>
+        </div>
+
+        <h3 class="docs-h3" data-i18n-zh="HTTPS 反向代理範例（Caddy / Nginx）" data-i18n-en="HTTPS Reverse Proxy (Caddy / Nginx)" data-i18n-ja="HTTPS リバースプロキシ設定（Caddy / Nginx）">HTTPS 反向代理範例（Caddy / Nginx）</h3>
+        <div class="code-wrap">
+          <div class="code-head">
+            <span>Caddyfile</span>
+            <button type="button" class="copy-btn" data-copy-target="sh-caddy" data-i18n-zh="複製" data-i18n-en="Copy" data-i18n-ja="コピー">複製</button>
+          </div>
+          <pre id="sh-caddy">sync.yourdomain.com {
+    reverse_proxy 127.0.0.1:47595
+}</pre>
+        </div>
+
+        <div class="code-wrap">
+          <div class="code-head">
+            <span>Nginx</span>
+            <button type="button" class="copy-btn" data-copy-target="sh-nginx" data-i18n-zh="複製" data-i18n-en="Copy" data-i18n-ja="コピー">複製</button>
+          </div>
+          <pre id="sh-nginx">server {
+    listen 443 ssl http2;
+    server_name sync.yourdomain.com;
+    client_max_body_size 512M;
+
+    location / {
+        proxy_pass http://127.0.0.1:47595;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 900s;
+        proxy_send_timeout 900s;
+    }
+}</pre>
+        </div>
+
+        <h3 class="docs-h3" data-i18n-zh="選配：串接 Cloudflare R2 / S3 / MinIO 物件儲存" data-i18n-en="Optional: Cloudflare R2 / S3 / MinIO Object Storage" data-i18n-ja="任意：Cloudflare R2 / S3 / MinIO 連携">選配：串接 Cloudflare R2 / S3 / MinIO 物件儲存</h3>
+        <div class="code-wrap">
+          <div class="code-head">
+            <span>deploy/docker-compose.yml (environment)</span>
+            <button type="button" class="copy-btn" data-copy-target="sh-s3" data-i18n-zh="複製" data-i18n-en="Copy" data-i18n-ja="コピー">複製</button>
+          </div>
+          <pre id="sh-s3">RAGLEX_S3_ENDPOINT: "https://&lt;account-id&gt;.r2.cloudflarestorage.com"
+RAGLEX_S3_BUCKET: "raglex-blobs"
+RAGLEX_S3_REGION: "auto"
+RAGLEX_S3_ACCESS_KEY: "&lt;access-key&gt;"
+RAGLEX_S3_SECRET_KEY: "&lt;secret-key&gt;"</pre>
+        </div>
+
+        <h3 class="docs-h3" data-i18n-zh="在桌面端連線與備份 AES-256 端對端加密金鑰" data-i18n-en="Connect Desktop Clients & Back Up Your AES-256 E2EE Key" data-i18n-ja="デスクトップ接続 ＆ AES-256 E2E キーのバックアップ">在桌面端連線與備份 AES-256 端對端加密金鑰</h3>
+
+        <div data-lang-block="zh-Hant">
+          <div class="step-list">
+            <div class="step-card"><span class="step-num">1</span><div class="step-body"><h4>填入自架伺服器連線資訊</h4><p>開啟 <strong>偏好設定 → 帳號與同步 → Self-Host</strong>，填入你的伺服器網址（如 <code>https://sync.yourdomain.com</code> 或內網 <code>http://&lt;IP&gt;:47595</code>）與 <code>RAGLEX_TOKEN</code>。</p></div></div>
+            <div class="step-card"><span class="step-num">2</span><div class="step-body"><h4>備份自動產生的 256-bit 隨機 AES 金鑰</h4><p>前往 <strong>偏好設定 → 同步與協作</strong>，<strong>端對端加密（AES-256-GCM）</strong>已預設開啟並自動產生 <code>rglx-aes256-...</code> 隨機金鑰。點擊 <strong>另存金鑰檔</strong>（儲存 <code>raglex-e2ee-key-*.txt</code>）或 <strong>複製</strong> 妥善保存。</p></div></div>
+            <div class="step-card"><span class="step-num">3</span><div class="step-body"><h4>在第二台裝置載入金鑰解密還原</h4><p>在另一台電腦同樣輸入伺服器網址與 Token 後，點選 <strong>載入金鑰檔</strong>（或貼上金鑰），即可自動解密並雙向增量同步；你也可以逐一勾選要同步哪些資料夾。</p></div></div>
+          </div>
+        </div>
+
+        <div data-lang-block="en">
+          <div class="step-list">
+            <div class="step-card"><span class="step-num">1</span><div class="step-body"><h4>Enter Your Self-Host Server Details</h4><p>Open <strong>Preferences → Account / Sync → Self-Host</strong> and enter your server URL (e.g. <code>https://sync.yourdomain.com</code> or LAN <code>http://&lt;IP&gt;:47595</code>) plus your <code>RAGLEX_TOKEN</code>.</p></div></div>
+            <div class="step-card"><span class="step-num">2</span><div class="step-body"><h4>Back Up Your Auto-Generated AES-256 Key</h4><p>Under <strong>Preferences → Sync &amp; Collab</strong>, <strong>End-to-End Encryption (AES-256-GCM)</strong> is ON by default with a random <code>rglx-aes256-...</code> key. Click <strong>Save Key File</strong> or <strong>Copy</strong> to back it up safely.</p></div></div>
+            <div class="step-card"><span class="step-num">3</span><div class="step-body"><h4>Load the Key on Your Second Device</h4><p>Enter the same Server URL and Token on your second computer, click <strong>Load Key File</strong> (or paste the key), and start syncing. Use <strong>Selective Folder Sync</strong> to choose which folders sync.</p></div></div>
+          </div>
+        </div>
+
+        <div data-lang-block="ja">
+          <div class="step-list">
+            <div class="step-card"><span class="step-num">1</span><div class="step-body"><h4>Self-Host サーバー情報を入力</h4><p><strong>環境設定 → アカウント / 同期 → Self-Host</strong> を開き、サーバー URL（例：<code>https://sync.yourdomain.com</code>）と <code>RAGLEX_TOKEN</code> を入力します。</p></div></div>
+            <div class="step-card"><span class="step-num">2</span><div class="step-body"><h4>自動生成された AES-256 キーをバックアップ</h4><p><strong>環境設定 → 同期とコラボ</strong> では <strong>エンドツーエンド暗号化 (AES-256-GCM)</strong> が初期設定で有効になっており、<code>rglx-aes256-...</code> キーが自動生成されます。<strong>キーを保存</strong> または <strong>コピー</strong> で安全に保管してください。</p></div></div>
+            <div class="step-card"><span class="step-num">3</span><div class="step-body"><h4>別の端末でキーを読み込んで復号同期</h4><p>2 台目の端末でも同じサーバー URL とトークンを設定し、<strong>キーを読み込む</strong> から保存したファイルを読み込めば自動的に復号・差分同期が始まります。</p></div></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ==================== SECTION 3: BROWSER EXTENSION ==================== -->
+      <section id="extension" class="docs-section">
+        <span class="eyebrow">03 · Browser Companion Extension</span>
+
+        <div data-lang-block="zh-Hant">
+          <h2 class="docs-h2">瀏覽器擴充安裝與使用教學</h2>
+          <p class="docs-lead">支援 Chrome、Edge、Brave、Arc、Firefox 與 Zen Browser。右鍵一鍵存圖並記錄來源網址，亦可批次收集整頁圖片，並支援 Raglex 未開啟時自動落盤至「離線收件資料夾」。</p>
+
+          <div class="step-list">
+            <div class="step-card"><span class="step-num">1</span><div class="step-body"><h4>啟動本機伺服器並複製 Access Key</h4><p>開啟 <strong>Raglex → 偏好設定 → 分享 / 進階</strong>，啟用 <strong>內建本機伺服器</strong>（預設 Port <code>47595</code>，僅綁定本機 <code>127.0.0.1</code>），建議勾選開機自動啟動，並點擊 <strong>複製存取金鑰（Access Key）</strong>。</p></div></div>
+            <div class="step-card"><span class="step-num">2</span><div class="step-body"><h4>安裝擴充套件（Chrome / Edge / Brave / Arc）</h4><p>從 <a href="https://github.com/Batkixni/Raglex/releases/latest" target="_blank" rel="noopener noreferrer" style="color:var(--accent)">GitHub Releases</a> 下載 <code>raglex-browser-extension.zip</code> 並解壓縮到固定資料夾 → 打開 <code>chrome://extensions</code>（Edge 為 <code>edge://extensions</code>）→ 開啟右上角 <strong>開發人員模式</strong> → 點擊 <strong>載入未封裝項目</strong> 選擇剛解壓縮的資料夾。</p></div></div>
+            <div class="step-card"><span class="step-num">3</span><div class="step-body"><h4>安裝擴充套件（Firefox / Zen Browser）</h4><p>從 Releases 下載 <code>raglex-firefox-extension.xpi</code>，拖曳進瀏覽器視窗即可安裝（Developer Edition / Nightly / Zen 需於 <code>about:config</code> 設 <code>xpinstall.signatures.required = false</code>）；正式版 Firefox 可於 <code>about:debugging#/runtime/this-firefox</code> 載入臨時附加元件。</p></div></div>
+            <div class="step-card"><span class="step-num">4</span><div class="step-body"><h4>貼上 Access Key 完成配對 &amp; 設定離線收件匣</h4><p>點開工具列上的 Raglex 圖示，確認網址為 <code>http://127.0.0.1:47595</code> 並貼上 Access Key 看到綠燈連線即完成。若想在沒開 Raglex 時也能存圖，請在 <strong>偏好設定 → 匯入</strong> 設定「離線收件資料夾」（如 <code>~/Downloads/RaglexInbox</code>），下次開啟 Raglex 會自動將圖片與來源資訊全部匯入！</p></div></div>
+          </div>
+        </div>
+
+        <div data-lang-block="en">
+          <h2 class="docs-h2">Browser Companion Extension Guide</h2>
+          <p class="docs-lead">Clip inspiration straight from Chrome, Edge, Brave, Arc, Firefox, or Zen Browser with source URL &amp; page title, batch-collect page images, or capture offline into your Clipper Inbox even when Raglex is closed.</p>
+
+          <div class="step-list">
+            <div class="step-card"><span class="step-num">1</span><div class="step-body"><h4>Enable Built-in Local Server &amp; Copy Access Key</h4><p>Open <strong>Raglex → Preferences → Sharing / Advanced</strong>, turn on <strong>Built-in Local Server</strong> (default port <code>47595</code> on <code>127.0.0.1</code>), optionally enable Auto-Start, and click <strong>Copy Access Key</strong>.</p></div></div>
+            <div class="step-card"><span class="step-num">2</span><div class="step-body"><h4>Install on Chrome / Edge / Brave / Arc</h4><p>Download <code>raglex-browser-extension.zip</code> from <a href="https://github.com/Batkixni/Raglex/releases/latest" target="_blank" rel="noopener noreferrer" style="color:var(--accent)">GitHub Releases</a> and unzip it to a permanent folder → open <code>chrome://extensions</code> (or <code>edge://extensions</code>) → enable <strong>Developer mode</strong> → click <strong>Load unpacked</strong> and select the unzipped folder.</p></div></div>
+            <div class="step-card"><span class="step-num">3</span><div class="step-body"><h4>Install on Firefox / Zen Browser</h4><p>Download <code>raglex-firefox-extension.xpi</code> and drag it into the browser window (on Zen / Developer Edition / Nightly with <code>xpinstall.signatures.required = false</code> in <code>about:config</code>), or load <code>manifest.json</code> via <code>about:debugging#/runtime/this-firefox</code>.</p></div></div>
+            <div class="step-card"><span class="step-num">4</span><div class="step-body"><h4>Pair with Access Key &amp; Optional Offline Inbox</h4><p>Click the Raglex toolbar icon, confirm <code>http://127.0.0.1:47595</code>, and paste your Access Key until the status turns green. To clip while Raglex is closed, configure an <strong>Offline Clipper Inbox</strong> folder (e.g. <code>~/Downloads/RaglexInbox</code>) under <strong>Preferences → Import</strong>.</p></div></div>
+          </div>
+        </div>
+
+        <div data-lang-block="ja">
+          <h2 class="docs-h2">ブラウザ拡張機能のインストールと使い方</h2>
+          <p class="docs-lead">Chrome・Edge・Brave・Arc・Firefox・Zen Browser に対応。右クリック保存やページ内画像の一括収集に加え、Raglex 未起動時でも保存できるオフライン受信トレイを備えています。</p>
+
+          <div class="step-list">
+            <div class="step-card"><span class="step-num">1</span><div class="step-body"><h4>ローカルサーバーを有効化し Access Key をコピー</h4><p><strong>Raglex → 環境設定 → 共有 / 詳細</strong> で <strong>内蔵ローカルサーバー</strong>（既定ポート <code>47595</code>）をオンにし、<strong>アクセスキーをコピー</strong> します。</p></div></div>
+            <div class="step-card"><span class="step-num">2</span><div class="step-body"><h4>Chrome / Edge / Brave / Arc に導入</h4><p><a href="https://github.com/Batkixni/Raglex/releases/latest" target="_blank" rel="noopener noreferrer" style="color:var(--accent)">GitHub Releases</a> から <code>raglex-browser-extension.zip</code> をダウンロードして展開 → <code>chrome://extensions</code>（Edge は <code>edge://extensions</code>）を開く → <strong>デベロッパーモード</strong> を有効化 → <strong>パッケージ化されていない拡張機能を読み込む</strong> で展開フォルダを選択。</p></div></div>
+            <div class="step-card"><span class="step-num">3</span><div class="step-body"><h4>Firefox / Zen Browser に導入</h4><p><code>raglex-firefox-extension.xpi</code> をダウンロードしてウィンドウへドラッグ＆ドロップ（Zen / Developer Edition では <code>about:config</code> の <code>xpinstall.signatures.required = false</code>）、または <code>about:debugging#/runtime/this-firefox</code> から読み込みます。</p></div></div>
+            <div class="step-card"><span class="step-num">4</span><div class="step-body"><h4>Access Key を貼り付けて接続 ＆ オフライン受信設定</h4><p>ツールバーの拡張アイコンを開き、<code>http://127.0.0.1:47595</code> とコピーした Access Key を入力すると接続完了。<strong>環境設定 → 取り込み</strong> でオフライン受信フォルダを指定すると、Raglex を閉じていても画像を保存し次回起動時に自動取り込みできます。</p></div></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ==================== SECTION 4: SIGNING & BUILD ==================== -->
+      <section id="signing" class="docs-section">
+        <span class="eyebrow">04 · Security &amp; Build from Source</span>
+
+        <div data-lang-block="zh-Hant">
+          <h2 class="docs-h2">macOS 安全性提示說明與自行編譯</h2>
+          <div class="callout callout-warn" style="margin-bottom:20px">
+            <h3 class="callout-title">誠實告知：未購買 Apple 開發者簽章</h3>
+            <p>本專案 100% 開源（MPL-2.0），<strong>保證沒有任何惡意代碼、沒有遙測、沒有背景追蹤</strong>。但因個人開源維護沒有經費支付 Apple 每年開發者憑證費用，macOS 使用者首次開啟時會看到系統跳出「危險軟體／無法驗證開發者或已損毀」的警告提示（不影響正常使用）。如果你對未簽章的預編譯檔案有任何疑慮，完全歡迎檢閱原始碼自行編譯，或選擇不使用也沒關係。</p>
+          </div>
+          <p>將 <code>Raglex.app</code> 移入 <code>/Applications</code> 後，在終端機執行一次即可正常開啟：</p>
+        </div>
+
+        <div data-lang-block="en">
+          <h2 class="docs-h2">macOS Gatekeeper Notice &amp; Building from Source</h2>
+          <div class="callout callout-warn" style="margin-bottom:20px">
+            <h3 class="callout-title">Full Transparency: Unsigned Open-Source Builds</h3>
+            <p>Raglex is 100% open source under MPL-2.0 with <strong>zero malicious code and zero telemetry</strong>. Because this is an independent open-source project without a paid Apple Developer certificate, macOS displays a Gatekeeper warning on first launch. If you have any concern about running unsigned binaries, please feel free to audit the source and compile it yourself — or choose not to use prebuilt binaries, completely understandable.</p>
+          </div>
+          <p>After moving <code>Raglex.app</code> to <code>/Applications</code>, run this once in Terminal:</p>
+        </div>
+
+        <div data-lang-block="ja">
+          <h2 class="docs-h2">macOS の警告表示について・ソースからのビルド</h2>
+          <div class="callout callout-warn" style="margin-bottom:20px">
+            <h3 class="callout-title">未署名ビルドについての透明なお知らせ</h3>
+            <p>Raglex は MPL-2.0 の 100% オープンソースであり、<strong>悪意あるコードやテレメトリは一切含まれていません</strong>。個人開発のため有料の Apple Developer 署名証明書を取得しておらず、macOS 初回起動時に警告が表示されます。未署名バイナリに懸念がある場合は、ソースコードをご確認のうえご自身でビルドするか、ご利用をお控えいただいても全く問題ありません。</p>
+          </div>
+          <p><code>Raglex.app</code> を <code>/Applications</code> に配置後、ターミナルで以下を 1 度実行してください：</p>
+        </div>
+
+        <div class="code-wrap">
+          <div class="code-head">
+            <span>macOS Terminal</span>
+            <button type="button" class="copy-btn" data-copy-target="doc-xattr" data-i18n-zh="複製" data-i18n-en="Copy" data-i18n-ja="コピー">複製</button>
+          </div>
+          <pre id="doc-xattr">xattr -cr /Applications/Raglex.app</pre>
+        </div>
+
+        <h3 class="docs-h3" data-i18n-zh="從原始碼自行編譯（Go 1.27+）" data-i18n-en="Build from Source (Go 1.27+)" data-i18n-ja="ソースからビルド（Go 1.27+）">從原始碼自行編譯（Go 1.27+）</h3>
+        <div class="code-wrap">
+          <div class="code-head">
+            <span>Go Build (CGO_ENABLED=0)</span>
+            <button type="button" class="copy-btn" data-copy-target="doc-build" data-i18n-zh="複製" data-i18n-en="Copy" data-i18n-ja="コピー">複製</button>
+          </div>
+          <pre id="doc-build">git clone https://github.com/Batkixni/Raglex.git
+cd Raglex
+CGO_ENABLED=0 go tool mygo build -o build/dev</pre>
+        </div>
+      </section>
+    </article>
+  </div>
+
+  <footer class="footer">
+    <div class="container footer-inner">
+      <span>© 2026 Raglex · MPL-2.0 Open Source</span>
+      <div class="footer-links">
+        <a href="/" data-i18n-zh="回首頁" data-i18n-en="Home" data-i18n-ja="ホーム">回首頁</a>
+        <a href="https://github.com/Batkixni/Raglex/blob/main/PRIVACY.md" target="_blank" rel="noopener noreferrer" data-i18n-zh="隱私政策" data-i18n-en="Privacy" data-i18n-ja="プライバシー">隱私政策</a>
+        <a href="https://github.com/Batkixni/raglex-plugins" target="_blank" rel="noopener noreferrer" data-i18n-zh="插件市集" data-i18n-en="Plugins" data-i18n-ja="プラグイン">插件市集</a>
+        <a href="https://github.com/Batkixni/Raglex" target="_blank" rel="noopener noreferrer">GitHub</a>
+        <a href="https://github.com/Batkixni/Raglex/releases" target="_blank" rel="noopener noreferrer">Releases</a>
+      </div>
+    </div>
+  </footer>
+
+  <script src="/assets/app.js"></script>
+</body>
+</html>

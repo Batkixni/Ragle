@@ -1,18 +1,20 @@
 <p align="center">
-  <img src="docs/screenshots/cover.png" alt="Raglex — Organize references. Build moodboards. Stay local." width="100%" />
+  <img src="docs/screenshots/cover.png" alt="Raglex — Native local-first visual reference library & infinite moodboard" width="100%" />
 </p>
 
 <p align="center">
   <a href="README.md"><strong>English</strong></a> &nbsp;·&nbsp;
   <a href="README.zh-TW.md">繁體中文</a> &nbsp;·&nbsp;
-  <a href="README.ja.md">日本語</a>
+  <a href="README.ja.md">日本語</a> &nbsp;·&nbsp;
+  <a href="https://raglex.sorai.tw">Website</a> &nbsp;·&nbsp;
+  <a href="https://raglex.sorai.tw/docs">Docs</a>
 </p>
 
 <p align="center">
   <a href="LICENSE"><img src="https://shieldcn.dev/github/license/Batkixni/Raglex.svg?variant=secondary" alt="License: MPL 2.0" /></a>
   <a href="https://github.com/Batkixni/Raglex/stargazers"><img src="https://shieldcn.dev/github/stars/Batkixni/Raglex.svg?variant=secondary" alt="GitHub Stars" /></a>
-  <img src="https://shieldcn.dev/badge/Version-v0.4.4-FF5C33.svg" alt="v0.4.4" />
-  <img src="https://shieldcn.dev/badge/Go-1.24+-00ADD8.svg" alt="Go 1.24+" />
+  <img src="https://shieldcn.dev/badge/Version-v0.4.5-FF5C33.svg" alt="v0.4.5" />
+  <img src="https://shieldcn.dev/badge/Go-1.27+-00ADD8.svg" alt="Go 1.27+" />
   <img src="https://shieldcn.dev/badge/UI-MyGo_Native-FF5C33.svg" alt="MyGo Native UI" />
   <img src="https://shieldcn.dev/badge/Platform-macOS_%7C_Windows_%7C_Linux-3F3F46.svg" alt="Platforms" />
 </p>
@@ -23,138 +25,135 @@
   </a>
 </div>
 
+<p align="center">
+  <strong>Open-source, 100% native digital asset manager, offline visual AI search, and infinite reference board — built with Go + MyGo.</strong><br/>
+  Zero Electron. Zero forced copying. Zero telemetry. Your files stay on your disk.
+</p>
+
+---
+
 ## Workspace Previews
 
-| Frosted Glass Library & Inspector | Project Workspace & Board Previews |
+| Native Library & Inspector | Project Workspace & Board Previews |
 | :---: | :---: |
-| <img src="docs/screenshots/inspector.png" alt="Frosted Glass Library & Inspector" width="100%" /> | <img src="docs/screenshots/project.png" alt="Project Workspace" width="100%" /> |
+| <img src="docs/screenshots/inspector.png" alt="Native Library & Inspector" width="100%" /> | <img src="docs/screenshots/project.png" alt="Project Workspace & Board Previews" width="100%" /> |
 
 | Infinite Moodboard Studio | Always-on-Top Floating Reference Window |
 | :---: | :---: |
-| <img src="docs/screenshots/board.png" alt="Infinite Moodboard" width="100%" /> | <img src="docs/screenshots/refwin.png" alt="Floating Reference Window" width="100%" /> |
+| <img src="docs/screenshots/board.png" alt="Infinite Moodboard Studio" width="100%" /> | <img src="docs/screenshots/refwin.png" alt="Always-on-Top Floating Reference Window" width="100%" /> |
 
 ---
 
-## Why Raglex?
+## Core Highlights
 
-**Raglex** is a fast, native desktop visual asset manager and infinite moodboard studio — built **100% local-first** with a **single local database** (`bbolt`) that stays completely yours on disk.
+### 1. 100% Native Performance (Zero Electron)
+- Compiled into a single **~21 MB native binary** in **Go + [MyGo](https://github.com/egoist/mygo)** (`CGO_ENABLED=0` cross-compilable) backed by embedded **bbolt**.
+- Instant cold start, fluid 120Hz scrolling across tens of thousands of assets with viewport virtualization, and ultra-low memory footprint.
+- Native platform craft: Windows 11 Acrylic translucency & Snap Layouts, macOS Vibrancy & native window controls, and clean Linux support.
 
-Built with **Go** and **[MyGo Native UI](https://github.com/egoist/mygo)** (`CGO_ENABLED=0`), Raglex starts instantaneously, runs smoothly across **macOS (Apple Silicon & Intel)**, **Windows (x64 & ARM64)**, and **Linux (x64 & ARM64)**, and ships in **English**, **Traditional Chinese (繁體中文)**, and **Japanese (日本語)**.
+### 2. Non-Destructive Indexing — Your Files Stay Yours
+- **Default `Index` mode never copies or moves your original files.** Raglex reads your folders in place with zero duplication and zero proprietary lock-in.
+- Need managed storage? Switch anytime per import between **Index**, **Symlink**, **Copy**, and **Move**.
+- Safe by default: deleting an indexed asset only removes the library record — and if you actually want to remove the file from disk, an explicit opt-in checkbox (**Also permanently delete from disk**) is right inside the delete modal.
 
----
+### 3. Infinite Reference Boards & Always-on-Top Floating Window
+- GPU-accelerated freeform moodboards with smooth pan/zoom, multi-select alignment, groups, frames, freehand markup, arrows, and multiline text notes.
+- Pop any board out into an **always-on-top translucent floating reference window** (with opacity, zoom, and grayscale toggle) while painting, modeling, or designing in Blender, Photoshop, Figma, or Clip Studio.
 
-## Key Features
+### 4. Local Visual AI Embedding, Color Palette & Offline Auto-Tagging
+- **Built-in on-device Visual AI Embedding**: computes visual feature vectors + perceptual hashes locally for instant **Search by Image** and **Find Similar Assets** — 100% offline.
+- **OKLab Dominant Color Palette**: automatically extracts 5-color palettes per asset so you can click any swatch to copy HEX or filter your entire library by color harmony.
+- **Optional Local AI Auto-Tagging (Ollama / Laya)**: connect your own local vision model to get non-intrusive tag suggestions without sending a single pixel to third-party APIs.
 
-### Parallel Folders, Hierarchical Tags & Asset Stacks
-- **Parallel Folders & Tags**: Organize your library using nested **Folders** and nested **Colored Tags** side by side — switch smoothly from the bottom-left gliding switcher, drag-and-drop assets to categorize, batch-delete folders with optional nested subfolder removal, and preserve full folder hierarchies when importing local directories.
-- **Flexible Storage Modes**: Import by **Index** (leave files in place), **Symlink**, **Move**, or **Copy** — backed by live filesystem watching, automatic database snapshots (`raglex.db.bak`), and customizable sidebar top filters.
-- **Editorial Layouts**: Switch effortlessly between **Bento**, **Waterfall Masonry**, and **Grid** views with real-time zoom, star ratings, and marquee rubber-band multi-selection.
-- **Asset Stacks (`Ctrl+G`)**: Fold `poster_v1` / `poster_v2` / `poster_final` or multi-angle character sheets into a single tidy stacked card, or auto-group matching filenames in one click via `Ctrl+T`.
+### 5. Parallel Folders, Hierarchical Tags, Stacks & Full Creative Media
+- **Parallel Folders & Hierarchical Tags** with 8-color inheritance, drag-and-drop sorting, version **Stacks**, **Watch Folders** for automatic ingestion, and a rule-based **Batch Rename** engine with live conflict preview & undo.
+- **Bento**, **Masonry**, and **Grid** views, Quick Look (`Space`), and native playback/preview for images, videos (**bundled static `ffmpeg`**), Camera RAW (`CR3`, `ARW`, `NEF`, `RAF`, `NAF`, `DNG`), SVG, fonts, audio, and PDFs.
 
-### Raglex Cloud, Selective Sync & Collaboration Spaces (v0.4.0)
-- **20 GB Cloud Storage & High-Speed Sync**: Sign in to **Raglex Cloud** (or switch anytime to your own **Self-Host** Docker server) for 6-worker HTTP/2 delta sync with live sidebar progress and clear 20 GB quota monitoring.
-- **Selective Folder Sync**: Under `Preferences → Sync & Collab`, choose exactly which folders upload to Cloud / Self-Host (excluding nested subfolders automatically) to save quota and bandwidth.
-- **Team Collaboration Spaces (`CLB-XXXX-XXXX`)**: Share a reference Folder or Project with friends so everyone can contribute references together. **Per-user whiteboard ownership**: each member edits only their own whiteboards while viewing teammates' boards conflict-free.
-- **Public Share Codes (`SHR-XXXX-XXXX`) & E2E Transfers**: Publish a Folder or Project to a public share code that anyone — even without a Raglex account — can paste and download, or transfer directly over LAN / E2E pairing codes.
+### 6. Browser Companion Extension (Chrome / Edge / Brave / Arc / Firefox / Zen)
+- Right-click any image to clip with source URL & title, batch-collect images from a webpage, or save clips into an **Offline Clipper Inbox** even when Raglex is closed.
+- Full guide: [`docs/BROWSER_EXTENSION.md`](docs/BROWSER_EXTENSION.md) · Online Docs: [raglex.sorai.tw/docs](https://raglex.sorai.tw/docs#extension)
 
-### Native Designer Format Previews & Borderless Markdown Desk
-Inspect and edit creative assets inline without leaving Raglex:
-- **Borderless Markdown Desk**: Clean reading, split, and live editing modes with paragraph focus dimming, YAML frontmatter, tables, clickable task checkboxes, GitHub alerts, and `Ctrl+S` direct save.
-- **Fonts (`.ttf` / `.otf`)**: Live custom preview text input, `24pt / 36pt / 48pt / 72pt` size switcher, full glyph waterfall, and `Aa` specimen thumbnails.
-- **Audio (`.wav` / `.mp3` / `.flac` / `.ogg` / `.m4a` / `.aac`)**: Interactive 96-bar clickable waveform scrubber, direct playback, volume control, and waveform grid thumbnails.
-- **SVG Vectors (`.svg`) & Multi-Page PDF (`.pdf`)**: Lossless GPU vector zoom (25% – 800%) with transparency checkerboard, plus page-by-page PDF navigation.
-- **Images, RAW & Video**: Full-stage inline viewer with zoom, animated GIF & bundled `ffmpeg` video playback, and an **Info / Similar** Inspector sidebar.
+### 7. Self-Hosted Zero-Knowledge E2EE Sync & 6-Char P2P Transfer
+- Host your own private sync server in one command via Docker (`deploy/docker-compose.yml` + `raglex-server`) with optional **Cloudflare R2 / S3 / MinIO** storage, Mobile `/mobile` PWA, and MCP Server.
+- **Zero-Knowledge AES-256-GCM E2EE enabled by default**: Raglex automatically generates a local 256-bit random AES key (`rglx-aes256-...`) that encrypts personal sync files, filenames, tags, folders, and notes on-device before upload. Export (`Save Key File`) or load (`Load Key File`) to sync across your own devices.
+- **Selective Folder Sync** + **Smart Delta Auto-Sync** (~150 B idle polling) + **6-character E2E encrypted P2P transfers**.
+- Full guide: [`docs/SELF_HOST.md`](docs/SELF_HOST.md) · Online Docs: [raglex.sorai.tw/docs](https://raglex.sorai.tw/docs#self-host)
 
-### Moodboards & Always-on-Top Floating Reference Window
-- **Standalone & Project Boards**: Create freeform infinite moodboards right from the sidebar or inside any project — drag assets, arrange groups, add sticky notes, vector arrows, section frames, pan, zoom, and rotate.
-- **Always-on-Top Floating Reference Window**: Pop out any board into a frameless, always-on-top reference window with an auto-hiding HUD, adjustable **background & image opacity**, click-through lock, flip/grayscale checks, and fit (`F`).
-
-### Local AI, Eagle Import, MCP & Ecosystem
-- **Built-in Visual Search**: Pure-Go 128-dim visual embeddings, 64-bit pHash/dHash perceptual similarity, and 5-color OKLab palette search — works 100% offline.
-- **One-Click In-App Laya / Ollaya Deployment**: Deploy and manage local open-source **Laya** decision models (`laya:multilingual`, `laya`, `winnow:e4b`) directly inside `Preferences → AI & Models`.
-- **Official Eagle Import Plugin**: Import `.library` folders and `.eaglepack` archives via `+ Import → Import from Eagle`, preserving nested folders, tags, and web bookmarks with thumbnails.
-- **Built-in Web Server (`raglex-server`) & MCP Server (`raglex-mcp`)**: Share dark-mode web galleries & `/mobile` PWA over LAN, or connect MCP-compatible AI assistants (17 tools).
-- **Browser Companion Extension (`extensions/browser/` & `extensions/firefox/`)**: Clip images, screenshots, and bookmarks even when Raglex is closed via the offline drop folder.
-
----
-
-## Keyboard Shortcuts
-
-All shortcuts are customizable under `Preferences → Shortcuts` (automatically mapped between `Ctrl` and macOS `⌘`).
-
-| Shortcut | Action |
-| :--- | :--- |
-| `Ctrl+T` / `Cmd+T` | Open Go to / Command Palette |
-| `Ctrl+F` / `Cmd+F` | Focus Library Search |
-| `Ctrl+I` / `Cmd+I` | Import Files |
-| `Ctrl+A` / `Cmd+A` | Select All Visible Assets |
-| `Ctrl+G` / `Cmd+G` | Group Selected Assets into a Version Stack |
-| `F2` | Batch Rename Selection |
-| `Ctrl+Z` / `Cmd+Z` | Undo Last Batch Rename |
-| `Ctrl+C` / `Ctrl+V` | Copy OS Files / Paste Files or Clipboard Images |
-| `Space` | Quick Look / Full Inline Asset Preview |
-| `Ctrl+Alt+C` | Toggle Focus Mode |
-| `Ctrl+Alt+G` | Toggle Grayscale Preview |
-| `0` – `5` | Set Star Rating |
-| `F` *(in Floating Ref)* | Fit All References to Window |
-| `Esc` | Close Preview / Stack / Modal |
+### 8. Open Plugin Marketplace & Built-in Local API / MCP
+- Write plugins in **any language** (Go, Python, Node.js, Rust, PowerShell, Bash) using Raglex's stdin/stdout JSON SDK ([`docs/PLUGIN_SDK.md`](docs/PLUGIN_SDK.md)) and publish via PR to [`Batkixni/raglex-plugins`](https://github.com/Batkixni/raglex-plugins).
+- Official optional plugins available in 1 click: **Eagle Import** (`.library` / `.eaglepack`), **Smart Duplicate Finder**, **Color Palette Exporter (CSS/JSON)**, **Auto Aspect Ratio & Resolution Tagger**, and **Markdown Notes & Moodboard Brief**.
+- Token-protected built-in local server (`X-Raglex-Token` + strict localhost/extension CORS + `HttpOnly` Web Gallery / Mobile PWA) and **MCP Server** for AI assistants.
 
 ---
 
-## Supported Platforms
+## Download & Installation
+
+Grab the latest release from **[GitHub Releases](https://github.com/Batkixni/Raglex/releases/latest)** or **[raglex.sorai.tw](https://raglex.sorai.tw)**:
 
 | Platform | Architecture | Package |
 | :--- | :--- | :--- |
-| **macOS** | Apple Silicon (`darwin/arm64`) | `Raglex-darwin-arm64.zip` (`.app` bundle) |
-| **macOS** | Intel x86_64 (`darwin/amd64`) | `Raglex-darwin-amd64.zip` (`.app` bundle) |
-| **Windows** | x64 (`windows/amd64`) | `raglex-setup-0.4.4-amd64.exe` (Installer) / `Raglex-windows-amd64.zip` |
-| **Windows** | ARM64 (`windows/arm64`) | `raglex-setup-0.4.4-arm64.exe` (Installer) / `Raglex-windows-arm64.zip` |
-| **Linux** | x64 (`linux/amd64`) | `.tar.gz`, `.deb`, `.rpm`, `PKGBUILD` |
-| **Linux** | ARM64 (`linux/arm64`) | `.tar.gz`, `.deb`, `.rpm`, `PKGBUILD` |
+| **Windows** | x64 (`windows/amd64`) | `raglex-setup-0.4.5-amd64.exe` (Installer) / `Raglex-windows-amd64.zip` |
+| **Windows** | ARM64 (`windows/arm64`) | `raglex-setup-0.4.5-arm64.exe` (Installer) / `Raglex-windows-arm64.zip` |
+| **macOS** | Apple Silicon (`darwin/arm64`) | `Raglex-darwin-arm64.zip` |
+| **macOS** | Intel (`darwin/amd64`) | `Raglex-darwin-amd64.zip` |
+| **Linux** | x64 / ARM64 | `.deb`, `.rpm`, `.tar.gz` |
+| **Browser Extension** | Chromium / Firefox & Zen | `raglex-browser-extension.zip` / `raglex-firefox-extension.xpi` |
+| **Self-Host CLI** | Windows / macOS / Linux | `raglex-cli-<os>-<arch>.zip` (`raglex-server` & `raglex-mcp`) |
 
-Download prebuilt releases from the [GitHub Releases](../../releases) page.
+> [!NOTE]
+> **About macOS Gatekeeper / Unsigned Builds (Full Transparency)**
+> Raglex is 100% open source under MPL-2.0, contains **zero telemetry and zero malicious code**, and every binary is built directly by GitHub Actions with verifiable `SHA256SUMS.txt`.
+> However, because this is an independent open-source project without a paid Apple Developer ID certificate, macOS may show an "unidentified developer" or "damaged" Gatekeeper warning on first launch. To open it after moving `Raglex.app` to `/Applications`:
+> ```bash
+> xattr -cr /Applications/Raglex.app
+> ```
+> If you have any concern about running unsigned prebuilt binaries, you are completely welcome to audit the source and compile it yourself — or simply choose not to use it, no hard feelings at all.
 
 ---
 
-## Building from Source
+## Quick Install: Browser Companion Extension
 
-Requires **Go 1.24+** (pure Go, `CGO_ENABLED=0` — cross-compile any desktop target from any OS!).
+1. Open **Raglex → Preferences → Sharing / Advanced**, turn on **Built-in Local Server** (port `47595`), and click **Copy Access Key**.
+2. Download `raglex-browser-extension.zip` (Chrome / Edge / Brave / Arc) or `raglex-firefox-extension.xpi` (Firefox / Zen) from [GitHub Releases](https://github.com/Batkixni/Raglex/releases/latest).
+3. **Chromium**: Unzip the archive → open `chrome://extensions` (or `edge://extensions`) → enable **Developer mode** → click **Load unpacked** → pick the unzipped folder.
+4. **Firefox / Zen**: Drag `raglex-firefox-extension.xpi` into the browser (or load `manifest.json` via `about:debugging#/runtime/this-firefox`).
+5. Click the extension icon, paste your **Access Key**, and start clipping. See [`docs/BROWSER_EXTENSION.md`](docs/BROWSER_EXTENSION.md) for Offline Inbox setup.
+
+---
+
+## Quick Start: Self-Hosted Sync Server
 
 ```bash
-# Run the desktop app
-go run ./cmd/raglex
+git clone https://github.com/Batkixni/Raglex.git
+cd Raglex/deploy
+export RAGLEX_TOKEN="$(openssl rand -hex 32)"
+docker compose up -d
+```
 
-# Build for your current platform
-CGO_ENABLED=0 go tool mygo build -skip-installer
+Then connect in **Raglex → Preferences → Account / Sync → Self-Host** using `http://<your-server>:47595` (or your HTTPS reverse proxy URL) and your `RAGLEX_TOKEN`. See [`docs/SELF_HOST.md`](docs/SELF_HOST.md) for Caddy/Nginx HTTPS, R2/S3 storage, and E2EE key backup.
 
-# Cross-compile for macOS (Apple Silicon & Intel), Windows (x64 & ARM64), and Linux (x64 & ARM64)
-CGO_ENABLED=0 go tool mygo build -skip-installer -skip-dmg -skip-notarize \
-  -platform "darwin/arm64,darwin/amd64,windows/amd64,windows/arm64,linux/amd64,linux/arm64"
+---
 
-# Build standalone VPS server CLI & MCP server
-CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o raglex-server ./cmd/raglex-server
-CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o raglex-mcp ./cmd/raglex-mcp
+## Build from Source
 
-# Run static checks & test suite
-go tool mygo vet .
-CGO_ENABLED=0 go test -count=1 ./...
+Requires **Go 1.27+**. All desktop binaries compile cleanly with `CGO_ENABLED=0`:
+
+```bash
+git clone https://github.com/Batkixni/Raglex.git
+cd Raglex
+CGO_ENABLED=0 go tool mygo build -o build/dev
 ```
 
 ---
 
-## Browser Companion Extension & Plugins
+## Documentation & Privacy
 
-- **Chrome / Edge / Brave (Chromium)**: Open `chrome://extensions`, enable **Developer mode**, click **Load unpacked**, and select [`extensions/browser/`](extensions/browser/). Enable the Built-in Server under `Preferences → Web Clipper`.
-- **Firefox / Zen Browser / Floorp / LibreWolf**: Open `about:debugging#/runtime/this-firefox` → **Load Temporary Add-on…** → select [`extensions/firefox/manifest.json`](extensions/firefox/manifest.json) (see [`extensions/firefox/README.md`](extensions/firefox/README.md) for `.xpi` setup).
-- **Plugins**: Manage official and community plugins directly from `Preferences → Plugins`, or drop custom folders containing `manifest.json` into `<Library>/plugins/`.
+- **Website & Trilingual Docs**: [raglex.sorai.tw](https://raglex.sorai.tw) · [raglex.sorai.tw/docs](https://raglex.sorai.tw/docs)
+- **Self-Host Guide**: [`docs/SELF_HOST.md`](docs/SELF_HOST.md)
+- **Browser Extension Guide**: [`docs/BROWSER_EXTENSION.md`](docs/BROWSER_EXTENSION.md)
+- **Plugin SDK**: [`docs/PLUGIN_SDK.md`](docs/PLUGIN_SDK.md) · **Plugin Registry**: [`Batkixni/raglex-plugins`](https://github.com/Batkixni/raglex-plugins)
+- **Design System**: [`DESIGN.md`](DESIGN.md) · **Changelog**: [`CHANGELOG.md`](CHANGELOG.md) · **Privacy Policy**: [`PRIVACY.md`](PRIVACY.md)
 
----
+## License
 
-## Contributing
-
-Contributions are warmly welcomed! Please read [CONTRIBUTING.md](CONTRIBUTING.md) and [AGENT.md](AGENT.md) before opening a pull request.
-
-## License & Privacy
-
-- Raglex is licensed under the **[Mozilla Public License 2.0 (MPL-2.0)](LICENSE)**.
-- Zero telemetry, strict local security, and optional Zero-Knowledge AES-256-GCM E2EE cloud sync — see [PRIVACY.md](PRIVACY.md).
+Licensed under the [Mozilla Public License 2.0 (MPL-2.0)](LICENSE).

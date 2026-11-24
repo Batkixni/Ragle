@@ -729,6 +729,28 @@ func (a *App) arcButton(c *gui.Context, key, label string, primary bool) gui.Ele
 	return btn
 }
 
+// arcDangerButton is a frameless destructive action button for irreversible deletes.
+func (a *App) arcDangerButton(c *gui.Context, key, label string) gui.Element {
+	btn := gui.ButtonBase(c.Key(key)).
+		Padding(8, 14).
+		Radius(radiusControl).
+		AlignItems(gui.Center).
+		Justify(gui.Center)
+	targetBg := a.pal.danger
+	scale := float32(1)
+	if btn.Pressed() {
+		scale = 0.97
+		targetBg = gui.Hex("#B91C1C")
+	} else if btn.Hovered() {
+		targetBg = gui.Hex("#DC2626")
+	}
+	bg := btn.AnimateColor("bg", targetBg, animFast)
+	btn.Background(bg).TextColor(gui.Hex("#FFFFFF")).AnimatePose(gui.Pose{Scale: scale}, springResponsive).Children(func() {
+		gui.Text(c, label).FontSize(12).Bold().SingleLine()
+	})
+	return btn
+}
+
 // iconButton is a frameless circular monochrome icon button.
 func (a *App) iconButton(c *gui.Context, key string, icon *gui.SVG, tip string, active bool) gui.Element {
 	btn := gui.ButtonBase(c.Key(key)).Size(32, 32).Center().Radius(radiusPill).Label(tip).Tooltip(tip)

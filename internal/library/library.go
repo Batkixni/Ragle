@@ -432,14 +432,28 @@ func (l *Library) SetThumbnail(id, path string) error {
 	})
 }
 
+// DeleteOptions configures optional disk cleanup behavior when deleting assets.
+type DeleteOptions struct {
+	// PermanentDiskDelete also permanently deletes the underlying regular file on
+	// disk for Index and Symlink assets (in addition to Copy/Move library files).
+	// Directories are never deleted.
+	PermanentDiskDelete bool
+}
+
 // Delete removes the asset, its links, and placements. Index mode keeps
 // the user's file. Symlink mode removes only the link. Copy and move
 // remove the file the library owns.
 func (l *Library) Delete(id string) error {
+	return l.DeleteWithOptions(id, DeleteOptions{})
+}
+
+// DeleteWithOptions removes an asset and optionally permanently deletes its
+// underlying disk file when opts.PermanentDiskDelete is true.
+func (l *Library) DeleteWithOptions(id string, opts DeleteOptions) error {
 	if err := l.DB.Backup(); err != nil {
 		return err
 	}
-	var owned, thumb, mode string
+	var filePath, thumb, mode string
 	err := l.DB.Update(func(tx *bbolt.Tx) error {
 		a, err := db.GetAsset(tx, id)
 		if err != nil {
@@ -447,9 +461,7 @@ func (l *Library) Delete(id string) error {
 		}
 		mode = a.StorageMode
 		thumb = a.ThumbnailPath
-		if mode == model.StorageCopy || mode == model.StorageMove || mode == model.StorageSymlink {
-			owned = a.Path
-		}
+		filePath = a.Path
 		if a.StackID != "" {
 			if err := detachAssetFromStackTx(tx, a.ID, a.StackID); err != nil {
 				return err
@@ -460,15 +472,9 @@ func (l *Library) Delete(id string) error {
 	if err != nil {
 		return err
 	}
-	if mode == model.StorageSymlink && owned != "" {
-		if fi, statErr := os.Lstat(owned); statErr == nil && fi.Mode()&os.ModeSymlink != 0 {
-			_ = os.Remove(owned)
-		}
-	} else if owned != "" {
-		_ = os.Remove(owned)
-	}
+	cleanupAssetDiskFile(filePath, mode, opts.PermanentDiskDelete)
 	if thumb != "" {
-		_ = os.Remove(thumb)
+		removeRegularFile(thumb)
 	}
 	return nil
 }
@@ -478,6 +484,13 @@ func (l *Library) Delete(id string) error {
 // Index mode keeps the user's file; Symlink removes only the link; Copy and
 // Move remove the library-owned file.
 func (l *Library) DeleteBatch(ids []string) (int, error) {
+	return l.DeleteBatchWithOptions(ids, DeleteOptions{})
+}
+
+// DeleteBatchWithOptions removes many assets in one backup + chunked bbolt
+// transactions and optionally permanently deletes underlying disk files when
+// opts.PermanentDiskDelete is true.
+func (l *Library) DeleteBatchWithOptions(ids []string, opts DeleteOptions) (int, error) {
 	if len(ids) == 0 {
 		return 0, nil
 	}
@@ -486,9 +499,9 @@ func (l *Library) DeleteBatch(ids []string) (int, error) {
 	}
 
 	type diskCleanup struct {
-		path      string
-		isSymlink bool
-		thumb     string
+		path  string
+		mode  string
+		thumb string
 	}
 	var cleanups []diskCleanup
 	deleted := 0
@@ -506,15 +519,6 @@ func (l *Library) DeleteBatch(ids []string) (int, error) {
 					}
 					return err
 				}
-				var cl diskCleanup
-				cl.thumb = a.ThumbnailPath
-				switch a.StorageMode {
-				case model.StorageSymlink:
-					cl.path = a.Path
-					cl.isSymlink = true
-				case model.StorageCopy, model.StorageMove:
-					cl.path = a.Path
-				}
 				if a.StackID != "" {
 					if err := detachAssetFromStackTx(tx, a.ID, a.StackID); err != nil {
 						return err
@@ -523,7 +527,11 @@ func (l *Library) DeleteBatch(ids []string) (int, error) {
 				if err := db.DeleteAssetRecords(tx, id); err != nil {
 					return err
 				}
-				cleanups = append(cleanups, cl)
+				cleanups = append(cleanups, diskCleanup{
+					path:  a.Path,
+					mode:  a.StorageMode,
+					thumb: a.ThumbnailPath,
+				})
 				deleted++
 			}
 			return nil
@@ -534,20 +542,58 @@ func (l *Library) DeleteBatch(ids []string) (int, error) {
 	}
 
 	for _, cl := range cleanups {
-		if cl.path != "" {
-			if cl.isSymlink {
-				if fi, statErr := os.Lstat(cl.path); statErr == nil && fi.Mode()&os.ModeSymlink != 0 {
-					_ = os.Remove(cl.path)
-				}
-			} else {
-				_ = os.Remove(cl.path)
-			}
-		}
+		cleanupAssetDiskFile(cl.path, cl.mode, opts.PermanentDiskDelete)
 		if cl.thumb != "" {
-			_ = os.Remove(cl.thumb)
+			removeRegularFile(cl.thumb)
 		}
 	}
 	return deleted, nil
+}
+
+func cleanupAssetDiskFile(path, mode string, permanentDiskDelete bool) {
+	if strings.TrimSpace(path) == "" {
+		return
+	}
+	switch mode {
+	case model.StorageSymlink:
+		fi, statErr := os.Lstat(path)
+		if statErr != nil {
+			return
+		}
+		if fi.Mode()&os.ModeSymlink != 0 {
+			var target string
+			if permanentDiskDelete {
+				if raw, err := os.Readlink(path); err == nil && strings.TrimSpace(raw) != "" {
+					if !filepath.IsAbs(raw) {
+						target = filepath.Join(filepath.Dir(path), raw)
+					} else {
+						target = raw
+					}
+				}
+			}
+			_ = os.Remove(path)
+			if permanentDiskDelete && target != "" {
+				removeRegularFile(target)
+			}
+		} else if permanentDiskDelete && !fi.IsDir() {
+			_ = os.Remove(path)
+		}
+	case model.StorageCopy, model.StorageMove:
+		removeRegularFile(path)
+	default: // model.StorageIndex or empty
+		if permanentDiskDelete {
+			removeRegularFile(path)
+		}
+	}
+}
+
+func removeRegularFile(path string) {
+	if strings.TrimSpace(path) == "" {
+		return
+	}
+	if fi, err := os.Lstat(path); err == nil && !fi.IsDir() {
+		_ = os.Remove(path)
+	}
 }
 
 // MarkMissing flags the asset stored at path and drops the path index.

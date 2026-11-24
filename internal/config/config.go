@@ -80,7 +80,8 @@ type Config struct {
 	SyncProvider       string            `json:"sync_provider,omitempty"` // "cloud" (default) or "selfhost"
 	SyncServerURL      string            `json:"sync_server_url,omitempty"`
 	SyncToken          string            `json:"sync_token,omitempty"`
-	SyncE2EEPassphrase string            `json:"sync_e2ee_passphrase,omitempty"` // Local-only AES-256-GCM passphrase (never leaves device)
+	SyncE2EEEnabled    *bool             `json:"sync_e2ee_enabled,omitempty"`    // Default ON: zero-knowledge AES-256-GCM personal sync
+	SyncE2EEPassphrase string            `json:"sync_e2ee_passphrase,omitempty"` // Local-only AES-256-GCM key/passphrase (never leaves device)
 	AutoSync           *bool             `json:"auto_sync,omitempty"`
 	SyncExcludeFolders []string          `json:"sync_exclude_folders,omitempty"`
 	SyncIncludeUncat   *bool             `json:"sync_include_uncat,omitempty"`
