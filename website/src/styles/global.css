@@ -288,9 +288,9 @@ img {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
+  justify-content: space-between;
   text-align: center;
-  padding: 104px 24px 44px;
+  padding: 96px 24px 36px;
   overflow: hidden;
 }
 
@@ -337,6 +337,8 @@ img {
   z-index: 1;
   width: 100%;
   max-width: 1200px;
+  margin: auto 0;
+  padding-top: 24px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -455,8 +457,7 @@ img {
 .phi-hero-bottom {
   position: relative;
   z-index: 1;
-  margin-top: auto;
-  padding-top: 48px;
+  padding-top: 28px;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
