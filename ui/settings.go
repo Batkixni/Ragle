@@ -19,6 +19,7 @@ import (
 
 const (
 	settingsTabGeneral = iota
+	settingsTabShortcuts
 	settingsTabAccount
 	settingsTabDatabase
 	settingsTabImport
@@ -33,6 +34,7 @@ func (a *App) openSettings(tab int) {
 		a.settingsPrevTab = a.settingsTab
 		a.settingsTab = tab
 	}
+	a.recordingShortcutID = ""
 	a.settingsOpen = true
 	if a.lib != nil {
 		a.aiIndexedCount = a.lib.VectorCount()
@@ -45,6 +47,7 @@ func (a *App) setSettingsTab(tab int) {
 	if tab == a.settingsTab {
 		return
 	}
+	a.recordingShortcutID = ""
 	a.settingsPrevTab = a.settingsTab
 	a.settingsTab = tab
 	if tab == settingsTabDatabase && !a.dbStatsLoaded {
@@ -243,6 +246,7 @@ func (a *App) cleanOrphanThumbs() {
 
 func (a *App) settingsModal(c *gui.Context) {
 	if !a.settingsOpen {
+		a.recordingShortcutID = ""
 		return
 	}
 	gui.DialogBase(c.Key("settings-modal"), &a.settingsOpen, func(backdrop, panel gui.Element) {
@@ -263,6 +267,7 @@ func (a *App) settingsModal(c *gui.Context) {
 			label string
 		}{
 			{settingsTabGeneral, iconSliders, a.t("settings.tab.general")},
+			{settingsTabShortcuts, iconCommand, a.t("settings.tab.shortcuts")},
 			{settingsTabAccount, iconUser, a.t("settings.tab.account")},
 			{settingsTabDatabase, iconDatabase, a.t("settings.tab.database")},
 			{settingsTabImport, iconImport, a.t("settings.tab.import")},
@@ -353,6 +358,7 @@ func (a *App) settingsModal(c *gui.Context) {
 				activeSub := a.t("settings.sub.general")
 				subKeys := map[int]string{
 					settingsTabGeneral:   "settings.sub.general",
+					settingsTabShortcuts: "settings.sub.shortcuts",
 					settingsTabAccount:   "settings.sub.account",
 					settingsTabDatabase:  "settings.sub.database",
 					settingsTabImport:    "settings.sub.import",
@@ -382,6 +388,7 @@ func (a *App) settingsModal(c *gui.Context) {
 							gui.Text(c, activeSub).FontSize(11.5).TextColor(a.pal.inkMuted).SingleLine()
 						})
 						a.iconButton(c, "settings-close-x", iconX, a.t("common.close"), false).OnClick(func() {
+							a.recordingShortcutID = ""
 							a.settingsOpen = false
 						})
 					})
@@ -401,6 +408,8 @@ func (a *App) settingsModal(c *gui.Context) {
 						switch a.settingsTab {
 						case settingsTabGeneral:
 							a.settingsGeneralTab(c)
+						case settingsTabShortcuts:
+							a.settingsShortcutsTab(c)
 						case settingsTabAccount:
 							a.settingsAccountTab(c)
 						case settingsTabDatabase:
@@ -433,6 +442,7 @@ func (a *App) settingsModal(c *gui.Context) {
 							gui.Spacer(c)
 						}
 						a.arcButton(c, "settings-done", a.t("common.done"), true).OnClick(func() {
+							a.recordingShortcutID = ""
 							a.syncConfigFromState()
 							a.settingsOpen = false
 						})
@@ -1146,6 +1156,137 @@ func (a *App) settingsExtensionTab(c *gui.Context) {
 // settingsAccountTab provides Raglex Cloud Account Sign-In (using the default
 // placeholder endpoint https://cloud.raglex.app) and a clean 1-click toggle to
 // switch between Raglex Cloud and Self-Host sync servers.
+func (a *App) settingsShortcutsTab(c *gui.Context) {
+	hintKey := "shortcuts.hintWin"
+	if useMacChrome {
+		hintKey = "shortcuts.hintMac"
+	}
+	gui.Row(c).
+		FillWidth().
+		Padding(6, 10, 10, 10).
+		Gap(10).
+		AlignItems(gui.Center).
+		Children(func() {
+			gui.Text(c, a.t(hintKey)).FontSize(11.5).TextColor(a.pal.inkMuted).Grow(1)
+			a.toolButton(c, "sc-reset-all", iconRefresh, a.t("shortcuts.resetAll"), false).OnClick(func() {
+				a.resetAllShortcuts()
+			})
+		})
+
+	categories := []struct {
+		id       string
+		titleKey string
+	}{
+		{"nav", "shortcuts.cat.nav"},
+		{"edit", "shortcuts.cat.edit"},
+		{"view", "shortcuts.cat.view"},
+	}
+
+	for _, cat := range categories {
+		ct := cat
+		a.settingsSection(c, a.t(ct.titleKey), "", true, func() {
+			for _, def := range shortcutDefs {
+				if def.Category != ct.id {
+					continue
+				}
+				d := def
+				recording := a.recordingShortcutID == d.ID
+				isCustom := a.shortcutIsCustom(d.ID)
+				lbl := a.shortcutLabel(d.ID)
+				if lbl == "" {
+					lbl = a.t("shortcuts.unbound")
+				}
+
+				row := gui.Row(c.Key("sc-row-" + d.ID)).
+					FillWidth().
+					Padding(7, 10).
+					Gap(10).
+					Radius(8).
+					AlignItems(gui.Center)
+				rbg := gui.Transparent
+				if recording || row.Hovered() {
+					rbg = a.settingsRowHoverBg()
+				}
+				row.Background(row.AnimateColor("rbg", rbg, animFast)).Children(func() {
+					gui.Row(c).Gap(6).AlignItems(gui.Center).Grow(1).Children(func() {
+						gui.Text(c, a.t(d.LabelKey)).FontSize(12.5).TextColor(a.pal.ink).SingleLine()
+						if isCustom {
+							gui.Box(c).Size(5, 5).Radius(radiusPill).Background(a.pal.controlOn)
+						}
+					})
+
+					if isCustom && !recording {
+						a.miniHeaderButton(c, "sc-rst-"+d.ID, iconRefresh, a.t("shortcuts.resetOne"), false).OnClick(func() {
+							a.resetShortcut(d.ID)
+						})
+					}
+
+					if recording {
+						recBtn := gui.ButtonBase(c.Key("sc-rec-" + d.ID)).
+							Padding(5, 11).
+							Radius(8).
+							Background(a.pal.controlOn).
+							TextColor(a.pal.controlGlyph).
+							Border(1, a.pal.controlOn).
+							Focusable().
+							AutoFocus().
+							Label(a.t("shortcuts.recording")).
+							HandleInput(func(ev gui.InputEvent) bool {
+								if ev.Kind != gui.InputKeyDown || ev.Repeat {
+									return false
+								}
+								if ev.Key == gui.KeyEscape {
+									a.recordingShortcutID = ""
+									return true
+								}
+								k := ev.Key
+								if k == gui.KeyUnknown {
+									k = ev.PhysicalKey
+								}
+								if k == gui.KeyUnknown {
+									return true
+								}
+								if a.setShortcut(d.ID, ev.Mods, k) {
+									a.recordingShortcutID = ""
+								}
+								return true
+							}).
+							OnClick(func() {
+								a.recordingShortcutID = ""
+							})
+						recBtn.Children(func() {
+							gui.Text(c, a.t("shortcuts.recording")).FontSize(11.5).Bold().SingleLine()
+						})
+					} else {
+						keyBtn := gui.ButtonBase(c.Key("sc-key-" + d.ID)).
+							Padding(5, 11).
+							Radius(8).
+							Label(a.t(d.LabelKey) + " " + lbl).
+							Tooltip(a.t("shortcuts.clickToBind")).
+							OnClick(func() {
+								a.recordingShortcutID = d.ID
+							})
+						kbg := a.pal.surfaceMuted
+						kfg := a.pal.ink
+						if lbl == a.t("shortcuts.unbound") {
+							kfg = a.pal.inkMuted
+						}
+						if keyBtn.Hovered() {
+							kbg = a.pal.surfaceActive
+						}
+						keyBtn.Background(keyBtn.AnimateColor("kbg", kbg, animFast)).
+							TextColor(kfg).
+							Border(1, a.chromeHairline()).
+							Children(func() {
+								gui.Text(c, lbl).FontSize(11.5).Bold().SingleLine()
+							})
+					}
+				})
+			}
+		})
+	}
+}
+
 func (a *App) settingsAccountTab(c *gui.Context) {
 	providerIdx := 0
 	if a.syncProvider == "selfhost" {
@@ -1208,6 +1349,12 @@ func (a *App) settingsAccountTab(c *gui.Context) {
 						Password().
 						Width(240).
 						OnSubmit(func() { a.submitCloudAuth(false) })
+				})
+				a.settingsItemRow(c, "acct-invite", iconTag, a.t("account.inviteCode"), "", func() {
+					gui.TextInput(c.Key("pref-auth-invite"), &a.authInviteBuf).
+						Placeholder(a.t("account.invitePlaceholder")).
+						Width(240).
+						OnSubmit(func() { a.submitCloudAuth(true) })
 				})
 				gui.Row(c).FillWidth().Padding(8, 10, 4, 10).Gap(8).AlignItems(gui.Center).Justify(gui.End).Children(func() {
 					a.toolButton(c, "pref-auth-reg", nil, a.t("account.register"), false).

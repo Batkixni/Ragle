@@ -160,7 +160,7 @@ func (a *App) shell(c *gui.Context) {
 						Shadow(0, 6, 18, 0, a.pal.shadowRaised).
 						Padding(2).
 						Children(func() {
-							a.iconButton(c, "bottom-open-sidebar", iconPanelLeft, a.t("sidebar.toggle"), false).OnClick(func() {
+							a.iconButton(c, "bottom-open-sidebar", iconPanelLeft, a.sidebarToggleTooltip(), false).OnClick(func() {
 								a.sidebarOpen = true
 							})
 						})
@@ -560,23 +560,19 @@ func (a *App) sidebar(c *gui.Context) {
 		Background(a.pal.surface).
 		Children(func() {
 				// Sidebar top header:
-				// - macOS: native traffic lights clearance + collapse toggle (logo moves to bottom-left)
+				// - macOS: native traffic lights clearance (left) + account & settings (right)
 				// - Windows/Linux: clean brand header (logo + title)
 				gui.Row(c).
 					Height(48).
 					Padding(0, 10, 0, 14).
-					Gap(8).
+					Gap(6).
 					AlignItems(gui.Center).
 					DragWindow().
 					Children(func() {
 						if useMacChrome {
 							a.macTrafficLightSpacer(c)
 							gui.Box(c).Grow(1).FillHeight().DragWindow()
-							if a.sidebarOpen {
-								a.iconButton(c, "sb-collapse-btn", iconPanelLeft, a.t("sidebar.toggle"), false).OnClick(func() {
-									a.sidebarOpen = false
-								})
-							}
+							a.macSidebarHeaderUtilities(c)
 						} else {
 							if bm := a.brandLogo(); bm != nil {
 								gui.Image(c, bm).Size(20, 20).Fit(gui.Contain)
@@ -599,7 +595,7 @@ func (a *App) sidebar(c *gui.Context) {
 					if a.glassActive {
 						sbSearch.Border(1, a.chromeHairline())
 					}
-					a.iconButton(c, "sb-goto-btn", iconCommand, a.t("goto.title")+" (Ctrl+T)", a.gotoOpen).OnClick(func() {
+					a.iconButton(c, "sb-goto-btn", iconCommand, fmt.Sprintf("%s (%s)", a.t("goto.title"), a.shortcutLabel("quick_goto")), a.gotoOpen).OnClick(func() {
 						a.openGotoModal()
 					})
 				})
@@ -833,12 +829,12 @@ func (a *App) sidebar(c *gui.Context) {
 				})
 
 				// Sidebar bottom footer:
-				// - macOS: Raglex brand logo + wordmark (utilities relocated to top-right)
-				// - Windows/Linux: Account, Settings, Help, and Collapse Sidebar
+				// - macOS: Raglex brand logo (bottom-left) + Collapse Sidebar (bottom-right)
+				// - Windows/Linux: Account, Settings, Help (bottom-left) + Collapse Sidebar (bottom-right)
 				if useMacChrome {
 					gui.Row(c).
 						Height(44).
-						Padding(0, 14).
+						Padding(0, 10, 0, 14).
 						Gap(8).
 						AlignItems(gui.Center).
 						BorderWidth(1, 0, 0, 0).
@@ -848,6 +844,11 @@ func (a *App) sidebar(c *gui.Context) {
 								gui.Image(c, bm).Size(20, 20).Fit(gui.Contain)
 							}
 							gui.Text(c, a.libraryTitle()).Bold().FontSize(13).TextColor(a.pal.ink).Grow(1).SingleLine()
+							if a.sidebarOpen {
+								a.iconButton(c, "sb-collapse-btn", iconPanelLeft, a.sidebarToggleTooltip(), false).OnClick(func() {
+									a.sidebarOpen = false
+								})
+							}
 						})
 				} else {
 					gui.Row(c).
@@ -863,7 +864,7 @@ func (a *App) sidebar(c *gui.Context) {
 							a.iconButton(c, "sb-account", iconUser, acctTip, a.settingsOpen && a.settingsTab == settingsTabAccount).OnClick(func() {
 								a.openSettings(settingsTabAccount)
 							})
-							a.iconButton(c, "sb-settings", iconSettings, a.t("settings.open"), a.settingsOpen && a.settingsTab != settingsTabAccount).OnClick(func() {
+							a.iconButton(c, "sb-settings", iconSettings, a.settingsOpenTooltip(), a.settingsOpen && a.settingsTab != settingsTabAccount).OnClick(func() {
 								a.openSettings(a.settingsTab)
 							})
 							a.iconButton(c, "sb-help-guide", iconHelp, a.t("onboarding.open"), a.onboardingOpen).OnClick(func() {
@@ -871,7 +872,7 @@ func (a *App) sidebar(c *gui.Context) {
 							})
 							gui.Spacer(c)
 							if a.sidebarOpen {
-								a.iconButton(c, "sb-collapse-btn", iconPanelLeft, a.t("sidebar.toggle"), false).OnClick(func() {
+								a.iconButton(c, "sb-collapse-btn", iconPanelLeft, a.sidebarToggleTooltip(), false).OnClick(func() {
 									a.sidebarOpen = false
 								})
 							}
@@ -1134,7 +1135,11 @@ func (a *App) workspaceBar(c *gui.Context) {
 						switchRow("disp-sw-sb", a.t("view.showSidebar"), &a.sidebarOpen, nil)
 						switchRow("disp-sw-insp", a.t("view.showInspector"), &a.inspectorOpen, nil)
 						focusVal := a.focusMode
-						switchRow("disp-sw-focus", a.t("view.focusMode")+" (Ctrl+Alt+C)", &focusVal, func() {
+						focusTitle := a.t("view.focusMode")
+						if sc := a.shortcutLabel("focus_mode"); sc != "" {
+							focusTitle = fmt.Sprintf("%s (%s)", focusTitle, sc)
+						}
+						switchRow("disp-sw-focus", focusTitle, &focusVal, func() {
 							a.toggleFocusMode()
 						})
 					})
@@ -1162,7 +1167,7 @@ func (a *App) workspaceBar(c *gui.Context) {
 		}, a.popoverMenuBtnOpts())
 
 		gui.PopoverMenuButton(c.Key("top-import"), "+ "+a.t("library.import"), func(m *gui.Menu) {
-			if a.menuItem(m, iconImport, a.t("library.files"), "Ctrl+I", false).Chosen() {
+			if a.menuItem(m, iconImport, a.t("library.files"), a.shortcutLabel("import_files"), false).Chosen() {
 				a.startImport(false)
 			}
 			if a.menuItem(m, iconFolder, a.t("library.folder"), "", false).Chosen() {
@@ -1181,7 +1186,7 @@ func (a *App) workspaceBar(c *gui.Context) {
 				}
 			}
 			m.Separator()
-			if a.menuItem(m, iconLink, a.t("webimport.menu"), "Ctrl+Shift+U", false).Chosen() {
+			if a.menuItem(m, iconLink, a.t("webimport.menu"), a.shortcutLabel("web_import"), false).Chosen() {
 				a.webImportOpen = true
 				a.webImportURL = ""
 			}
@@ -1205,8 +1210,6 @@ func (a *App) workspaceBar(c *gui.Context) {
 				})
 			})
 		}
-
-		gui.Box(c).Width(1).Height(18).Background(a.pal.surfaceMuted)
 
 		a.topRightChrome(c)
 	})

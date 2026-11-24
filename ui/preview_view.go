@@ -101,7 +101,6 @@ func (a *App) inlinePreviewView(c *gui.Context) {
 					})
 				}
 
-				gui.Box(c).Size(1, 18).Background(a.pal.surfaceMuted)
 				a.topRightChrome(c)
 			})
 

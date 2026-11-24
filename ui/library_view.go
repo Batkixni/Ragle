@@ -1083,7 +1083,7 @@ func (a *App) assetCard(c *gui.Context, index int, asset model.Asset, selected b
 			m.Separator()
 		}
 		if multi {
-			if a.menuItem(m, iconLayoutBento, fmt.Sprintf("%s (%d)", a.t("stack.create"), len(batchIDs)), "Ctrl+G", false).Chosen() {
+			if a.menuItem(m, iconLayoutBento, fmt.Sprintf("%s (%d)", a.t("stack.create"), len(batchIDs)), a.shortcutLabel("stack_assets"), false).Chosen() {
 				a.stackSelectedAssets(batchIDs)
 			}
 		}
@@ -1234,39 +1234,39 @@ func (a *App) assetCard(c *gui.Context, index int, asset model.Asset, selected b
 		if a.grayscalePreview {
 			grayMark = "✓ "
 		}
-		if a.menuItem(m, iconContrast, grayMark+a.t("view.grayscale"), "Ctrl+Alt+G", false).Chosen() {
+		if a.menuItem(m, iconContrast, grayMark+a.t("view.grayscale"), a.shortcutLabel("grayscale"), false).Chosen() {
 			a.grayscalePreview = !a.grayscalePreview
 			a.syncConfigFromState()
 		}
 		m.Separator()
 		if multi {
-			if a.menuItem(m, iconEdit, fmt.Sprintf("%s (%d)", a.t("rename.batchAction"), len(batchIDs)), "F2", false).Chosen() {
+			if a.menuItem(m, iconEdit, fmt.Sprintf("%s (%d)", a.t("rename.batchAction"), len(batchIDs)), a.shortcutLabel("batch_rename"), false).Chosen() {
 				a.openRenameModal(batchIDs)
 			}
 			if a.menuItem(m, iconExport, fmt.Sprintf("%s (%d)", a.t("export.action"), len(batchIDs)), "", false).Chosen() {
 				a.openExportModal(batchIDs)
 			}
-			if a.menuItem(m, iconCopy, fmt.Sprintf("%s (%d)", a.t("clipboard.copyFiles"), len(batchIDs)), "Ctrl+C", false).Chosen() {
+			if a.menuItem(m, iconCopy, fmt.Sprintf("%s (%d)", a.t("clipboard.copyFiles"), len(batchIDs)), a.shortcutLabel("copy_files"), false).Chosen() {
 				a.copySelectedFilesToClipboard(batchIDs)
 			}
 			m.Separator()
-			if a.menuItem(m, iconTrash, fmt.Sprintf("%s (%d)", a.t("batch.delete"), len(batchIDs)), "Del", true).Chosen() {
+			if a.menuItem(m, iconTrash, fmt.Sprintf("%s (%d)", a.t("batch.delete"), len(batchIDs)), a.shortcutLabel("delete_asset"), true).Chosen() {
 				a.batchDeletePrompt(batchIDs)
 			}
 		} else {
-			if a.menuItem(m, iconEdit, a.t("rename.action"), "F2", false).Chosen() {
+			if a.menuItem(m, iconEdit, a.t("rename.action"), a.shortcutLabel("batch_rename"), false).Chosen() {
 				a.openRenameModal([]string{asset.ID})
 			}
 			if a.menuItem(m, iconExport, a.t("export.action"), "", false).Chosen() {
 				a.openExportModal([]string{asset.ID})
 			}
 			if !asset.Missing && asset.Path != "" {
-				if a.menuItem(m, iconCopy, a.t("clipboard.copyFiles"), "Ctrl+C", false).Chosen() {
+				if a.menuItem(m, iconCopy, a.t("clipboard.copyFiles"), a.shortcutLabel("copy_files"), false).Chosen() {
 					a.copySelectedFilesToClipboard([]string{asset.ID})
 				}
 			}
 			m.Separator()
-			if a.menuItem(m, iconTrash, a.t("library.delete"), "Del", true).Chosen() {
+			if a.menuItem(m, iconTrash, a.t("library.delete"), a.shortcutLabel("delete_asset"), true).Chosen() {
 				a.deleteAssetPrompt(asset)
 			}
 		}

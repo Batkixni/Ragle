@@ -82,6 +82,9 @@ type Config struct {
 	// Auto-updater preferences (GitHub Releases).
 	AutoCheckUpdates  *bool `json:"auto_check_updates,omitempty"`
 	UpdateBetaChannel *bool `json:"update_beta_channel,omitempty"`
+
+	// User-customized keyboard shortcuts (actionID -> canonical spec like "Cmd+Alt+C").
+	Shortcuts map[string]string `json:"shortcuts,omitempty"`
 }
 
 // WatchFolder defines a local disk directory continuously monitored for new
@@ -105,8 +108,8 @@ func BoolOr(p *bool, def bool) bool {
 // BoolPtr returns a pointer to v for optional JSON fields.
 func BoolPtr(v bool) *bool { return &v }
 
-// DefaultCloudEndpoint is the official placeholder endpoint for Raglex Cloud.
-const DefaultCloudEndpoint = "https://cloud.raglex.app"
+// DefaultCloudEndpoint is the official Raglex Cloud endpoint.
+const DefaultCloudEndpoint = "https://cloud.raglex.sorai.tw"
 
 // DefaultClipperInboxDir returns the default offline browser-clipper drop
 // folder (~/Downloads/RaglexInbox) watched automatically by Raglex.

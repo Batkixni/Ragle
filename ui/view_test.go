@@ -181,7 +181,7 @@ func TestPairingShareUIControls(t *testing.T) {
 	// Verify new Account & Cloud/Self-Host tab defaults to Raglex Cloud placeholder endpoint.
 	a.openSettings(settingsTabAccount)
 	tt.Advance(300 * time.Millisecond)
-	if !tt.HasText("https://cloud.raglex.app") || !tt.HasText("登入帳號") {
+	if !tt.HasText("https://cloud.raglex.sorai.tw") || !tt.HasText("登入帳號") {
 		t.Fatalf("Raglex Cloud account UI missing, texts: %v", tt.Texts())
 	}
 	if err := tt.Click("Self-Host"); err != nil {

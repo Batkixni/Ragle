@@ -389,6 +389,8 @@ type App struct {
 	settingsOpen         bool
 	settingsTab          int
 	settingsPrevTab      int
+	shortcuts            map[string]string
+	recordingShortcutID  string
 	showSidebarCounts    bool
 	showTagColors        bool
 	showCardCaption      bool
@@ -438,6 +440,7 @@ type App struct {
 	accountToken         string
 	authEmailBuf         string
 	authPassBuf          string
+	authInviteBuf        string
 	authBusy             bool
 	authStatusMsg        string
 	pairForceRelay       bool
@@ -789,6 +792,16 @@ func (a *App) applyConfig(cfg config.Config) {
 	a.pairForceRelay = cfg.PairForceRelay
 	a.autoCheckUpdates = config.BoolOr(cfg.AutoCheckUpdates, true)
 	a.updateBetaChannel = config.BoolOr(cfg.UpdateBetaChannel, false)
+	if len(cfg.Shortcuts) > 0 {
+		a.shortcuts = make(map[string]string, len(cfg.Shortcuts))
+		for k, v := range cfg.Shortcuts {
+			if strings.TrimSpace(v) != "" {
+				a.shortcuts[k] = strings.TrimSpace(v)
+			}
+		}
+	} else {
+		a.shortcuts = map[string]string{}
+	}
 }
 
 func (a *App) syncConfigFromState() {
@@ -843,6 +856,17 @@ func (a *App) syncConfigFromState() {
 	a.cfg.AccountEmail = strings.TrimSpace(a.accountEmail)
 	a.cfg.AccountName = strings.TrimSpace(a.accountName)
 	a.cfg.AccountToken = strings.TrimSpace(a.accountToken)
+	if len(a.shortcuts) > 0 {
+		sc := make(map[string]string, len(a.shortcuts))
+		for k, v := range a.shortcuts {
+			if strings.TrimSpace(v) != "" {
+				sc[k] = strings.TrimSpace(v)
+			}
+		}
+		a.cfg.Shortcuts = sc
+	} else {
+		a.cfg.Shortcuts = nil
+	}
 	a.cfg.PairForceRelay = a.pairForceRelay
 	a.cfg.AutoCheckUpdates = config.BoolPtr(a.autoCheckUpdates)
 	a.cfg.UpdateBetaChannel = config.BoolPtr(a.updateBetaChannel)
@@ -3436,22 +3460,32 @@ func (a *App) registerWindowShortcuts(c *gui.Context) {
 	if a.lib == nil {
 		return
 	}
-	c.OnShortcut(gui.Cmd, gui.KeyB, func() {
+	// While the user is recording a new key combo in Preferences -> Shortcuts,
+	// pause global shortcuts so pressing Cmd+, / Cmd+F / Space records cleanly.
+	if a.recordingShortcutID != "" {
+		return
+	}
+	bind := func(id string, fn func()) {
+		if mods, key, ok := a.shortcutBinding(id); ok {
+			c.OnShortcut(mods, key, fn)
+		}
+	}
+	bind("toggle_sidebar", func() {
 		if a.screen == screenLibrary || a.screen == screenProject {
 			a.sidebarOpen = !a.sidebarOpen
 		}
 	})
-	c.OnShortcut(gui.Cmd, gui.KeyT, func() {
+	bind("quick_goto", func() {
 		if !a.gotoOpen {
 			a.openGotoModal()
 		} else {
 			a.gotoOpen = false
 		}
 	})
-	c.OnShortcut(gui.Cmd, gui.KeyComma, func() {
+	bind("open_settings", func() {
 		a.openSettings(a.settingsTab)
 	})
-	c.OnShortcut(gui.Cmd, gui.KeyF, func() {
+	bind("search", func() {
 		if a.canRunLibraryShortcut() || a.screen == screenProject {
 			if !a.sidebarOpen && !a.focusMode {
 				a.sidebarOpen = true
@@ -3459,47 +3493,47 @@ func (a *App) registerWindowShortcuts(c *gui.Context) {
 			a.searchHandle.Focus(c)
 		}
 	})
-	c.OnShortcut(gui.Cmd, gui.KeyI, func() {
+	bind("import_files", func() {
 		if a.canRunLibraryShortcut() {
 			a.startImport(false)
 		}
 	})
-	c.OnShortcut(gui.Cmd, gui.KeyA, func() {
+	bind("select_all", func() {
 		if a.canRunLibraryShortcut() {
 			a.selectAllVisible()
 		}
 	})
-	c.OnShortcut(gui.Cmd|gui.Alt, gui.KeyG, func() {
+	bind("grayscale", func() {
 		a.grayscalePreview = !a.grayscalePreview
 		a.syncConfigFromState()
 	})
-	c.OnShortcut(gui.Cmd|gui.Alt, gui.KeyC, func() {
+	bind("focus_mode", func() {
 		a.toggleFocusMode()
 	})
-	c.OnShortcut(gui.Cmd|gui.Shift, gui.KeyU, func() {
+	bind("web_import", func() {
 		a.webImportOpen = true
 		a.webImportURL = ""
 	})
-	c.OnShortcut(gui.Cmd, gui.KeyG, func() {
+	bind("stack_assets", func() {
 		if a.canRunLibraryShortcut() {
 			if ids := a.selectedAssetIDs(); len(ids) >= 2 {
 				a.stackSelectedAssets(ids)
 			}
 		}
 	})
-	c.OnShortcut(gui.Cmd, gui.KeyC, func() {
+	bind("copy_files", func() {
 		if a.canRunLibraryShortcut() {
 			if ids := a.selectedAssetIDs(); len(ids) > 0 {
 				a.copySelectedFilesToClipboard(ids)
 			}
 		}
 	})
-	c.OnShortcut(gui.Cmd, gui.KeyV, func() {
+	bind("paste_files", func() {
 		if a.canRunLibraryShortcut() {
 			a.pasteFromClipboard()
 		}
 	})
-	c.OnShortcut(gui.Cmd, gui.KeyZ, func() {
+	bind("undo", func() {
 		if a.screen == screenBoard && a.session != nil && !a.askOpen && !a.settingsOpen && !a.gotoOpen && !a.webImportOpen && !a.watchFoldersOpen {
 			a.boardUndo()
 			return
@@ -3508,17 +3542,19 @@ func (a *App) registerWindowShortcuts(c *gui.Context) {
 			a.undoLastBatchRename()
 		}
 	})
-	c.OnShortcut(gui.Cmd|gui.Shift, gui.KeyZ, func() {
+	bind("redo", func() {
 		if a.screen == screenBoard && a.session != nil && !a.askOpen && !a.settingsOpen && !a.gotoOpen && !a.webImportOpen && !a.watchFoldersOpen {
 			a.boardRedo()
 		}
 	})
-	c.OnShortcut(gui.Cmd, gui.KeyY, func() {
-		if a.screen == screenBoard && a.session != nil && !a.askOpen && !a.settingsOpen && !a.gotoOpen && !a.webImportOpen && !a.watchFoldersOpen {
-			a.boardRedo()
-		}
-	})
-	c.OnShortcut(0, gui.KeyF2, func() {
+	if !a.shortcutIsCustom("redo") {
+		c.OnShortcut(gui.Cmd, gui.KeyY, func() {
+			if a.screen == screenBoard && a.session != nil && !a.askOpen && !a.settingsOpen && !a.gotoOpen && !a.webImportOpen && !a.watchFoldersOpen {
+				a.boardRedo()
+			}
+		})
+	}
+	bind("batch_rename", func() {
 		if a.canRunLibraryShortcut() {
 			if ids := a.selectedAssetIDs(); len(ids) > 0 {
 				a.openRenameModal(ids)
@@ -3552,10 +3588,10 @@ func (a *App) registerWindowShortcuts(c *gui.Context) {
 			a.toggleFocusMode()
 		}
 	})
-	c.OnShortcut(0, gui.KeySpace, func() {
+	bind("quick_look", func() {
 		a.handleSpacePreview()
 	})
-	c.OnShortcut(0, gui.KeyDelete, func() {
+	bind("delete_asset", func() {
 		if a.screen == screenBoard && a.session != nil && !c.FocusTakesText() && !a.askOpen && !a.settingsOpen && !a.gotoOpen {
 			a.deleteBoardSelectionInstant()
 			return
@@ -3566,11 +3602,26 @@ func (a *App) registerWindowShortcuts(c *gui.Context) {
 			}
 		}
 	})
-	c.OnShortcut(0, gui.KeyBackspace, func() {
-		if a.screen == screenBoard && a.session != nil && !c.FocusTakesText() && !a.askOpen && !a.settingsOpen && !a.gotoOpen {
-			a.deleteBoardSelectionInstant()
-		}
-	})
+	if useMacChrome && !a.shortcutIsCustom("delete_asset") {
+		// On macOS, Backspace (Delete key on MacBook) also deletes selected items.
+		c.OnShortcut(0, gui.KeyBackspace, func() {
+			if a.screen == screenBoard && a.session != nil && !c.FocusTakesText() && !a.askOpen && !a.settingsOpen && !a.gotoOpen {
+				a.deleteBoardSelectionInstant()
+				return
+			}
+			if a.canRunLibraryShortcut() {
+				if ids := a.selectedAssetIDs(); len(ids) > 0 {
+					a.batchDeletePrompt(ids)
+				}
+			}
+		})
+	} else {
+		c.OnShortcut(0, gui.KeyBackspace, func() {
+			if a.screen == screenBoard && a.session != nil && !c.FocusTakesText() && !a.askOpen && !a.settingsOpen && !a.gotoOpen {
+				a.deleteBoardSelectionInstant()
+			}
+		})
+	}
 	c.OnShortcut(0, gui.KeyLeft, func() {
 		if a.previewOpen || a.quickLookOpen {
 			a.stepPreview(-1)

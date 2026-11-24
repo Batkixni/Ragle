@@ -561,14 +561,15 @@ func (a *App) macTrafficLightSpacer(c *gui.Context) bool {
 	return true
 }
 
-// topRightChrome renders the top-right slot of every top bar:
-//   - macOS: Account, Preferences, and Help Guide icons (relocated from bottom-left)
-//   - Windows / Linux: integrated monochrome window controls (minimize, maximize, close)
+// topRightChrome renders the top-right window controls slot:
+//   - macOS: empty (native traffic lights are top-left; account/settings live in
+//     the top-right of the left sidebar)
+//   - Windows / Linux: hairline separator + integrated monochrome window controls
 func (a *App) topRightChrome(c *gui.Context) {
 	if useMacChrome {
-		a.topUtilityControls(c)
 		return
 	}
+	gui.Box(c).Width(1).Height(18).Background(a.pal.surfaceMuted)
 	a.windowControls(c)
 }
 
@@ -674,21 +675,21 @@ func (a *App) windowControls(c *gui.Context) {
 	})
 }
 
-// topUtilityControls renders the Account, Preferences, and Help Guide icons in
-// the top-right corner of the active top bar.
-func (a *App) topUtilityControls(c *gui.Context) {
-	gui.Row(c.Key("top-utility-controls")).Gap(2).AlignItems(gui.Center).Children(func() {
+// macSidebarHeaderUtilities renders Account and Preferences (plus Help) in the
+// top-right corner of the left sidebar header on macOS.
+func (a *App) macSidebarHeaderUtilities(c *gui.Context) {
+	gui.Row(c.Key("mac-sb-utilities")).Gap(2).AlignItems(gui.Center).Children(func() {
 		acctTip := a.t("account.openSidebar")
 		if a.accountEmail != "" {
 			acctTip = a.accountEmail
 		}
-		a.iconButton(c, "top-account", iconUser, acctTip, a.settingsOpen && a.settingsTab == settingsTabAccount).OnClick(func() {
+		a.iconButton(c, "sb-account", iconUser, acctTip, a.settingsOpen && a.settingsTab == settingsTabAccount).OnClick(func() {
 			a.openSettings(settingsTabAccount)
 		})
-		a.iconButton(c, "top-settings", iconSettings, a.t("settings.open"), a.settingsOpen && a.settingsTab != settingsTabAccount).OnClick(func() {
+		a.iconButton(c, "sb-settings", iconSettings, a.settingsOpenTooltip(), a.settingsOpen && a.settingsTab != settingsTabAccount).OnClick(func() {
 			a.openSettings(a.settingsTab)
 		})
-		a.iconButton(c, "top-help-guide", iconHelp, a.t("onboarding.open"), a.onboardingOpen).OnClick(func() {
+		a.iconButton(c, "sb-help-guide", iconHelp, a.t("onboarding.open"), a.onboardingOpen).OnClick(func() {
 			a.openOnboarding()
 		})
 	})

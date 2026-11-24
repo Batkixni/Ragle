@@ -116,7 +116,6 @@ func (a *App) projectView(c *gui.Context) {
 					}
 				}, a.popoverMenuBtnOpts())
 
-				gui.Box(c).Width(1).Height(18).Background(a.pal.surfaceMuted)
 				a.topRightChrome(c)
 			})
 		}
@@ -686,12 +685,12 @@ func (a *App) projectAssetWaterfallCard(c *gui.Context, index int, item model.As
 		if a.grayscalePreview {
 			grayMark = "✓ "
 		}
-		if a.menuItem(m, iconContrast, grayMark+a.t("view.grayscale"), "Ctrl+Alt+G", false).Chosen() {
+		if a.menuItem(m, iconContrast, grayMark+a.t("view.grayscale"), a.shortcutLabel("grayscale"), false).Chosen() {
 			a.grayscalePreview = !a.grayscalePreview
 			a.syncConfigFromState()
 		}
 		m.Separator()
-		if a.menuItem(m, iconTrash, a.t("project.unreference"), "Del", true).Chosen() {
+		if a.menuItem(m, iconTrash, a.t("project.unreference"), a.shortcutLabel("delete_asset"), true).Chosen() {
 			a.unreferencePrompt(item)
 		}
 	}, a.popoverMenuOpts())

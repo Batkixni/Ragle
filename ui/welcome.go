@@ -228,8 +228,8 @@ func (a *App) welcome(c *gui.Context) {
 						}
 						gui.Text(c, "Raglex").FontSize(12).Bold().TextColor(a.pal.inkMuted)
 					})
+					a.windowControls(c)
 				}
-				a.topRightChrome(c)
 			})
 
 		gui.Column(c).Grow(1).FillWidth().Center().Padding(0, 32, 32, 32).Children(func() {

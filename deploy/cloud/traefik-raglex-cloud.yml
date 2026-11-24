@@ -1,0 +1,19 @@
+http:
+  routers:
+    raglex-cloud-http:
+      rule: Host(`cloud.raglex.sorai.tw`)
+      entryPoints: [web]
+      middlewares: [redirect-to-https]
+      service: raglex-cloud
+    raglex-cloud-https:
+      rule: Host(`cloud.raglex.sorai.tw`)
+      entryPoints: [websecure]
+      service: raglex-cloud
+      tls:
+        certResolver: letsencrypt
+  services:
+    raglex-cloud:
+      loadBalancer:
+        servers:
+          - url: http://raglex-cloud:8787
+        passHostHeader: true

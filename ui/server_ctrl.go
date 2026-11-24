@@ -494,12 +494,17 @@ func (a *App) submitCloudAuth(register bool) {
 	if register {
 		endpoint = config.DefaultCloudEndpoint + "/api/v1/auth/register"
 	}
+	inviteCode := strings.TrimSpace(a.authInviteBuf)
 	win := a.win
 	run := func() {
-		body, _ := json.Marshal(map[string]string{
+		payload := map[string]string{
 			"email":    email,
 			"password": pass,
-		})
+		}
+		if register && inviteCode != "" {
+			payload["invite_code"] = inviteCode
+		}
+		body, _ := json.Marshal(payload)
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(string(body)))
@@ -543,6 +548,7 @@ func (a *App) submitCloudAuth(register bool) {
 			a.accountName = out.Name
 			a.accountToken = out.Token
 			a.authPassBuf = ""
+			a.authInviteBuf = ""
 			a.authStatusMsg = fmt.Sprintf(a.t("account.signedInAs"), a.accountEmail)
 			a.syncConfigFromState()
 			a.notify(a.authStatusMsg)

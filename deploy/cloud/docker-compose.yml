@@ -1,0 +1,31 @@
+services:
+  raglex-cloud:
+    image: alpine:3.21
+    container_name: raglex-cloud
+    restart: unless-stopped
+    command: ["/usr/local/bin/raglex-cloud"]
+    env_file:
+      - .env
+    environment:
+      RAGLEX_CLOUD_ADDR: ":8787"
+      RAGLEX_CLOUD_DATA: "/data"
+      RAGLEX_CLOUD_BLOBS: "/blobs"
+      RAGLEX_CLOUD_HOST: "cloud.raglex.sorai.tw"
+      RAGLEX_CLOUD_QUOTA_GB: "20"
+      RAGLEX_CLOUD_ALLOW_REGISTER: "true"
+      RAGLEX_CLOUD_INVITE_ONLY: "true"
+    volumes:
+      - /opt/raglex-cloud/bin/raglex-cloud:/usr/local/bin/raglex-cloud:ro
+      - /opt/raglex-cloud/data:/data
+      - /mnt/storagebox/raglex-cloud:/blobs
+    networks:
+      - dokploy-network
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8787/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+networks:
+  dokploy-network:
+    external: true

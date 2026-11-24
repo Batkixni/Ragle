@@ -197,7 +197,6 @@ func (a *App) boardToolbar(c *gui.Context) {
 				a.boardInspectorOpen = !a.boardInspectorOpen
 			})
 
-			gui.Box(c).Width(1).Height(18).Background(a.pal.surfaceMuted)
 			a.topRightChrome(c)
 		})
 }
