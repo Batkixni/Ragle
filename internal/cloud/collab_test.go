@@ -146,4 +146,18 @@ func TestTwoUsersCollaboratePerUserBoardOwnershipAndSharedRefs(t *testing.T) {
 			}
 		}
 	}
+
+	// Privacy check: when Bob lists collab spaces, Alice's email MUST be masked while Bob's own stays intact!
+	bobSpaces, err := rsync.ListCollabSpaces(t.Context(), bobCfg)
+	if err != nil || len(bobSpaces) != 1 {
+		t.Fatalf("expected 1 collab space for Bob, got len=%d err=%v", len(bobSpaces), err)
+	}
+	for _, m := range bobSpaces[0].Members {
+		if m.Role == "owner" && m.Email == "alice@example.com" {
+			t.Fatalf("expected Alice's email to be masked for Bob, got raw %q", m.Email)
+		}
+		if m.Role == "editor" && m.Email != "bob@example.com" {
+			t.Fatalf("expected Bob's own email intact, got %q", m.Email)
+		}
+	}
 }

@@ -136,7 +136,8 @@ CGO_ENABLED=0 go test -count=1 ./...
 
 ---
 
-## 參與貢獻與授權條款
+## 參與貢獻、隱私與授權條款
 
 - 歡迎任何形式的 Issue 回報與 Pull Request，提交前請先閱讀 [CONTRIBUTING.md](CONTRIBUTING.md) 與 [AGENT.md](AGENT.md)。
+- 零遙測、本機優先、支援選填 AES-256-GCM 零知識端對端加密同步，詳見 [PRIVACY.md](PRIVACY.md)。
 - 本專案採用 **[Mozilla Public License 2.0 (MPL-2.0)](LICENSE)** 開源授權。

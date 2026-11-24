@@ -80,6 +80,7 @@ type Config struct {
 	SyncProvider       string            `json:"sync_provider,omitempty"` // "cloud" (default) or "selfhost"
 	SyncServerURL      string            `json:"sync_server_url,omitempty"`
 	SyncToken          string            `json:"sync_token,omitempty"`
+	SyncE2EEPassphrase string            `json:"sync_e2ee_passphrase,omitempty"` // Local-only AES-256-GCM passphrase (never leaves device)
 	AutoSync           *bool             `json:"auto_sync,omitempty"`
 	SyncExcludeFolders []string          `json:"sync_exclude_folders,omitempty"`
 	SyncIncludeUncat   *bool             `json:"sync_include_uncat,omitempty"`
@@ -173,7 +174,7 @@ func Save(cfg Config) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
 	raw, err := json.MarshalIndent(cfg, "", "  ")
@@ -182,9 +183,13 @@ func Save(cfg Config) error {
 	}
 	raw = append(raw, '\n')
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, raw, 0o644); err != nil {
+	if err := os.WriteFile(tmp, raw, 0o600); err != nil {
 		return err
 	}
 	_ = os.Remove(path)
-	return os.Rename(tmp, path)
+	if err := os.Rename(tmp, path); err != nil {
+		return err
+	}
+	_ = os.Chmod(path, 0o600)
+	return nil
 }

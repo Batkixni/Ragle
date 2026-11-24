@@ -9,6 +9,7 @@ package server
 import (
 	"context"
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -17,6 +18,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -264,15 +266,15 @@ func (s *Server) registerRoutes() {
 	s.mux.Handle("/v1/rooms", s.signal)
 	s.mux.Handle("/v1/rooms/", s.signal)
 
-	// Companion REST API.
+	// Companion REST API (all private library reads & writes require token when configured).
 	s.mux.HandleFunc("/api/v1/health", s.handleHealth)
-	s.mux.HandleFunc("/api/v1/assets", s.handleAssets)
-	s.mux.HandleFunc("/api/v1/assets/", s.handleAssetByID)
-	s.mux.HandleFunc("/api/v1/similar/", s.handleSimilar)
-	s.mux.HandleFunc("/api/v1/tags", s.handleTags)
-	s.mux.HandleFunc("/api/v1/projects", s.handleProjects)
-	s.mux.HandleFunc("/api/v1/boards", s.handleBoards)
-	s.mux.HandleFunc("/api/v1/boards/", s.handleBoardByID)
+	s.mux.HandleFunc("/api/v1/assets", s.requireToken(s.handleAssets))
+	s.mux.HandleFunc("/api/v1/assets/", s.requireToken(s.handleAssetByID))
+	s.mux.HandleFunc("/api/v1/similar/", s.requireToken(s.handleSimilar))
+	s.mux.HandleFunc("/api/v1/tags", s.requireToken(s.handleTags))
+	s.mux.HandleFunc("/api/v1/projects", s.requireToken(s.handleProjects))
+	s.mux.HandleFunc("/api/v1/boards", s.requireToken(s.handleBoards))
+	s.mux.HandleFunc("/api/v1/boards/", s.requireToken(s.handleBoardByID))
 	s.mux.HandleFunc("/api/v1/import/base64", s.requireToken(s.handleImportBase64))
 	s.mux.HandleFunc("/api/v1/import/url", s.requireToken(s.handleImportURL))
 	s.mux.HandleFunc("/api/v1/import/source", s.requireToken(s.handleImportSource))
@@ -288,30 +290,72 @@ func (s *Server) registerRoutes() {
 	// Mobile-First PWA (/mobile, /manifest.webmanifest, /sw.js).
 	s.registerPWARoutes()
 
-	// Web Gallery & Interactive Board Viewer.
-	s.mux.HandleFunc("/", s.handleWebIndex)
-	s.mux.HandleFunc("/board/", s.handleWebBoard)
-	s.mux.HandleFunc("/project/", s.handleWebProject)
+	// Web Gallery & Interactive Board Viewer (protected by HttpOnly token cookie / unlock gate).
+	s.mux.HandleFunc("/", s.requireWebAuth(s.handleWebIndex))
+	s.mux.HandleFunc("/board/", s.requireWebAuth(s.handleWebBoard))
+	s.mux.HandleFunc("/project/", s.requireWebAuth(s.handleWebProject))
+}
+
+func isAllowedCORSOrigin(origin, reqHost string) bool {
+	if origin == "" {
+		return false
+	}
+	lower := strings.ToLower(strings.TrimSpace(origin))
+	if strings.HasPrefix(lower, "chrome-extension://") ||
+		strings.HasPrefix(lower, "moz-extension://") ||
+		strings.HasPrefix(lower, "safari-web-extension://") {
+		return true
+	}
+	u, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+	h := strings.ToLower(u.Hostname())
+	if h == "localhost" || h == "127.0.0.1" || h == "::1" {
+		return true
+	}
+	if reqHost != "" {
+		rh := strings.ToLower(reqHost)
+		if hostOnly, _, err := net.SplitHostPort(rh); err == nil {
+			rh = hostOnly
+		}
+		if h == rh {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Server) withCORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
-		if origin != "" {
+		allowed := isAllowedCORSOrigin(origin, r.Host)
+		if allowed {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Vary", "Origin")
-		} else {
-			w.Header().Set("Access-Control-Allow-Origin", "*")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Raglex-Token, X-Raglex-Share-Password")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Private-Network", "true")
 		}
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Raglex-Token, X-Raglex-Share-Password")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Private-Network", "true")
 		if r.Method == http.MethodOptions {
+			if !allowed && origin != "" {
+				w.WriteHeader(http.StatusForbidden)
+				return
+			}
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+const sessionCookieName = "raglex_token"
+
+func (s *Server) tokenMatches(got string) bool {
+	if s.token == "" {
+		return true
+	}
+	return subtle.ConstantTimeCompare([]byte(got), []byte(s.token)) == 1
 }
 
 func (s *Server) isAuthorized(r *http.Request) bool {
@@ -328,7 +372,23 @@ func (s *Server) isAuthorized(r *http.Request) bool {
 	if got == "" {
 		got = strings.TrimSpace(r.URL.Query().Get("token"))
 	}
-	return got == s.token
+	if got == "" {
+		if ck, err := r.Cookie(sessionCookieName); err == nil {
+			got = strings.TrimSpace(ck.Value)
+		}
+	}
+	return s.tokenMatches(got)
+}
+
+func (s *Server) setSessionCookie(w http.ResponseWriter) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     sessionCookieName,
+		Value:    s.token,
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteStrictMode,
+		MaxAge:   7 * 24 * 3600,
+	})
 }
 
 func (s *Server) requireToken(next http.HandlerFunc) http.HandlerFunc {
@@ -338,6 +398,43 @@ func (s *Server) requireToken(next http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 		next(w, r)
+	}
+}
+
+// requireWebAuth protects HTML pages (/, /board/, /project/, /mobile) when a
+// server token is configured. Opening /?token=<tok> or submitting the unlock
+// form sets an HttpOnly SameSite=Strict cookie so assets & PWA calls succeed
+// while cross-site pages and unauthenticated LAN peers are blocked.
+func (s *Server) requireWebAuth(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if s.token == "" {
+			next(w, r)
+			return
+		}
+		if r.Method == http.MethodPost {
+			_ = r.ParseForm()
+			if tok := strings.TrimSpace(r.FormValue("token")); s.tokenMatches(tok) {
+				s.setSessionCookie(w)
+				http.Redirect(w, r, r.URL.Path, http.StatusSeeOther)
+				return
+			}
+		}
+		if qTok := strings.TrimSpace(r.URL.Query().Get("token")); qTok != "" && s.tokenMatches(qTok) {
+			s.setSessionCookie(w)
+			clean := *r.URL
+			q := clean.Query()
+			q.Del("token")
+			clean.RawQuery = q.Encode()
+			http.Redirect(w, r, clean.RequestURI(), http.StatusSeeOther)
+			return
+		}
+		if s.isAuthorized(r) {
+			next(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Raglex — Access Key</title><style>body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#0e0e11;color:#fafafa;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}form{width:340px;max-width:90vw;background:#18181d;border:1px solid rgba(255,255,255,.1);border-radius:14px;padding:24px;display:flex;flex-direction:column;gap:12px}h2{margin:0;font-size:16px}p{margin:0;font-size:12px;color:#a1a1aa;line-height:1.5}input{background:#111115;border:1px solid rgba(255,255,255,.12);border-radius:8px;padding:10px 12px;color:#fff;font-size:14px;outline:none}button{background:#FF5C33;color:#fff;border:0;border-radius:8px;padding:10px;font-weight:600;cursor:pointer}</style></head><body><form method="POST"><h2>Raglex Access Key</h2><p>Enter your Raglex Server Access Key (from Preferences &rarr; Sharing) to view this library.</p><input type="password" name="token" placeholder="Access Key" autofocus required><button type="submit">Unlock</button></form></body></html>`))
 	}
 }
 
@@ -356,20 +453,22 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		"signaling": true,
 		"library":   s.lib != nil,
 	}
-	if s.lib != nil {
-		if assets, err := s.lib.List(library.Filter{}); err == nil {
-			resp["assets"] = len(assets)
+	if s.isAuthorized(r) {
+		if s.lib != nil {
+			if assets, err := s.lib.List(library.Filter{}); err == nil {
+				resp["assets"] = len(assets)
+			}
+			if tags, err := s.lib.Tags(); err == nil {
+				resp["tags"] = len(tags)
+			}
 		}
-		if tags, err := s.lib.Tags(); err == nil {
-			resp["tags"] = len(tags)
-		}
-	}
-	if s.projects != nil {
-		if projs, err := s.projects.List(); err == nil {
-			resp["projects"] = len(projs)
-		}
-		if sbs, err := s.projects.StandaloneBoards(); err == nil {
-			resp["standalone_boards"] = len(sbs)
+		if s.projects != nil {
+			if projs, err := s.projects.List(); err == nil {
+				resp["projects"] = len(projs)
+			}
+			if sbs, err := s.projects.StandaloneBoards(); err == nil {
+				resp["standalone_boards"] = len(sbs)
+			}
 		}
 	}
 	writeJSON(w, http.StatusOK, resp)

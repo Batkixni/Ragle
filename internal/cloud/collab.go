@@ -64,20 +64,62 @@ type CollabSummary struct {
 	CreatedAt   time.Time      `json:"created_at"`
 }
 
-func toCollabSummary(c CollabSpace) CollabSummary {
+func maskEmailForPeer(email string) string {
+	email = strings.TrimSpace(email)
+	at := strings.IndexByte(email, '@')
+	if at <= 0 {
+		return ""
+	}
+	local, domain := email[:at], email[at:]
+	if len(local) <= 1 {
+		return "*" + domain
+	}
+	return local[:1] + "***" + domain
+}
+
+func safeDisplayName(name, email string) string {
+	if s := strings.TrimSpace(name); s != "" {
+		return s
+	}
+	if at := strings.IndexByte(email, '@'); at > 0 {
+		return email[:at]
+	}
+	return "Member"
+}
+
+func toCollabSummary(c CollabSpace, viewerUserID string) CollabSummary {
+	members := make([]CollabMember, len(c.Members))
+	for i, m := range c.Members {
+		cp := m
+		if cp.UserID != viewerUserID {
+			cp.Email = maskEmailForPeer(cp.Email)
+		}
+		if strings.Contains(cp.Name, "@") && cp.UserID != viewerUserID {
+			cp.Name = safeDisplayName("", cp.Name)
+		}
+		members[i] = cp
+	}
+	ownerName := c.OwnerName
+	if strings.Contains(ownerName, "@") && c.OwnerUserID != viewerUserID {
+		ownerName = safeDisplayName("", ownerName)
+	}
+	updatedBy := c.UpdatedBy
+	if strings.Contains(updatedBy, "@") {
+		updatedBy = safeDisplayName("", updatedBy)
+	}
 	return CollabSummary{
 		ID:          c.ID,
 		Code:        c.Code,
 		Kind:        c.Kind,
 		Title:       c.Title,
 		OwnerUserID: c.OwnerUserID,
-		OwnerName:   c.OwnerName,
-		Members:     c.Members,
+		OwnerName:   ownerName,
+		Members:     members,
 		Revision:    c.Revision,
 		AssetCount:  len(c.Bundle.Assets),
 		BoardCount:  len(c.Bundle.Boards),
 		FolderCount: len(c.Bundle.Folders),
-		UpdatedBy:   c.UpdatedBy,
+		UpdatedBy:   updatedBy,
 		UpdatedAt:   c.UpdatedAt,
 		CreatedAt:   c.CreatedAt,
 	}
@@ -116,7 +158,7 @@ func (s *Server) handleCollabsCollection(w http.ResponseWriter, r *http.Request,
 			return tx.Bucket(bucketCollabs).ForEach(func(_, v []byte) error {
 				var cs CollabSpace
 				if json.Unmarshal(v, &cs) == nil && collabHasMember(cs, user.ID) {
-					list = append(list, toCollabSummary(cs))
+					list = append(list, toCollabSummary(cs, user.ID))
 				}
 				return nil
 			})
@@ -240,7 +282,7 @@ func (s *Server) handleCollabsCollection(w http.ResponseWriter, r *http.Request,
 		}
 		writeJSON(w, http.StatusCreated, map[string]any{
 			"ok":     true,
-			"collab": toCollabSummary(cs),
+			"collab": toCollabSummary(cs, user.ID),
 		})
 
 	default:
@@ -283,14 +325,10 @@ func (s *Server) handleCollabJoin(w http.ResponseWriter, r *http.Request, user U
 			return err
 		}
 		if !collabHasMember(joined, user.ID) {
-			name := strings.TrimSpace(user.Name)
-			if name == "" {
-				name = user.Email
-			}
 			joined.Members = append(joined.Members, CollabMember{
 				UserID:   user.ID,
 				Email:    user.Email,
-				Name:     name,
+				Name:     safeDisplayName(user.Name, user.Email),
 				Role:     "editor",
 				JoinedAt: time.Now().UTC(),
 			})
@@ -314,7 +352,7 @@ func (s *Server) handleCollabJoin(w http.ResponseWriter, r *http.Request, user U
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":     true,
-		"collab": toCollabSummary(joined),
+		"collab": toCollabSummary(joined, user.ID),
 	})
 }
 
@@ -447,7 +485,7 @@ func (s *Server) handleCollabByID(w http.ResponseWriter, r *http.Request, user U
 		}
 		writeJSON(w, http.StatusOK, map[string]any{
 			"ok":     true,
-			"collab": toCollabSummary(cs),
+			"collab": toCollabSummary(cs, user.ID),
 			"bundle": cs.Bundle,
 		})
 		return
@@ -467,7 +505,7 @@ func (s *Server) handleCollabByID(w http.ResponseWriter, r *http.Request, user U
 		}
 		writeJSON(w, http.StatusOK, map[string]any{
 			"ok":     true,
-			"collab": toCollabSummary(cs),
+			"collab": toCollabSummary(cs, user.ID),
 			"bundle": cs.Bundle,
 		})
 

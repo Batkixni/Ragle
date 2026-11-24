@@ -1619,6 +1619,19 @@ func (a *App) settingsSyncTab(c *gui.Context) {
 			TextColor(a.pal.inkMuted).
 			Padding(0, 10, 4, 35)
 	}
+	a.settingsItemRow(c, "sync-e2ee-key", iconLock, a.t("sync.e2eeTitle"), a.t("sync.e2eeTip"), func() {
+		gui.TextInput(c.Key("pref-sync-e2ee"), &a.syncE2EEPassphrase).
+			Placeholder(a.t("sync.e2eePh")).
+			Password().
+			Width(240).
+			OnChange(func() { a.syncConfigFromState() })
+	})
+	if strings.TrimSpace(a.syncE2EEPassphrase) != "" {
+		gui.Row(c).FillWidth().Padding(0, 10, 4, 35).Gap(6).AlignItems(gui.Center).Children(func() {
+			gui.Box(c).Size(7, 7).Radius(radiusPill).Background(gui.Hex("#10B981"))
+			gui.Text(c, a.t("sync.e2eeActive")).FontSize(11).TextColor(gui.Hex("#10B981")).SingleLine()
+		})
+	}
 
 	// 1. 選擇性資料夾同步（節省 20 GB 雲端配額）
 	a.settingsSection(c, a.t("sync.foldersTitle"), a.t("sync.foldersSub"), true, func() {
@@ -1877,11 +1890,12 @@ func (a *App) settingsSharingTab(c *gui.Context) {
 			localURL := a.localSrv.LocalURL()
 			lanURL := a.localSrv.LANURL()
 			gui.Row(c).FillWidth().Padding(2, 10, 4, 35).Gap(8).Wrap().AlignItems(gui.Center).Children(func() {
+				tok := a.ensureServerToken()
 				a.toolButton(c, "pref-srv-open", iconExternal, a.t("server.openWeb"), false).OnClick(func() {
-					services.OpenURL(localURL)
+					services.OpenURL(localURL + "/?token=" + tok)
 				})
 				a.toolButton(c, "pref-srv-mobile", iconExternal, a.t("sync.openMobile"), false).OnClick(func() {
-					services.OpenURL(localURL + "/mobile")
+					services.OpenURL(localURL + "/mobile?token=" + tok)
 				})
 				if lanURL != "" && a.serverBindAll {
 					a.toolButton(c, "pref-srv-lan-copy", iconLink, a.t("server.copyLAN"), false).OnClick(func() {

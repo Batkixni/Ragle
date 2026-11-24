@@ -334,3 +334,124 @@ func TestSyncDeltaCacheAndPullOnlyZeroWaste(t *testing.T) {
 		t.Fatalf("PullOnly poll sent unexpected requests: check=%d push=%d pull=%d", checkHits, pushHits, pullHits)
 	}
 }
+
+func TestSyncZeroKnowledgeE2EE(t *testing.T) {
+	srvDir := t.TempDir()
+	srvStore, err := OpenStore(srvDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer srvStore.Close()
+	srvBlobs, _ := NewLocalBlobStore(srvDir, nil)
+	h := &Handler{Store: srvStore, Blobs: srvBlobs}
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	// Device A imports a secret concept art PNG with sensitive notes/tags and syncs with E2EE passphrase.
+	dirA := t.TempDir()
+	libA, err := library.Open(dirA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer libA.Close()
+	projsA := project.New(libA.DB)
+
+	origPNG := samplePNG(t, color.RGBA{255, 92, 51, 255})
+	a1, _, err := libA.ImportBytes("secret_nda_character.png", origPNG, nil, "https://internal.studio/nda", "Top Secret NDA")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = libA.SetRating(a1.ID, 5)
+	_, _ = libA.UpdateAssetMeta(a1.ID, "Unannounced 2027 Boss Design", "https://internal.studio/nda", "Top Secret NDA")
+	if tg, err := libA.CreateTag("NDA-Confidential"); err == nil {
+		_ = libA.SetAssetTag(a1.ID, tg.ID, true)
+	}
+
+	cfgA := ClientConfig{
+		ServerURL:      ts.URL,
+		Token:          "tok-e2ee",
+		DeviceID:       "studio-mac",
+		E2EEPassphrase: "correct-horse-battery-staple",
+	}
+	repA, err := SyncNow(context.Background(), cfgA, libA, projsA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if repA.UploadedBlobs != 1 || repA.PushedOps != 1 {
+		t.Fatalf("expected 1 encrypted blob + 1 encrypted op, got %+v", repA)
+	}
+
+	// Verify ZERO plaintext leaks on the server oplog or blob store!
+	ops, _, _, err := srvStore.PullOps(0, 100)
+	if err != nil || len(ops) != 1 {
+		t.Fatalf("expected 1 op on server, got len=%d err=%v", len(ops), err)
+	}
+	if ops[0].Kind != e2eeOpKind || ops[0].EntityID != "e2ee" {
+		t.Fatalf("expected opaque e2ee.v1 op without real entity_id, got kind=%q entity=%q", ops[0].Kind, ops[0].EntityID)
+	}
+	rawOpStr := string(ops[0].Payload)
+	for _, secret := range []string{"secret_nda_character", "Unannounced 2027", "NDA-Confidential", "internal.studio"} {
+		if strings.Contains(rawOpStr, secret) {
+			t.Fatalf("server oplog leaked plaintext %q in %s", secret, rawOpStr)
+		}
+	}
+	// Verify stored blob on server is ciphertext (not raw PNG!).
+	if srvBlobs.Has(context.Background(), a1.Hash) {
+		t.Fatal("server stored plaintext hash instead of ciphertext hash")
+	}
+
+	// Device B with WRONG passphrase cannot decrypt or import anything.
+	dirWrong := t.TempDir()
+	libWrong, err := library.Open(dirWrong)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer libWrong.Close()
+	cfgWrong := ClientConfig{
+		ServerURL:      ts.URL,
+		Token:          "tok-e2ee",
+		DeviceID:       "wrong-dev",
+		E2EEPassphrase: "wrong-passphrase",
+	}
+	repWrong, err := SyncNow(context.Background(), cfgWrong, libWrong, project.New(libWrong.DB))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if repWrong.PulledOps != 0 || repWrong.DownloadedBlobs != 0 {
+		t.Fatalf("wrong passphrase should NOT decrypt any op/blob, got %+v", repWrong)
+	}
+
+	// Device C with SAME passphrase decrypts the exact PNG bytes, notes, rating & tag!
+	dirC := t.TempDir()
+	libC, err := library.Open(dirC)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer libC.Close()
+	cfgC := ClientConfig{
+		ServerURL:      ts.URL,
+		Token:          "tok-e2ee",
+		DeviceID:       "home-win",
+		E2EEPassphrase: "correct-horse-battery-staple",
+	}
+	repC, err := SyncNow(context.Background(), cfgC, libC, project.New(libC.DB))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if repC.PulledOps != 1 || repC.DownloadedBlobs != 1 {
+		t.Fatalf("expected Device C to decrypt 1 op + 1 blob, got %+v", repC)
+	}
+	snapC, err := libC.LoadCatalogSnapshot()
+	if err != nil || len(snapC.Assets) != 1 {
+		t.Fatalf("expected 1 decrypted asset on Device C, got %d err=%v", len(snapC.Assets), err)
+	}
+	got := snapC.Assets[0]
+	if got.Hash != a1.Hash || got.Rating != 5 || got.Notes != "Unannounced 2027 Boss Design" {
+		t.Fatalf("decrypted asset metadata mismatch: got=%+v wantHash=%s", got, a1.Hash)
+	}
+	if len(snapC.AssetTags[got.ID]) != 1 || snapC.AssetTags[got.ID][0].Name != "NDA-Confidential" {
+		t.Fatalf("decrypted asset tags mismatch: %+v", snapC.AssetTags[got.ID])
+	}
+}

@@ -7,7 +7,7 @@ import (
 func (s *Server) registerPWARoutes() {
 	s.mux.HandleFunc("/manifest.webmanifest", s.handlePWAManifest)
 	s.mux.HandleFunc("/sw.js", s.handlePWAServiceWorker)
-	s.mux.HandleFunc("/mobile", s.handleMobilePWA)
+	s.mux.HandleFunc("/mobile", s.requireWebAuth(s.handleMobilePWA))
 }
 
 func (s *Server) handlePWAManifest(w http.ResponseWriter, _ *http.Request) {

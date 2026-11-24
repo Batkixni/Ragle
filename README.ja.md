@@ -66,6 +66,7 @@
 
 [GitHub Releases](../../releases) からお使いのプラットフォーム向けバイナリをダウンロードできます（macOS Apple Silicon / Intel、Windows x64 / ARM64、Linux x64 / ARM64）。
 
-## ライセンス
+## プライバシー・ライセンス
 
-**[Mozilla Public License 2.0 (MPL-2.0)](LICENSE)** の下で公開されています。
+- テレメトリなし・ローカル優先・任意の AES-256-GCM ゼロ知識 E2E 暗号化同期に対応。詳細は [PRIVACY.md](PRIVACY.md) をご覧ください。
+- **[Mozilla Public License 2.0 (MPL-2.0)](LICENSE)** の下で公開されています。

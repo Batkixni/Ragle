@@ -1138,6 +1138,10 @@ var pairs = []pair{
 	{"sync.autoTip", "開啟後會在啟動時、每次編輯素材／資料夾／白板後自動防抖同步，並定期靜默拉取其他裝置與協作空間的新變更，無需手動按同步。", "Automatically syncs on launch, debounces after edits to assets, folders, or boards, and quietly pulls remote & collab updates in the background.", "起動時やアセット・フォルダ・ボード編集後に自動でデバウンス同期し、他端末やコラボの変更もバックグラウンドで自動取得します。"},
 	{"sync.lastSynced", "上次同步：%s", "Last synced: %s", "最終同期：%s"},
 	{"sync.pulledNotice", "雲端已自動同步 %d 筆新變更", "Auto-synced %d remote update(s)", "クラウドから %d 件の更新を自動同期しました"},
+	{"sync.e2eeTitle", "端對端加密金鑰 (E2EE)", "Zero-Knowledge E2EE Key", "E2E 暗号化パスフレーズ"},
+	{"sync.e2eeTip", "選填。設定後，你的素材原檔、檔名、標籤與備註會在本機以 AES-256-GCM 加密後才上傳，連雲端伺服器管理員也無法檢視；其他裝置須填入相同金鑰才可解密還原。", "Optional. Encrypts all personal sync files, filenames, tags, and notes on-device with AES-256-GCM before upload so even the server operator cannot read them. Use the same key on all your devices.", "任意。設定すると、アセット本体・ファイル名・タグ・メモを端末内で AES-256-GCM 暗号化してからアップロードします。サーバー管理者にも閲覧できません（他端末でも同じキーを入力）。"},
+	{"sync.e2eePh", "留空停用；輸入自訂加密密碼啟用零知識加密", "Leave blank for standard TLS, or set a passphrase", "空欄で標準同期・入力するとゼロ知識暗号化"},
+	{"sync.e2eeActive", "已啟用 AES-256-GCM 零知識端對端加密", "AES-256-GCM Zero-Knowledge E2EE Active", "AES-256-GCM ゼロ知識 E2E 暗号化 有効"},
 
 	{"collab.title", "好友協作空間", "Collaboration Spaces", "コラボスペース"},
 	{"collab.sub", "與好友共同維護參考資料夾與專案；每個人的白板獨立擁有，只能編輯自己的白板、可檢視對方的白板。", "Collaborate on shared reference folders and projects. Each member owns their own whiteboards and can view others' boards without conflict.", "フレンドとリファレンスフォルダやプロジェクトを共有できます。ボードは個人所有制のため、他人のボードは閲覧のみ・自分のボードのみ編集できます。"},

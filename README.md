@@ -154,7 +154,7 @@ CGO_ENABLED=0 go test -count=1 ./...
 
 Contributions are warmly welcomed! Please read [CONTRIBUTING.md](CONTRIBUTING.md) and [AGENT.md](AGENT.md) before opening a pull request.
 
-## License
+## License & Privacy
 
-Raglex is licensed under the **[Mozilla Public License 2.0 (MPL-2.0)](LICENSE)**.
-You are free to use, modify, and distribute Raglex under the terms of MPL-2.0; modifications to MPL-covered source files must remain available under MPL-2.0.
+- Raglex is licensed under the **[Mozilla Public License 2.0 (MPL-2.0)](LICENSE)**.
+- Zero telemetry, strict local security, and optional Zero-Knowledge AES-256-GCM E2EE cloud sync — see [PRIVACY.md](PRIVACY.md).

@@ -27,13 +27,14 @@ type ClientConfig struct {
 	ServerURL            string
 	Token                string
 	DeviceID             string
+	E2EEPassphrase       string          // Optional client-side zero-knowledge AES-256-GCM passphrase (never leaves device)
 	ExcludedFolderIDs    map[string]bool // Folder IDs (and their nested descendants) skipped during push/upload
 	ExcludeUncategorized bool            // Skip assets that do not belong to any folder
 	PullOnly             bool            // Skip local catalog scan / blob check / push; only poll /v1/sync/pull
 }
 
-func remoteScopeKey(base, token string) string {
-	sum := sha256.Sum256([]byte(base + "\n" + strings.TrimSpace(token)))
+func remoteScopeKey(base, token, e2eePass string) string {
+	sum := sha256.Sum256([]byte(base + "\n" + strings.TrimSpace(token) + "\n" + strings.TrimSpace(e2eePass)))
 	return hex.EncodeToString(sum[:8])
 }
 
@@ -58,6 +59,7 @@ type assetSyncPayload struct {
 	ID          string     `json:"id"`
 	Name        string     `json:"name"`
 	Hash        string     `json:"hash"`
+	BlobHash    string     `json:"blob_hash,omitempty"` // Ciphertext SHA-256 on server when E2EE is enabled
 	Mime        string     `json:"mime"`
 	Rating      int        `json:"rating"`
 	Notes       string     `json:"notes,omitempty"`
@@ -132,7 +134,11 @@ func SyncNowWithProgress(ctx context.Context, cfg ClientConfig, lib *library.Lib
 		return metaHC.Do(req)
 	}
 
-	scope := remoteScopeKey(base, cfg.Token)
+	scope := remoteScopeKey(base, cfg.Token, cfg.E2EEPassphrase)
+	e2eeKey, err := deriveE2EEKey(cfg.E2EEPassphrase)
+	if err != nil {
+		return rep, fmt.Errorf("sync e2ee key derivation failed: %w", err)
+	}
 	var (
 		snapLoaded  bool
 		snap        library.CatalogSnapshot
@@ -216,6 +222,8 @@ func SyncNowWithProgress(ctx context.Context, cfg ClientConfig, lib *library.Lib
 
 		hashToPath := map[string]string{}
 		hashToName := map[string]string{}
+		encHashToPlain := map[string]string{}
+		encHashToBytes := map[string][]byte{}
 		var candidateHashes []string
 		pushOps := make([]SyncOp, 0, 16)
 
@@ -239,12 +247,9 @@ func SyncNowWithProgress(ctx context.Context, cfg ClientConfig, lib *library.Lib
 			}
 
 			h := strings.ToLower(strings.TrimSpace(a.Hash))
-			if _, err := ValidateSHA256(h); err == nil && a.Path != "" && !a.Missing && !knownHashes[h] {
-				if _, seen := hashToPath[h]; !seen {
-					hashToPath[h] = a.Path
-					hashToName[h] = a.Label()
-					candidateHashes = append(candidateHashes, h)
-				}
+			validHash := false
+			if _, err := ValidateSHA256(h); err == nil && a.Path != "" && !a.Missing {
+				validHash = true
 			}
 			tgs := snap.AssetTags[a.ID]
 			tagNames := make([]string, 0, len(tgs))
@@ -275,19 +280,70 @@ func SyncNowWithProgress(ctx context.Context, cfg ClientConfig, lib *library.Lib
 			}
 			rawPL, _ := json.Marshal(pl)
 			// Deterministic OpID from payload hash makes pushes 100% idempotent
-			// and lets us skip unchanged assets locally with zero network traffic!
+			// and lets us skip unchanged assets locally with zero disk/network work!
 			opSum := sha256.Sum256(rawPL)
-			opID := "asset:" + hex.EncodeToString(opSum[:16])
-			if knownOps[opID] {
+			opPrefix := "asset:"
+			if len(e2eeKey) > 0 {
+				opPrefix = "e2ee:"
+			}
+			opID := opPrefix + hex.EncodeToString(opSum[:16])
+
+			needBlob := validHash && !knownHashes[h]
+			needOp := !knownOps[opID]
+			if !needBlob && !needOp {
 				continue
 			}
+
+			blobHash := h
+			if len(e2eeKey) > 0 && validHash {
+				plainBytes, rerr := os.ReadFile(a.Path)
+				if rerr == nil {
+					ctBytes, ctHash, cerr := encryptBlob(e2eeKey, h, plainBytes)
+					if cerr == nil {
+						blobHash = ctHash
+						pl.BlobHash = ctHash
+						rawPL, _ = json.Marshal(pl)
+						if needBlob {
+							if _, seen := encHashToBytes[ctHash]; !seen {
+								encHashToBytes[ctHash] = ctBytes
+								encHashToPlain[ctHash] = h
+								hashToName[ctHash] = a.Label()
+								candidateHashes = append(candidateHashes, ctHash)
+							}
+						}
+					}
+				}
+			} else if needBlob {
+				if _, seen := hashToPath[h]; !seen {
+					hashToPath[h] = a.Path
+					hashToName[h] = a.Label()
+					candidateHashes = append(candidateHashes, h)
+				}
+			}
+
+			if !needOp {
+				continue
+			}
+			opKind := "asset.upsert"
+			entityID := a.ID
+			wirePayload := json.RawMessage(rawPL)
+			if len(e2eeKey) > 0 {
+				encEnv, cerr := encryptOpPayload(e2eeKey, opID, rawPL)
+				if cerr != nil {
+					continue
+				}
+				opKind = e2eeOpKind
+				entityID = "e2ee"
+				wirePayload = encEnv
+			}
+			_ = blobHash
 			pushOps = append(pushOps, SyncOp{
 				OpID:      opID,
 				DeviceID:  devID,
 				Timestamp: time.Now().UnixMilli(),
-				Kind:      "asset.upsert",
-				EntityID:  a.ID,
-				Payload:   rawPL,
+				Kind:      opKind,
+				EntityID:  entityID,
+				Payload:   wirePayload,
 			})
 		}
 
@@ -321,7 +377,11 @@ func SyncNowWithProgress(ctx context.Context, cfg ClientConfig, lib *library.Lib
 			}
 			for _, ch := range candidateHashes {
 				if !missingSet[ch] {
-					confirmedHashes = append(confirmedHashes, ch)
+					if ph := encHashToPlain[ch]; ph != "" {
+						confirmedHashes = append(confirmedHashes, ph)
+					} else {
+						confirmedHashes = append(confirmedHashes, ch)
+					}
 				}
 			}
 
@@ -366,20 +426,30 @@ func SyncNowWithProgress(ctx context.Context, cfg ClientConfig, lib *library.Lib
 							if upCtx.Err() != nil {
 								return
 							}
-							p := hashToPath[mh]
-							if p == "" {
-								d := int(doneCount.Add(1))
-								emit(SyncProgress{Stage: "uploading", Done: d, Total: totalMissing})
-								continue
+							var bodyReader io.Reader
+							var closer io.Closer
+							if ctBytes, ok := encHashToBytes[mh]; ok {
+								bodyReader = bytes.NewReader(ctBytes)
+							} else {
+								p := hashToPath[mh]
+								if p == "" {
+									d := int(doneCount.Add(1))
+									emit(SyncProgress{Stage: "uploading", Done: d, Total: totalMissing})
+									continue
+								}
+								f, err := os.Open(p)
+								if err != nil {
+									d := int(doneCount.Add(1))
+									emit(SyncProgress{Stage: "uploading", Done: d, Total: totalMissing})
+									continue
+								}
+								bodyReader = f
+								closer = f
 							}
-							f, err := os.Open(p)
-							if err != nil {
-								d := int(doneCount.Add(1))
-								emit(SyncProgress{Stage: "uploading", Done: d, Total: totalMissing})
-								continue
+							upResp, err := doReq(upCtx, http.MethodPut, "/v1/blobs/"+mh, bodyReader, "application/octet-stream")
+							if closer != nil {
+								_ = closer.Close()
 							}
-							upResp, err := doReq(upCtx, http.MethodPut, "/v1/blobs/"+mh, f, "application/octet-stream")
-							_ = f.Close()
 							if err != nil {
 								if upCtx.Err() == nil {
 									setErr(err)
@@ -395,8 +465,12 @@ func SyncNowWithProgress(ctx context.Context, cfg ClientConfig, lib *library.Lib
 
 							if upResp.StatusCode == http.StatusOK {
 								okCount.Add(1)
+								confirmedKey := mh
+								if ph := encHashToPlain[mh]; ph != "" {
+									confirmedKey = ph
+								}
 								uploadedMu.Lock()
-								uploadedOK = append(uploadedOK, mh)
+								uploadedOK = append(uploadedOK, confirmedKey)
 								uploadedMu.Unlock()
 							} else if upResp.StatusCode == http.StatusRequestEntityTooLarge || upResp.StatusCode == http.StatusUnauthorized {
 								if upOut.Error != "" {
@@ -506,9 +580,18 @@ func SyncNowWithProgress(ctx context.Context, cfg ClientConfig, lib *library.Lib
 			if op.DeviceID == devID {
 				continue
 			}
-			if op.Kind == "asset.upsert" {
+			if op.Kind == "asset.upsert" || op.Kind == e2eeOpKind {
+				isEncryptedOp := op.Kind == e2eeOpKind
+				rawPayload := []byte(op.Payload)
+				if isEncryptedOp {
+					dec, derr := decryptOpPayload(e2eeKey, op.OpID, op.Payload)
+					if derr != nil {
+						continue
+					}
+					rawPayload = dec
+				}
 				var pl assetSyncPayload
-				if err := json.Unmarshal(op.Payload, &pl); err != nil {
+				if err := json.Unmarshal(rawPayload, &pl); err != nil {
 					continue
 				}
 				rep.PulledOps++
@@ -516,8 +599,12 @@ func SyncNowWithProgress(ctx context.Context, cfg ClientConfig, lib *library.Lib
 				if ex, ok := localByHash[strings.ToLower(pl.Hash)]; ok {
 					target = ex
 				} else if pl.Hash != "" {
+					fetchHash := pl.Hash
+					if isEncryptedOp && pl.BlobHash != "" {
+						fetchHash = pl.BlobHash
+					}
 					emit(SyncProgress{Stage: "downloading", Done: idx + 1, Total: len(pullOut.Ops), Current: pl.Name})
-					bResp, err := doReq(ctx, http.MethodGet, "/v1/blobs/"+pl.Hash, nil, "")
+					bResp, err := doReq(ctx, http.MethodGet, "/v1/blobs/"+fetchHash, nil, "")
 					if err != nil {
 						continue
 					}
@@ -525,6 +612,13 @@ func SyncNowWithProgress(ctx context.Context, cfg ClientConfig, lib *library.Lib
 					_ = bResp.Body.Close()
 					if rerr != nil || bResp.StatusCode != http.StatusOK || len(data) == 0 {
 						continue
+					}
+					if isEncryptedOp {
+						plainData, derr := decryptBlob(e2eeKey, pl.Hash, data)
+						if derr != nil {
+							continue
+						}
+						data = plainData
 					}
 					name := pl.Name
 					if filepath.Ext(name) == "" {

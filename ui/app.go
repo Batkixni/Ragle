@@ -485,6 +485,7 @@ type App struct {
 	syncProvider         string // "cloud" (default) or "selfhost"
 	syncServerURL        string
 	syncToken            string
+	syncE2EEPassphrase   string
 	autoSync             bool
 	syncBusy             bool
 	syncHidden           bool
@@ -889,6 +890,7 @@ func (a *App) applyConfig(cfg config.Config) {
 	}
 	a.syncServerURL = cfg.SyncServerURL
 	a.syncToken = cfg.SyncToken
+	a.syncE2EEPassphrase = cfg.SyncE2EEPassphrase
 	a.accountEmail = strings.TrimSpace(cfg.AccountEmail)
 	a.accountName = strings.TrimSpace(cfg.AccountName)
 	a.accountToken = strings.TrimSpace(cfg.AccountToken)
@@ -978,6 +980,7 @@ func (a *App) syncConfigFromState() {
 	a.cfg.SyncProvider = a.syncProvider
 	a.cfg.SyncServerURL = strings.TrimSpace(a.syncServerURL)
 	a.cfg.SyncToken = strings.TrimSpace(a.syncToken)
+	a.cfg.SyncE2EEPassphrase = strings.TrimSpace(a.syncE2EEPassphrase)
 	a.cfg.AccountEmail = strings.TrimSpace(a.accountEmail)
 	a.cfg.AccountName = strings.TrimSpace(a.accountName)
 	a.cfg.AccountToken = strings.TrimSpace(a.accountToken)

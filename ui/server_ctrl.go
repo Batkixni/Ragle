@@ -1144,6 +1144,7 @@ func (a *App) runCloudSync(quiet, pullOnly bool) {
 		ServerURL:            serverURL,
 		Token:                token,
 		DeviceID:             strings.TrimSpace(a.deviceName),
+		E2EEPassphrase:       strings.TrimSpace(a.syncE2EEPassphrase),
 		ExcludedFolderIDs:    exMap,
 		ExcludeUncategorized: !a.syncIncludeUncat,
 		PullOnly:             pullOnly,

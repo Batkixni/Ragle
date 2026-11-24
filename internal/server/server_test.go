@@ -116,10 +116,30 @@ func TestUnifiedServerAPIWebAndSignaling(t *testing.T) {
 	_ = json.NewDecoder(resp.Body).Decode(&boardResp)
 	_ = resp.Body.Close()
 
-	// 5. Web Gallery & Interactive Board HTML render cleanly.
+	// 5. Security hardening: unauthenticated reads & evil CORS origins MUST be blocked!
+	unauthReq, _ := http.NewRequest(http.MethodGet, base+"/api/v1/assets", nil)
+	unauthReq.Header.Set("Origin", "https://evil.example.com")
+	resp, err = http.DefaultClient.Do(unauthReq)
+	if err != nil || resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401 on unauthenticated GET /api/v1/assets, got %v %v", resp.StatusCode, err)
+	}
+	if aca := resp.Header.Get("Access-Control-Allow-Origin"); aca != "" {
+		t.Fatalf("expected NO CORS allow-origin for evil.example.com, got %q", aca)
+	}
+	_ = resp.Body.Close()
+
+	// Unauthenticated Web Gallery shows 401 unlock form; authenticated request renders full gallery.
 	resp, err = http.Get(base + "/")
+	if err != nil || resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401 unlock gate on unauthenticated /, got %v %v", resp.StatusCode, err)
+	}
+	_ = resp.Body.Close()
+
+	req, _ = http.NewRequest(http.MethodGet, base+"/", nil)
+	req.Header.Set("X-Raglex-Token", "secret123")
+	resp, err = http.DefaultClient.Do(req)
 	if err != nil || resp.StatusCode != 200 {
-		t.Fatalf("web index failed: %v", err)
+		t.Fatalf("web index with token failed: %v", err)
 	}
 	var htmlBuf bytes.Buffer
 	_, _ = htmlBuf.ReadFrom(resp.Body)
@@ -128,9 +148,11 @@ func TestUnifiedServerAPIWebAndSignaling(t *testing.T) {
 		t.Fatalf("web index missing expected content")
 	}
 
-	resp, err = http.Get(base + "/board/" + boardResp.ID)
+	req, _ = http.NewRequest(http.MethodGet, base+"/board/"+boardResp.ID, nil)
+	req.Header.Set("X-Raglex-Token", "secret123")
+	resp, err = http.DefaultClient.Do(req)
 	if err != nil || resp.StatusCode != 200 {
-		t.Fatalf("web board failed: %v", err)
+		t.Fatalf("web board with token failed: %v", err)
 	}
 	_ = resp.Body.Close()
 
