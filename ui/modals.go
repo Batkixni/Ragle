@@ -134,11 +134,25 @@ func (a *App) quickLookModal(c *gui.Context) {
 						gui.Text(c, a.t("preview.loading")).TextColor(t.TextMuted)
 					})
 				case isVideo:
-					if bm := a.bitmaps[asset.ID]; bm != nil {
-						gui.Image(c, bm).Fit(gui.Contain).MaxHeight(420).Radius(8)
-					} else {
-						gui.Icon(c, iconVideo).Size(32, 32).TextColor(a.pal.inkMuted)
-					}
+					gui.Column(c).Center().Gap(10).Children(func() {
+						if bm := a.bitmaps[asset.ID]; bm != nil {
+							gui.Image(c, bm).Fit(gui.Contain).MaxHeight(380).Radius(8)
+						} else {
+							gui.Icon(c, iconVideo).Size(32, 32).TextColor(a.pal.inkMuted)
+						}
+						if a.previewVideoErr != "" {
+							gui.Text(c, a.previewVideoErr).FontSize(12).TextColor(a.pal.inkSecondary).TextAlign(gui.Center)
+							if !a.ffmpeg {
+								dlLabel := a.t("settings.ffmpegDownload")
+								if a.ffmpegInstalling {
+									dlLabel = fmt.Sprintf(a.t("settings.ffmpegDownloading"), a.ffmpegInstallProgress)
+								}
+								a.arcButton(c, "ql-install-ff", dlLabel, true).OnClick(func() {
+									a.installFFmpegAsync()
+								})
+							}
+						}
+					})
 				default:
 					bm := a.previewBitmap
 					if bm == nil {

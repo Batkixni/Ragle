@@ -6,22 +6,24 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"raglex/internal/ffmpeg"
 )
 
-// Available reports whether ffmpeg can be started.
-func Available() bool { return bin("ffmpeg") != "" }
+// Available reports whether ffmpeg can be started (bundled, managed, or PATH).
+func Available() bool { return ffmpeg.Available() }
 
 // Probe reads the first video stream's size and duration.
-// It returns an error when neither ffprobe nor ffmpeg is on PATH.
+// It returns an error when neither ffprobe nor ffmpeg is available.
 func Probe(path string) (width, height int, duration float64, err error) {
-	if probe := bin("ffprobe"); probe != "" {
+	if probe := ffmpeg.FindFFprobe(); probe != "" {
 		return probeWith(probe, path)
 	}
-	ffmpeg := bin("ffmpeg")
-	if ffmpeg == "" {
+	ff := ffmpeg.Find()
+	if ff == "" {
 		return 0, 0, 0, exec.ErrNotFound
 	}
-	return probeFFmpeg(ffmpeg, path)
+	return probeFFmpeg(ff, path)
 }
 
 func probeWith(ffprobe, path string) (int, int, float64, error) {
@@ -86,29 +88,21 @@ func probeFFmpeg(ffmpeg, path string) (int, int, float64, error) {
 // ExtractFrame writes one JPEG frame from a video. It tries one second in,
 // then the first frame.
 func ExtractFrame(path, dest string) error {
-	ffmpeg := bin("ffmpeg")
-	if ffmpeg == "" {
+	ff := ffmpeg.Find()
+	if ff == "" {
 		return exec.ErrNotFound
 	}
-	err := runFrame(ffmpeg, path, dest, "1")
+	err := runFrame(ff, path, dest, "1")
 	if err != nil {
-		return runFrame(ffmpeg, path, dest, "0")
+		return runFrame(ff, path, dest, "0")
 	}
 	return nil
 }
 
-func runFrame(ffmpeg, path, dest, ss string) error {
-	cmd := exec.Command(ffmpeg, "-y", "-ss", ss, "-i", path, "-frames:v", "1", dest)
+func runFrame(ff, path, dest, ss string) error {
+	cmd := exec.Command(ff, "-y", "-ss", ss, "-i", path, "-frames:v", "1", dest)
 	hideCmd(cmd)
 	var buf bytes.Buffer
 	cmd.Stderr = &buf
 	return cmd.Run()
-}
-
-func bin(name string) string {
-	path, err := exec.LookPath(name)
-	if err != nil {
-		return ""
-	}
-	return path
 }

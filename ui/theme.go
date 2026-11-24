@@ -5,6 +5,7 @@ import (
 	"math"
 	"net/url"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -539,6 +540,38 @@ func attachGlidingPill(track, activeBtn gui.Element, hasActive bool, radius floa
 	})
 }
 
+const useMacChrome = runtime.GOOS == "darwin"
+
+// macTrafficLightSpacer reserves exact horizontal clearance for macOS's native
+// top-left traffic light buttons when using mygo.TitleBarHidden. Returns true
+// when spacer room was rendered.
+func (a *App) macTrafficLightSpacer(c *gui.Context) bool {
+	if !useMacChrome {
+		return false
+	}
+	tb := c.TitleBar()
+	if tb.Left <= 0 {
+		return false
+	}
+	w := tb.Left - 12
+	if w < 64 {
+		w = 64
+	}
+	gui.Box(c.Key("mac-traffic-spacer")).Size(w, 20).DragWindow()
+	return true
+}
+
+// topRightChrome renders the top-right slot of every top bar:
+//   - macOS: Account, Preferences, and Help Guide icons (relocated from bottom-left)
+//   - Windows / Linux: integrated monochrome window controls (minimize, maximize, close)
+func (a *App) topRightChrome(c *gui.Context) {
+	if useMacChrome {
+		a.topUtilityControls(c)
+		return
+	}
+	a.windowControls(c)
+}
+
 // windowControls renders integrated monochrome frameless window buttons
 // (minimize, maximize/restore with Windows 11 Snap Layouts support, close).
 func (a *App) windowControls(c *gui.Context) {
@@ -638,6 +671,26 @@ func (a *App) windowControls(c *gui.Context) {
 			Children(func() {
 				gui.Icon(c, iconX).Size(13, 13)
 			})
+	})
+}
+
+// topUtilityControls renders the Account, Preferences, and Help Guide icons in
+// the top-right corner of the active top bar.
+func (a *App) topUtilityControls(c *gui.Context) {
+	gui.Row(c.Key("top-utility-controls")).Gap(2).AlignItems(gui.Center).Children(func() {
+		acctTip := a.t("account.openSidebar")
+		if a.accountEmail != "" {
+			acctTip = a.accountEmail
+		}
+		a.iconButton(c, "top-account", iconUser, acctTip, a.settingsOpen && a.settingsTab == settingsTabAccount).OnClick(func() {
+			a.openSettings(settingsTabAccount)
+		})
+		a.iconButton(c, "top-settings", iconSettings, a.t("settings.open"), a.settingsOpen && a.settingsTab != settingsTabAccount).OnClick(func() {
+			a.openSettings(a.settingsTab)
+		})
+		a.iconButton(c, "top-help-guide", iconHelp, a.t("onboarding.open"), a.onboardingOpen).OnClick(func() {
+			a.openOnboarding()
+		})
 	})
 }
 

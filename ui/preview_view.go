@@ -62,6 +62,9 @@ func (a *App) inlinePreviewView(c *gui.Context) {
 			BorderColor(a.chromeHairline()).
 			AlignItems(gui.Center).
 			Children(func() {
+				if !a.sidebarOpen && a.macTrafficLightSpacer(c) {
+					gui.Box(c).Width(1).Height(18).Background(a.pal.surfaceMuted)
+				}
 				a.iconButton(c, "viewer-back", iconArrowLeft, a.t("viewer.back")+" (Esc)", false).OnClick(func() {
 					a.closePreview()
 				})
@@ -99,7 +102,7 @@ func (a *App) inlinePreviewView(c *gui.Context) {
 				}
 
 				gui.Box(c).Size(1, 18).Background(a.pal.surfaceMuted)
-				a.windowControls(c)
+				a.topRightChrome(c)
 			})
 
 		// Center Artwork Stage + Optional Right Inspector (Info / Similar).
@@ -138,11 +141,22 @@ func (a *App) inlinePreviewView(c *gui.Context) {
 					gui.Column(c).Center().Gap(10).Children(func() {
 						gui.Icon(c, iconVideo).Size(36, 36).TextColor(a.pal.inkMuted)
 						gui.Text(c, a.previewVideoErr).FontSize(12).TextColor(a.pal.inkSecondary).TextAlign(gui.Center)
-						if !asset.Missing && asset.Path != "" {
-							a.arcButton(c, "viewer-ext-vid", a.t("common.openFile"), true).OnClick(func() {
-								_ = openLocalFile(asset.Path)
-							})
-						}
+						gui.Row(c).Gap(8).Center().Children(func() {
+							if !a.ffmpeg {
+								dlLabel := a.t("settings.ffmpegDownload")
+								if a.ffmpegInstalling {
+									dlLabel = fmt.Sprintf(a.t("settings.ffmpegDownloading"), a.ffmpegInstallProgress)
+								}
+								a.arcButton(c, "viewer-install-ff", dlLabel, true).OnClick(func() {
+									a.installFFmpegAsync()
+								})
+							}
+							if !asset.Missing && asset.Path != "" {
+								a.arcButton(c, "viewer-ext-vid", a.t("common.openFile"), a.ffmpeg).OnClick(func() {
+									_ = openLocalFile(asset.Path)
+								})
+							}
+						})
 					})
 				case a.previewBitmap != nil:
 					a.renderZoomableImageStage(c, asset, a.previewBitmap)

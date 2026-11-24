@@ -43,6 +43,9 @@ func (a *App) projectView(c *gui.Context) {
 			compact := barW > 0 && barW < 880
 
 			chrome.Children(func() {
+				if !a.sidebarOpen && a.macTrafficLightSpacer(c) {
+					gui.Box(c).Width(1).Height(18).Background(a.pal.surfaceMuted)
+				}
 				a.iconButton(c, "proj-back-lib", iconArrowLeft, a.t("shell.library"), false).OnClick(func() {
 					a.handleNav("tag-all")
 				})
@@ -114,7 +117,7 @@ func (a *App) projectView(c *gui.Context) {
 				}, a.popoverMenuBtnOpts())
 
 				gui.Box(c).Width(1).Height(18).Background(a.pal.surfaceMuted)
-				a.windowControls(c)
+				a.topRightChrome(c)
 			})
 		}
 

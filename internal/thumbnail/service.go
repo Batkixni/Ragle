@@ -184,6 +184,7 @@ func (s *Service) build(id string) error {
 	var ph, dh uint64
 	var pal []model.PaletteColor
 	var vec []float32
+	var decodedW, decodedH int
 
 	switch {
 	case model.IsSVG(asset.Mime, asset.Path):
@@ -211,6 +212,8 @@ func (s *Service) build(id string) error {
 			if err != nil {
 				return err
 			}
+			decodedW = img.Bounds().Dx()
+			decodedH = img.Bounds().Dy()
 			fitted = imaging.Fit(img, longEdge, longEdge, imaging.Lanczos)
 			savedPath, err := saveSmartThumb(fitted, s.db.ThumbsDir(), asset.ID)
 			if err != nil {
@@ -296,6 +299,13 @@ func (s *Service) build(id string) error {
 			return err
 		}
 		cur.ThumbnailPath = dest
+		if (cur.Width == 0 || cur.Height == 0) && decodedW > 0 && decodedH > 0 {
+			cur.Width = decodedW
+			cur.Height = decodedH
+		}
+		if model.IsCameraRAW(cur.Path) && model.MediaKind(cur.Mime) != model.MediaImage {
+			cur.Mime = "image/x-raw"
+		}
 		if len(pal) > 0 {
 			cur.Palette = pal
 		}

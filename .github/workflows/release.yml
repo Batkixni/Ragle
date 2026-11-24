@@ -35,6 +35,36 @@ jobs:
           go tool mygo vet .
           go test -count=1 ./...
 
+      - name: Bundle Static ffmpeg for All Platforms
+        run: |
+          set -euo pipefail
+          TAG="b6.1.1"
+          BASE="https://github.com/eugeneware/ffmpeg-static/releases/download/${TAG}"
+          mkdir -p resources/darwin-arm64 resources/darwin-amd64 resources/linux-amd64 resources/linux-arm64 resources/windows-amd64 resources/windows-arm64
+
+          curl -fSL --retry 3 "${BASE}/ffmpeg-darwin-arm64.gz" | gunzip > resources/darwin-arm64/ffmpeg
+          chmod +x resources/darwin-arm64/ffmpeg
+
+          curl -fSL --retry 3 "${BASE}/ffmpeg-darwin-x64.gz" | gunzip > resources/darwin-amd64/ffmpeg
+          chmod +x resources/darwin-amd64/ffmpeg
+
+          curl -fSL --retry 3 "${BASE}/ffmpeg-linux-x64.gz" | gunzip > resources/linux-amd64/ffmpeg
+          chmod +x resources/linux-amd64/ffmpeg
+
+          curl -fSL --retry 3 "${BASE}/ffmpeg-linux-arm64.gz" | gunzip > resources/linux-arm64/ffmpeg
+          chmod +x resources/linux-arm64/ffmpeg
+
+          curl -fSL --retry 3 "${BASE}/ffmpeg-win32-x64.gz" | gunzip > resources/windows-amd64/ffmpeg.exe
+
+          if curl -fSL --retry 3 -o /tmp/ffmpeg-winarm64.zip "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-winarm64-gpl.zip"; then
+            unzip -p /tmp/ffmpeg-winarm64.zip '*/bin/ffmpeg.exe' > resources/windows-arm64/ffmpeg.exe
+            rm -f /tmp/ffmpeg-winarm64.zip
+          else
+            cp resources/windows-amd64/ffmpeg.exe resources/windows-arm64/ffmpeg.exe
+          fi
+
+          ls -lh resources/*/ffmpeg*
+
       - name: Cross-Compile Desktop Apps & Installers (macOS Silicon/Intel, Windows x64/ARM64, Linux x64/ARM64)
         env:
           CGO_ENABLED: '0'
@@ -47,17 +77,17 @@ jobs:
         run: |
           mkdir -p dist
 
-          # macOS Apple Silicon & Intel (.app bundles)
+          # macOS Apple Silicon & Intel (.app bundles with bundled Resources/ffmpeg)
           (cd build/release/darwin-arm64 && zip -r ../../../dist/Raglex-darwin-arm64.zip Raglex.app)
           (cd build/release/darwin-amd64 && zip -r ../../../dist/Raglex-darwin-amd64.zip Raglex.app)
 
-          # Windows x64 & ARM64 (NSIS Setup Installers + Portable)
+          # Windows x64 & ARM64 (NSIS Setup Installers + Portable ZIP with bundled ffmpeg.exe + standalone exe)
           find build/release/windows-amd64 -maxdepth 1 -name '*setup*.exe' -exec cp {} dist/ \;
           cp build/release/windows-amd64/Raglex.exe dist/Raglex-windows-amd64.exe
-          (cd build/release/windows-amd64 && zip -r ../../../dist/Raglex-windows-amd64.zip Raglex.exe)
+          (cd build/release/windows-amd64 && zip -r ../../../dist/Raglex-windows-amd64.zip Raglex.exe ffmpeg.exe)
           find build/release/windows-arm64 -maxdepth 1 -name '*setup*.exe' -exec cp {} dist/ \;
           cp build/release/windows-arm64/Raglex.exe dist/Raglex-windows-arm64.exe
-          (cd build/release/windows-arm64 && zip -r ../../../dist/Raglex-windows-arm64.zip Raglex.exe)
+          (cd build/release/windows-arm64 && zip -r ../../../dist/Raglex-windows-arm64.zip Raglex.exe ffmpeg.exe)
 
           # Linux x64 & ARM64 (tar.gz + deb + rpm)
           find build/release/linux-amd64 -maxdepth 1 \( -name '*.tar.gz' -o -name '*.deb' -o -name '*.rpm' \) -exec cp {} dist/ \;

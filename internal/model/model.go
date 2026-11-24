@@ -260,10 +260,21 @@ func IsEPS(mime, path string) bool {
 	return strings.EqualFold(filepath.Ext(path), ".eps")
 }
 
-// IsCameraRAW reports whether the asset is a camera RAW photo with embedded JPEG preview.
+// IsCameraRAW reports whether the asset is a proprietary or DNG camera RAW photo.
 func IsCameraRAW(path string) bool {
 	switch strings.ToLower(filepath.Ext(path)) {
-	case ".cr2", ".cr3", ".nef", ".arw", ".dng", ".raf", ".orf", ".rw2", ".pef", ".srw":
+	case ".cr2", ".cr3", ".crw",
+		".nef", ".nrw", ".naf",
+		".arw", ".sr2", ".srf",
+		".raf",
+		".dng",
+		".orf",
+		".rw2", ".raw", ".rwl",
+		".pef",
+		".srw",
+		".3fr", ".fff",
+		".iiq",
+		".erf", ".kdc", ".dcr", ".mrw", ".x3f", ".mef", ".mos":
 		return true
 	}
 	return false

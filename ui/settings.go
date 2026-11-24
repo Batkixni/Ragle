@@ -959,11 +959,21 @@ func (a *App) settingsDatabaseTab(c *gui.Context) {
 		a.settingsKVRow(c, "db-file", iconDatabase, a.t("pref.dbFile"), fmt.Sprintf("%s  (v%s)", formatBytes(st.DBBytes), model.SchemaVersion))
 		a.settingsKVRow(c, "db-files", iconFolder, a.t("pref.dbFiles"), fmt.Sprintf("%s  (%d)", formatBytes(st.FilesBytes), st.FilesCount))
 		a.settingsKVRow(c, "db-thumbs", iconLibrary, a.t("pref.dbThumbs"), fmt.Sprintf("%s  (%d)", formatBytes(st.ThumbsBytes), st.ThumbsCount))
-		ffText := a.t("settings.ffmpegMissing")
-		if a.ffmpeg {
-			ffText = a.t("settings.ffmpegOK")
-		}
-		a.settingsKVRow(c, "db-ff", iconSliders, a.t("pref.ffmpeg"), ffText)
+		ffText := a.ffmpegStatusLabel()
+		a.settingsItemRow(c, "db-ff", iconSliders, a.t("pref.ffmpeg"), "", func() {
+			gui.Row(c).Gap(8).AlignItems(gui.Center).Children(func() {
+				gui.Text(c, ffText).FontSize(12).TextColor(a.pal.inkSecondary).SingleLine()
+				if !a.ffmpeg {
+					dlLabel := a.t("settings.ffmpegDownload")
+					if a.ffmpegInstalling {
+						dlLabel = fmt.Sprintf(a.t("settings.ffmpegDownloading"), a.ffmpegInstallProgress)
+					}
+					a.arcButton(c, "pref-db-install-ff", dlLabel, true).OnClick(func() {
+						a.installFFmpegAsync()
+					})
+				}
+			})
+		})
 		gui.Row(c).FillWidth().Padding(6, 10).Gap(8).Wrap().Children(func() {
 			relinkLbl := a.t("settings.relinkMissing")
 			if a.missingCount > 0 {

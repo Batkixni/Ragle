@@ -1144,7 +1144,8 @@ func mimeOf(path string) string {
 		return "image/x-icon"
 	case ".tga":
 		return "image/x-tga"
-	case ".cr2", ".cr3", ".nef", ".arw", ".dng", ".raf", ".orf", ".rw2", ".pef", ".srw":
+	}
+	if model.IsCameraRAW(path) {
 		return "image/x-raw"
 	}
 	f, err := os.Open(path)

@@ -559,7 +559,9 @@ func (a *App) sidebar(c *gui.Context) {
 		Clip().
 		Background(a.pal.surface).
 		Children(func() {
-				// Clean top brand header (draggable frameless window region; utilities live at bottom).
+				// Sidebar top header:
+				// - macOS: native traffic lights clearance + collapse toggle (logo moves to bottom-left)
+				// - Windows/Linux: clean brand header (logo + title)
 				gui.Row(c).
 					Height(48).
 					Padding(0, 10, 0, 14).
@@ -567,10 +569,20 @@ func (a *App) sidebar(c *gui.Context) {
 					AlignItems(gui.Center).
 					DragWindow().
 					Children(func() {
-						if bm := a.brandLogo(); bm != nil {
-							gui.Image(c, bm).Size(20, 20).Fit(gui.Contain)
+						if useMacChrome {
+							a.macTrafficLightSpacer(c)
+							gui.Box(c).Grow(1).FillHeight().DragWindow()
+							if a.sidebarOpen {
+								a.iconButton(c, "sb-collapse-btn", iconPanelLeft, a.t("sidebar.toggle"), false).OnClick(func() {
+									a.sidebarOpen = false
+								})
+							}
+						} else {
+							if bm := a.brandLogo(); bm != nil {
+								gui.Image(c, bm).Size(20, 20).Fit(gui.Contain)
+							}
+							gui.Text(c, a.libraryTitle()).Bold().FontSize(13).Grow(1).SingleLine()
 						}
-						gui.Text(c, a.libraryTitle()).Bold().FontSize(13).Grow(1).SingleLine()
 					})
 
 				// Single unified search bar (filters assets, projects & matching nav items) + Ctrl+T launcher.
@@ -820,33 +832,51 @@ func (a *App) sidebar(c *gui.Context) {
 					attachGlidingPill(track, activeBtn, hasActive, radiusControl, a.pal.pillActive, a.pal.shadowResting)
 				})
 
-				// Bottom utility footer inside the sidebar (Account, Settings, Help, and Collapse Sidebar).
-				gui.Row(c).
-					Height(44).
-					Padding(0, 10).
-					Gap(4).
-					AlignItems(gui.Center).
-					Children(func() {
-						acctTip := a.t("account.openSidebar")
-						if a.accountEmail != "" {
-							acctTip = a.accountEmail
-						}
-						a.iconButton(c, "sb-account", iconUser, acctTip, a.settingsOpen && a.settingsTab == settingsTabAccount).OnClick(func() {
-							a.openSettings(settingsTabAccount)
+				// Sidebar bottom footer:
+				// - macOS: Raglex brand logo + wordmark (utilities relocated to top-right)
+				// - Windows/Linux: Account, Settings, Help, and Collapse Sidebar
+				if useMacChrome {
+					gui.Row(c).
+						Height(44).
+						Padding(0, 14).
+						Gap(8).
+						AlignItems(gui.Center).
+						BorderWidth(1, 0, 0, 0).
+						BorderColor(a.chromeHairline()).
+						Children(func() {
+							if bm := a.brandLogo(); bm != nil {
+								gui.Image(c, bm).Size(20, 20).Fit(gui.Contain)
+							}
+							gui.Text(c, a.libraryTitle()).Bold().FontSize(13).TextColor(a.pal.ink).Grow(1).SingleLine()
 						})
-						a.iconButton(c, "sb-settings", iconSettings, a.t("settings.open"), a.settingsOpen && a.settingsTab != settingsTabAccount).OnClick(func() {
-							a.openSettings(a.settingsTab)
-						})
-						a.iconButton(c, "sb-help-guide", iconHelp, a.t("onboarding.open"), a.onboardingOpen).OnClick(func() {
-							a.openOnboarding()
-						})
-						gui.Spacer(c)
-						if a.sidebarOpen {
-							a.iconButton(c, "sb-collapse-btn", iconPanelLeft, a.t("sidebar.toggle"), false).OnClick(func() {
-								a.sidebarOpen = false
+				} else {
+					gui.Row(c).
+						Height(44).
+						Padding(0, 10).
+						Gap(4).
+						AlignItems(gui.Center).
+						Children(func() {
+							acctTip := a.t("account.openSidebar")
+							if a.accountEmail != "" {
+								acctTip = a.accountEmail
+							}
+							a.iconButton(c, "sb-account", iconUser, acctTip, a.settingsOpen && a.settingsTab == settingsTabAccount).OnClick(func() {
+								a.openSettings(settingsTabAccount)
 							})
-						}
-					})
+							a.iconButton(c, "sb-settings", iconSettings, a.t("settings.open"), a.settingsOpen && a.settingsTab != settingsTabAccount).OnClick(func() {
+								a.openSettings(a.settingsTab)
+							})
+							a.iconButton(c, "sb-help-guide", iconHelp, a.t("onboarding.open"), a.onboardingOpen).OnClick(func() {
+								a.openOnboarding()
+							})
+							gui.Spacer(c)
+							if a.sidebarOpen {
+								a.iconButton(c, "sb-collapse-btn", iconPanelLeft, a.t("sidebar.toggle"), false).OnClick(func() {
+									a.sidebarOpen = false
+								})
+							}
+						})
+				}
 			})
 }
 
@@ -914,6 +944,9 @@ func (a *App) workspaceBar(c *gui.Context) {
 	}
 
 	bar.Children(func() {
+		if !a.sidebarOpen && a.macTrafficLightSpacer(c) {
+			gui.Box(c).Width(1).Height(18).Background(a.pal.surfaceMuted)
+		}
 		gui.Row(c).Gap(8).FillHeight().AlignItems(gui.Center).DragWindow().Children(func() {
 			gui.Text(c, a.currentViewTitle()).Bold().FontSize(14).SingleLine().MaxWidth(titleMaxW)
 			if !tight && a.showSidebarCounts {
@@ -1175,6 +1208,6 @@ func (a *App) workspaceBar(c *gui.Context) {
 
 		gui.Box(c).Width(1).Height(18).Background(a.pal.surfaceMuted)
 
-		a.windowControls(c)
+		a.topRightChrome(c)
 	})
 }

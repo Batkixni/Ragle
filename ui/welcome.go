@@ -218,13 +218,18 @@ func (a *App) welcome(c *gui.Context) {
 			Padding(0, 12, 0, 16).
 			AlignItems(gui.Center).
 			Children(func() {
-				gui.Row(c).Grow(1).FillHeight().DragWindow().AlignItems(gui.Center).Gap(8).Children(func() {
-					if bm := a.brandLogo(); bm != nil {
-						gui.Image(c, bm).Size(15, 15).Fit(gui.Contain)
-					}
-					gui.Text(c, "Raglex").FontSize(12).Bold().TextColor(a.pal.inkMuted)
-				})
-				a.windowControls(c)
+				if useMacChrome {
+					a.macTrafficLightSpacer(c)
+					gui.Box(c).Grow(1).FillHeight().DragWindow()
+				} else {
+					gui.Row(c).Grow(1).FillHeight().DragWindow().AlignItems(gui.Center).Gap(8).Children(func() {
+						if bm := a.brandLogo(); bm != nil {
+							gui.Image(c, bm).Size(15, 15).Fit(gui.Contain)
+						}
+						gui.Text(c, "Raglex").FontSize(12).Bold().TextColor(a.pal.inkMuted)
+					})
+				}
+				a.topRightChrome(c)
 			})
 
 		gui.Column(c).Grow(1).FillWidth().Center().Padding(0, 32, 32, 32).Children(func() {

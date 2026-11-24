@@ -14,6 +14,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"raglex/internal/ffmpeg"
 )
 
 // Waveform holds normalized amplitude peaks (0..1) and duration for an audio file.
@@ -151,12 +153,12 @@ func extractWAVWaveform(path string, bars int) (Waveform, error) {
 }
 
 func extractFFmpegWaveform(path string, bars int) (Waveform, error) {
-	ffmpeg, err := exec.LookPath("ffmpeg")
-	if err != nil {
-		return Waveform{}, err
+	ff := ffmpeg.Find()
+	if ff == "" {
+		return Waveform{}, exec.ErrNotFound
 	}
 	const rate = 8000
-	cmd := exec.Command(ffmpeg,
+	cmd := exec.Command(ff,
 		"-v", "error",
 		"-i", path,
 		"-ac", "1",

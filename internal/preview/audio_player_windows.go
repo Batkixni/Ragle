@@ -13,6 +13,8 @@ import (
 	"sync/atomic"
 	"syscall"
 	"unsafe"
+
+	"raglex/internal/ffmpeg"
 )
 
 var (
@@ -40,12 +42,12 @@ func OpenAudioPlayer(path string) (*AudioPlayer, error) {
 	var tempWav string
 	ext := strings.ToLower(filepath.Ext(path))
 	if ext == ".ogg" || ext == ".flac" || ext == ".opus" {
-		if ffmpeg, err := exec.LookPath("ffmpeg"); err == nil {
+		if ff := ffmpeg.Find(); ff != "" {
 			f, ferr := os.CreateTemp("", "raglex-audio-*.wav")
 			if ferr == nil {
 				tempWav = f.Name()
 				_ = f.Close()
-				cmd := exec.Command(ffmpeg, "-y", "-v", "error", "-i", path, "-ac", "2", "-ar", "44100", tempWav)
+				cmd := exec.Command(ff, "-y", "-v", "error", "-i", path, "-ac", "2", "-ar", "44100", tempWav)
 				hideCmd(cmd)
 				if cmd.Run() == nil {
 					playPath = tempWav

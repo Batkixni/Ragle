@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -15,6 +16,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/disintegration/imaging"
 	"github.com/egoist/mygo"
 	gui "github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/video"
@@ -23,6 +25,7 @@ import (
 	"raglex/internal/canvas"
 	"raglex/internal/config"
 	"raglex/internal/db"
+	"raglex/internal/ffmpeg"
 	"raglex/internal/i18n"
 	"raglex/internal/library"
 	"raglex/internal/model"
@@ -102,8 +105,11 @@ type App struct {
 	lib      *library.Library
 	projects *project.Store
 	thumbs   *thumbnail.Service
-	watch    *watcher.Watcher
-	ffmpeg   bool
+	watch                 *watcher.Watcher
+	ffmpeg                bool
+	ffmpegSource          string
+	ffmpegInstalling      bool
+	ffmpegInstallProgress string
 
 	node          *share.Node
 	shareDB       atomic.Pointer[db.DB]
@@ -657,18 +663,22 @@ func Run() error {
 		a.onboardingOpen = true
 	}
 	mygo.App.WhenReady(func() {
-		a.win = mygo.NewWindow(mygo.WindowOptions{
+		winOpts := mygo.WindowOptions{
 			Title:             "Raglex",
 			Width:             1360,
 			Height:            860,
 			MinWidth:          980,
 			MinHeight:         640,
 			TitleBarStyle:     mygo.TitleBarHidden,
-			HideWindowButtons: true,
+			HideWindowButtons: runtime.GOOS != "darwin",
 			Vibrancy:          mygo.VibrancyAcrylic,
 			StateKey:          "main",
 			Content:           gui.View(a.View),
-		})
+		}
+		if runtime.GOOS == "darwin" {
+			winOpts.TrafficLightPosition = &mygo.Point{X: 16, Y: 18}
+		}
+		a.win = mygo.NewWindow(winOpts)
 		a.syncWindowVibrancy()
 		a.win.OnClosed(func() { a.shutdown() })
 		a.startShare()
@@ -1064,7 +1074,7 @@ func (a *App) attach(lib *library.Library, root string) {
 			}
 		}(w)
 	}
-	a.ffmpeg = thumbnail.Available()
+	a.refreshFFmpegState()
 	a.screen = screenLibrary
 	a.openErr = nil
 	a.canRestore = false
@@ -1790,8 +1800,96 @@ func (a *App) syncInspectorSelection(force bool) {
 		}
 	}
 	if a.bitmaps[asset.ID] == nil && !asset.Missing && model.MediaKind(asset.Mime) == model.MediaImage && asset.Path != "" {
-		a.ensureBitmap(asset.ID, asset.Path)
+		if model.IsExtraCreativeImage(asset.Mime, asset.Path) {
+			if asset.ThumbnailPath != "" {
+				a.ensureBitmap(asset.ID, asset.ThumbnailPath)
+			} else if a.thumbs != nil {
+				a.thumbs.Prioritize(asset.ID)
+			}
+		} else {
+			a.ensureBitmap(asset.ID, asset.Path)
+		}
 	}
+}
+
+func (a *App) refreshFFmpegState() {
+	p, src := ffmpeg.Detect()
+	a.ffmpeg = p != ""
+	a.ffmpegSource = src
+}
+
+func (a *App) ffmpegStatusLabel() string {
+	switch a.ffmpegSource {
+	case ffmpeg.SourceBundled:
+		return a.t("settings.ffmpegBundled")
+	case ffmpeg.SourceManaged:
+		return a.t("settings.ffmpegManaged")
+	case ffmpeg.SourceSystem:
+		return a.t("settings.ffmpegSystem")
+	default:
+		if a.ffmpeg {
+			return a.t("settings.ffmpegOK")
+		}
+		return a.t("settings.ffmpegMissing")
+	}
+}
+
+// installFFmpegAsync downloads the static ffmpeg binary into Raglex's managed
+// bin directory in the background, updates status live, and resumes video playback.
+func (a *App) installFFmpegAsync() {
+	if a.ffmpegInstalling || a.win == nil {
+		return
+	}
+	a.ffmpegInstalling = true
+	a.ffmpegInstallProgress = "0%"
+	win := a.win
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+		defer cancel()
+		_, err := ffmpeg.InstallManaged(ctx, func(done, total int64) {
+			label := formatBytes(done)
+			if total > 0 {
+				pct := int(done * 100 / total)
+				if pct > 100 {
+					pct = 100
+				}
+				label = fmt.Sprintf("%d%%", pct)
+			}
+			win.Update(func() {
+				if !a.isClosed() {
+					a.ffmpegInstallProgress = label
+				}
+			})
+		})
+		win.Update(func() {
+			if a.isClosed() {
+				return
+			}
+			a.ffmpegInstalling = false
+			a.ffmpegInstallProgress = ""
+			if err != nil {
+				a.notify(fmt.Sprintf(a.t("settings.ffmpegInstallFailed"), err.Error()))
+				return
+			}
+			a.refreshFFmpegState()
+			a.notify(a.t("settings.ffmpegInstalled"))
+			// Re-queue videos missing thumbnails now that ffmpeg is ready.
+			for _, item := range a.allAssets {
+				if model.MediaKind(item.Mime) == model.MediaVideo && item.ThumbnailPath == "" && !item.Missing {
+					delete(a.queued, item.ID)
+					a.queueThumb(item)
+				}
+			}
+			// If currently viewing a video that errored due to missing ffmpeg, restart playback immediately.
+			if (a.previewOpen || a.quickLookOpen) && a.previewVideoErr != "" {
+				if cur, ok := a.assetByID[a.previewAssetID]; ok {
+					a.previewVideoErr = ""
+					a.previewAssetID = ""
+					a.loadPreviewAsset(cur)
+				}
+			}
+		})
+	}()
 }
 
 func (a *App) hasActiveFilters() bool {
@@ -1835,6 +1933,7 @@ func (a *App) queueThumb(asset model.Asset) {
 		return
 	}
 	if model.MediaKind(asset.Mime) == model.MediaOther &&
+		!model.IsExtraCreativeImage(asset.Mime, asset.Path) &&
 		!model.IsFont(asset.Mime, asset.Path) &&
 		!model.IsAudio(asset.Mime, asset.Path) &&
 		!model.IsPDF(asset.Mime, asset.Path) {
@@ -2256,7 +2355,21 @@ func (a *App) loadPreviewAsset(asset model.Asset) {
 	go func() {
 		var bm *gui.Bitmap
 		var player *gui.VideoPlayer
-		if model.IsExtraCreativeImage(mimeType, path) {
+		if model.IsCameraRAW(path) {
+			// Fast path: decode embedded preview JPEG directly when orientation is normal
+			// (avoids expensive Go PNG re-encoding of 24-60MP RAW previews).
+			if rawJPEG, orient, rerr := preview.ExtractEmbeddedJPEGBytes(path); rerr == nil && len(rawJPEG) > 0 && orient == 1 {
+				bm, _ = gui.DecodeBitmap(rawJPEG)
+			}
+			if bm == nil {
+				if img, err := preview.DecodeCameraRAW(path); err == nil && img != nil {
+					if img.Bounds().Dx() > 2800 || img.Bounds().Dy() > 2800 {
+						img = imaging.Fit(img, 2800, 2800, imaging.Linear)
+					}
+					bm, _ = imageToBitmap(img)
+				}
+			}
+		} else if model.IsExtraCreativeImage(mimeType, path) {
 			if img, err := preview.DecodeCreativeImage(path, 2400); err == nil && img != nil {
 				bm, _ = imageToBitmap(img)
 			}

@@ -11,6 +11,7 @@ import (
 
 	gui "github.com/egoist/mygo/ui"
 
+	"raglex/internal/ffmpeg"
 	"raglex/internal/thumbnail"
 )
 
@@ -34,8 +35,8 @@ type ffmpegVideoDecoder struct {
 }
 
 func newFFmpegVideoDecoder(path string, hintW, hintH int) (*ffmpegVideoDecoder, error) {
-	ffmpeg, err := exec.LookPath("ffmpeg")
-	if err != nil {
+	ff := ffmpeg.Find()
+	if ff == "" {
 		return nil, exec.ErrNotFound
 	}
 	w, h := hintW, hintH
@@ -68,7 +69,7 @@ func newFFmpegVideoDecoder(path string, hintW, hintH int) (*ffmpegVideoDecoder, 
 	h &^= 1
 
 	d := &ffmpegVideoDecoder{
-		ffmpeg: ffmpeg,
+		ffmpeg: ff,
 		path:   path,
 		w:      w,
 		h:      h,

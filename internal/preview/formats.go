@@ -91,6 +91,9 @@ func CreativeImageSize(path string) (int, int) {
 		h := int(binary.LittleEndian.Uint16(hdr[14:16]))
 		return w, h
 	}
+	if model.IsCameraRAW(path) {
+		return CameraRAWImageSize(path)
+	}
 	return 0, 0
 }
 
@@ -641,54 +644,9 @@ func DecodeTGA(path string) (image.Image, error) {
 	return out, nil
 }
 
-// ExtractEmbeddedJPEG extracts the largest valid embedded JPEG preview from a
-// Camera RAW file (CR2, NEF, ARW, DNG, RAF, ORF, RW2, etc.).
+// ExtractEmbeddedJPEG extracts and auto-orients the highest-resolution preview
+// image from a Camera RAW file (CR3, CR2, CRW, NEF, NRW, NAF, ARW, SR2, SRF,
+// RAF, DNG, ORF, RW2, PEF, SRW, 3FR, IIQ, etc.).
 func ExtractEmbeddedJPEG(path string) (image.Image, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-	// Read up to 24MB to locate embedded full-size EXIF/preview JPEG streams.
-	buf, err := io.ReadAll(io.LimitReader(f, 24<<20))
-	if err != nil {
-		return nil, err
-	}
-	var bestImg image.Image
-	bestArea := 0
-	soi := []byte{0xFF, 0xD8, 0xFF}
-	eoi := []byte{0xFF, 0xD9}
-	for i := 0; i < len(buf)-3; {
-		rel := bytes.Index(buf[i:], soi)
-		if rel < 0 {
-			break
-		}
-		start := i + rel
-		// Search for matching EOI within 12MB window.
-		limit := start + 12<<20
-		if limit > len(buf) {
-			limit = len(buf)
-		}
-		endRel := bytes.Index(buf[start+3:limit], eoi)
-		if endRel < 0 {
-			i = start + 3
-			continue
-		}
-		end := start + 3 + endRel + 2
-		candidate := buf[start:end]
-		if cfg, err := jpeg.DecodeConfig(bytes.NewReader(candidate)); err == nil {
-			area := cfg.Width * cfg.Height
-			if area > bestArea {
-				if img, err := jpeg.Decode(bytes.NewReader(candidate)); err == nil {
-					bestArea = area
-					bestImg = img
-				}
-			}
-		}
-		i = end
-	}
-	if bestImg == nil {
-		return nil, errors.New("raw: no embedded JPEG preview found")
-	}
-	return bestImg, nil
+	return DecodeCameraRAW(path)
 }

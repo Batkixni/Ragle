@@ -2,6 +2,7 @@
 /build/
 /dist/
 /release/
+/resources/
 /.mygo/
 *.exe
 *.dll

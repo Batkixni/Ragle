@@ -91,6 +91,10 @@ func (a *App) boardToolbar(c *gui.Context) {
 		BorderWidth(0, 0, 1, 0).
 		BorderColor(a.chromeHairline()).
 		Children(func() {
+			if a.macTrafficLightSpacer(c) {
+				gui.Box(c).Width(1).Height(18).Background(a.pal.surfaceMuted)
+			}
+
 			// Back & breadcrumb.
 			leaveLbl := a.t("board.leave")
 			if a.boardProject == "" {
@@ -194,7 +198,7 @@ func (a *App) boardToolbar(c *gui.Context) {
 			})
 
 			gui.Box(c).Width(1).Height(18).Background(a.pal.surfaceMuted)
-			a.windowControls(c)
+			a.topRightChrome(c)
 		})
 }
 
