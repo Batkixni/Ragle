@@ -621,6 +621,7 @@ func (s *Server) handleResendVerify(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.sendVerificationEmail(r.Context(), user, code); err != nil {
+		s.clearAuthCode("verify", user.Email)
 		log.Printf("error: resend verification email to %s: %v", user.Email, err)
 		writeErr(w, http.StatusBadGateway, "郵件發送失敗，請稍後再試")
 		return
@@ -658,6 +659,7 @@ func (s *Server) handleForgotPassword(w http.ResponseWriter, r *http.Request) {
 	if found {
 		if code, err := s.issueAuthCode("reset", user, 15*time.Minute); err == nil {
 			if err := s.sendPasswordResetEmail(r.Context(), user, code); err != nil {
+				s.clearAuthCode("reset", user.Email)
 				log.Printf("error: send reset email to %s: %v", user.Email, err)
 				writeErr(w, http.StatusBadGateway, "郵件發送失敗，請稍後再試")
 				return
@@ -809,6 +811,12 @@ func (s *Server) findUserByEmail(email string) (User, bool) {
 		return nil
 	})
 	return user, found
+}
+
+func (s *Server) clearAuthCode(kind, email string) {
+	_ = s.db.Update(func(tx *bbolt.Tx) error {
+		return tx.Bucket(bucketAuthCodes).Delete([]byte(kind + ":" + email))
+	})
 }
 
 func (s *Server) isCodeRateLimited(kind, email string, window time.Duration) bool {

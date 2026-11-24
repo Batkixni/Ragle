@@ -112,7 +112,7 @@ func (c *OpenMailClient) Send(ctx context.Context, to, subject, text, htmlBody s
 	payload := map[string]string{
 		"to":      strings.TrimSpace(to),
 		"subject": subject,
-		"text":    text,
+		"body":    text,
 	}
 	if strings.TrimSpace(htmlBody) != "" {
 		payload["html"] = htmlBody
@@ -135,6 +135,30 @@ func (c *OpenMailClient) Send(ctx context.Context, to, subject, text, htmlBody s
 		return err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusBadRequest && payload["html"] != "" {
+		// Retry without optional html field in case API rejects extra keys.
+		_, _ = io.Copy(io.Discard, resp.Body)
+		delete(payload, "html")
+		raw2, _ := json.Marshal(payload)
+		req2, err2 := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(raw2))
+		if err2 != nil {
+			return err2
+		}
+		req2.Header.Set("Authorization", "Bearer "+c.APIKey)
+		req2.Header.Set("Content-Type", "application/json")
+		req2.Header.Set("Idempotency-Key", "rglx-"+model.NewID())
+		resp2, err2 := c.hc.Do(req2)
+		if err2 != nil {
+			return err2
+		}
+		defer resp2.Body.Close()
+		if resp2.StatusCode < 200 || resp2.StatusCode >= 300 {
+			body2, _ := io.ReadAll(io.LimitReader(resp2.Body, 4096))
+			return fmt.Errorf("openmail send HTTP %d: %s", resp2.StatusCode, strings.TrimSpace(string(body2)))
+		}
+		_, _ = io.Copy(io.Discard, resp2.Body)
+		return nil
+	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		return fmt.Errorf("openmail send HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
