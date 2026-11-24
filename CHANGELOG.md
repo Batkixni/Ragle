@@ -4,6 +4,14 @@ All notable changes to **Raglex** are documented in this file.
 
 ---
 
+## [v0.4.3] - 2026-11-24
+
+### ⚡ 同步效能與流量大減 99% / Ultra-Light Delta Auto-Sync
+- **閒置 90 秒輪詢改為純 `PullOnly`**：本地無異動時跳過本機資料庫快照掃描與上傳，只發約 **150 Bytes** 的 `GET /v1/sync/pull?since=cursor`，幾乎零 CPU 與零多餘頻寬。
+- **本機 `sync.db` 增量快取已同步的 `OpID` 與 SHA-256 雜湊**：依伺服器端點＋帳號隔離快取；萬筆素材庫中修改單一素材評分／標籤時只送出該 **1 筆增量異動**，徹底消除重複 `/v1/blobs/check` 與 `/v1/sync/push` 流量。
+
+---
+
 ## [v0.4.2] - 2026-11-24
 
 ### ✨ 新功能與操作體驗優化 / What's New
