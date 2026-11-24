@@ -1158,6 +1158,7 @@ var pairs = []pair{
 	{"sync.e2eeLoaded", "已載入 AES-256 加密金鑰，下次同步將使用此金鑰解密與加密。", "Loaded AES-256 encryption key. Your next sync will use this key.", "AES-256 暗号化キーを読み込みました。次回の同期から適用されます。"},
 	{"sync.e2eeLoadErr", "檔案中找不到有效的加密金鑰", "No valid encryption key found in the selected file", "選択したファイルに有効な暗号化キーが見つかりませんでした"},
 	{"sync.e2eeRegenDone", "已產生新的隨機 AES-256 金鑰，請記得另存備份。", "Generated a new random AES-256 key. Remember to save a backup.", "新しいランダム AES-256 キーを生成しました。バックアップを保存してください。"},
+	{"sync.e2eeDecryptFailed", "有 %d 筆加密素材無法解密：請在「偏好設定 → 同步與協作」載入另一台裝置匯出的 AES-256 金鑰檔。", "%d encrypted asset(s) could not be decrypted. Load the AES-256 key file from your other device in Preferences → Sync & Collab.", "%d 件の暗号化アセットを復号できませんでした。「環境設定 → 同期とコラボ」で他端末の AES-256 キーファイルを読み込んでください。"},
 
 	{"collab.title", "好友協作空間", "Collaboration Spaces", "コラボスペース"},
 	{"collab.sub", "與好友共同維護參考資料夾與專案；每個人的白板獨立擁有，只能編輯自己的白板、可檢視對方的白板。", "Collaborate on shared reference folders and projects. Each member owns their own whiteboards and can view others' boards without conflict.", "フレンドとリファレンスフォルダやプロジェクトを共有できます。ボードは個人所有制のため、他人のボードは閲覧のみ・自分のボードのみ編集できます。"},

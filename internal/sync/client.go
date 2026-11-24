@@ -48,16 +48,18 @@ type SyncProgress struct {
 
 // SyncReport summarizes what happened during a SyncNow round-trip.
 type SyncReport struct {
-	PushedOps       int    `json:"pushed_ops"`
-	PulledOps       int    `json:"pulled_ops"`
-	UploadedBlobs   int    `json:"uploaded_blobs"`
-	DownloadedBlobs int    `json:"downloaded_blobs"`
-	LatestSeq       uint64 `json:"latest_seq"`
+	PushedOps        int    `json:"pushed_ops"`
+	PulledOps        int    `json:"pulled_ops"`
+	UploadedBlobs    int    `json:"uploaded_blobs"`
+	DownloadedBlobs  int    `json:"downloaded_blobs"`
+	DecryptFailedOps int    `json:"decrypt_failed_ops,omitempty"`
+	LatestSeq        uint64 `json:"latest_seq"`
 }
 
 type assetSyncPayload struct {
 	ID          string     `json:"id"`
 	Name        string     `json:"name"`
+	Ext         string     `json:"ext,omitempty"`
 	Hash        string     `json:"hash"`
 	BlobHash    string     `json:"blob_hash,omitempty"` // Ciphertext SHA-256 on server when E2EE is enabled
 	Mime        string     `json:"mime"`
@@ -68,6 +70,47 @@ type assetSyncPayload struct {
 	IsBookmark  bool       `json:"is_bookmark,omitempty"`
 	Tags        []string   `json:"tags,omitempty"`
 	Folders     [][]string `json:"folders,omitempty"`
+}
+
+func extFromMime(mimeType string) string {
+	switch strings.ToLower(strings.TrimSpace(mimeType)) {
+	case "image/png":
+		return ".png"
+	case "image/jpeg", "image/jpg":
+		return ".jpg"
+	case "image/webp":
+		return ".webp"
+	case "image/gif":
+		return ".gif"
+	case "image/svg+xml":
+		return ".svg"
+	case "image/avif":
+		return ".avif"
+	case "image/bmp":
+		return ".bmp"
+	case "image/tiff":
+		return ".tiff"
+	case "video/mp4":
+		return ".mp4"
+	case "video/webm":
+		return ".webm"
+	case "video/quicktime":
+		return ".mov"
+	case "audio/mpeg":
+		return ".mp3"
+	case "audio/wav", "audio/x-wav":
+		return ".wav"
+	case "audio/ogg":
+		return ".ogg"
+	case "application/pdf":
+		return ".pdf"
+	case "text/markdown":
+		return ".md"
+	case "text/plain":
+		return ".txt"
+	default:
+		return ".png"
+	}
 }
 
 // SyncNow executes a full bidirectional delta + content-addressed blob sync
@@ -87,11 +130,6 @@ func SyncNowWithProgress(ctx context.Context, cfg ClientConfig, lib *library.Lib
 	if lib == nil {
 		return rep, fmt.Errorf("library is not open")
 	}
-	devID := strings.TrimSpace(cfg.DeviceID)
-	if devID == "" {
-		devID = "raglex-desktop"
-	}
-
 	emit := func(p SyncProgress) {
 		if onProgress != nil {
 			onProgress(p)
@@ -104,6 +142,11 @@ func SyncNowWithProgress(ctx context.Context, cfg ClientConfig, lib *library.Lib
 		return rep, err
 	}
 	defer localStore.Close()
+
+	devID := strings.TrimSpace(cfg.DeviceID)
+	if devID == "" {
+		devID = localStore.EnsureDeviceID()
+	}
 
 	// Pooled HTTP transport with HTTP/2 & keep-alive for fast multi-worker transfers.
 	transport := &http.Transport{
@@ -268,6 +311,7 @@ func SyncNowWithProgress(ctx context.Context, cfg ClientConfig, lib *library.Lib
 			pl := assetSyncPayload{
 				ID:          a.ID,
 				Name:        a.Label(),
+				Ext:         filepath.Ext(a.Path),
 				Hash:        h,
 				Mime:        a.Mime,
 				Rating:      a.Rating,
@@ -533,10 +577,17 @@ func SyncNowWithProgress(ctx context.Context, cfg ClientConfig, lib *library.Lib
 	}
 
 	// 4. Pull remote ops since last cursor and apply missing assets + metadata locally.
-	// In PullOnly mode with 0 remote ops, this completes with ONE ~150B GET and ZERO local DB scan!
+	// Scope cursor by server+account+E2EE key ("v2:"+scope) so:
+	// - switching accounts or loading an E2EE key on another device cleanly re-pulls from 0,
+	// - clients upgrading from older builds with shared default DeviceID auto-heal and pull missed ops.
 	emit(SyncProgress{Stage: "pulling"})
-	cursorKey := base
+	cursorKey := "v2:" + scope
 	since := localStore.GetCursor(cursorKey)
+	safeSince := since
+	cursorBlocked := false
+	var pulledKnownOps []string
+	var pulledKnownHashes []string
+	var knownOpsForPull map[string]bool
 
 	for {
 		resp, err := doReq(ctx, http.MethodGet, fmt.Sprintf("/v1/sync/pull?since=%d&limit=500", since), nil, "")
@@ -559,9 +610,12 @@ func SyncNowWithProgress(ctx context.Context, cfg ClientConfig, lib *library.Lib
 		rep.LatestSeq = pullOut.LatestSeq
 
 		if len(pullOut.Ops) > 0 {
+			if knownOpsForPull == nil {
+				knownOpsForPull, _ = localStore.LoadRemoteKnown(scope)
+			}
 			hasRemote := false
 			for _, op := range pullOut.Ops {
-				if op.DeviceID != devID {
+				if !(op.DeviceID == devID && knownOpsForPull[op.OpID]) {
 					hasRemote = true
 					break
 				}
@@ -577,7 +631,12 @@ func SyncNowWithProgress(ctx context.Context, cfg ClientConfig, lib *library.Lib
 			if op.Seq > since {
 				since = op.Seq
 			}
-			if op.DeviceID == devID {
+			// Only skip our own echo when BOTH DeviceID matches AND this library
+			// already knows it pushed this OpID; never drop assets missing locally!
+			if op.DeviceID == devID && knownOpsForPull[op.OpID] {
+				if !cursorBlocked && op.Seq > safeSince {
+					safeSince = op.Seq
+				}
 				continue
 			}
 			if op.Kind == "asset.upsert" || op.Kind == e2eeOpKind {
@@ -586,18 +645,23 @@ func SyncNowWithProgress(ctx context.Context, cfg ClientConfig, lib *library.Lib
 				if isEncryptedOp {
 					dec, derr := decryptOpPayload(e2eeKey, op.OpID, op.Payload)
 					if derr != nil {
+						rep.DecryptFailedOps++
+						cursorBlocked = true
 						continue
 					}
 					rawPayload = dec
 				}
 				var pl assetSyncPayload
 				if err := json.Unmarshal(rawPayload, &pl); err != nil {
+					if !cursorBlocked && op.Seq > safeSince {
+						safeSince = op.Seq
+					}
 					continue
 				}
-				rep.PulledOps++
 				var target model.Asset
 				if ex, ok := localByHash[strings.ToLower(pl.Hash)]; ok {
 					target = ex
+					rep.PulledOps++
 				} else if pl.Hash != "" {
 					fetchHash := pl.Hash
 					if isEncryptedOp && pl.BlobHash != "" {
@@ -606,30 +670,40 @@ func SyncNowWithProgress(ctx context.Context, cfg ClientConfig, lib *library.Lib
 					emit(SyncProgress{Stage: "downloading", Done: idx + 1, Total: len(pullOut.Ops), Current: pl.Name})
 					bResp, err := doReq(ctx, http.MethodGet, "/v1/blobs/"+fetchHash, nil, "")
 					if err != nil {
+						cursorBlocked = true
 						continue
 					}
 					data, rerr := io.ReadAll(io.LimitReader(bResp.Body, maxBlobUploadBytes))
 					_ = bResp.Body.Close()
 					if rerr != nil || bResp.StatusCode != http.StatusOK || len(data) == 0 {
+						cursorBlocked = true
 						continue
 					}
 					if isEncryptedOp {
 						plainData, derr := decryptBlob(e2eeKey, pl.Hash, data)
 						if derr != nil {
+							rep.DecryptFailedOps++
+							cursorBlocked = true
 							continue
 						}
 						data = plainData
 					}
 					name := pl.Name
 					if filepath.Ext(name) == "" {
-						name = name + ".bin"
+						ext := strings.TrimSpace(pl.Ext)
+						if ext == "" || !strings.HasPrefix(ext, ".") {
+							ext = extFromMime(pl.Mime)
+						}
+						name = name + ext
 					}
 					imported, _, ierr := lib.ImportBytes(name, data, nil, pl.SourceURL, pl.SourceTitle)
 					if ierr != nil {
+						cursorBlocked = true
 						continue
 					}
 					target = imported
 					localByHash[strings.ToLower(pl.Hash)] = imported
+					rep.PulledOps++
 					rep.DownloadedBlobs++
 				}
 				if target.ID != "" {
@@ -660,15 +734,25 @@ func SyncNowWithProgress(ctx context.Context, cfg ClientConfig, lib *library.Lib
 							_ = lib.SetAssetFolder(target.ID, fid, true)
 						}
 					}
+					pulledKnownOps = append(pulledKnownOps, op.OpID)
+					if h := strings.ToLower(strings.TrimSpace(pl.Hash)); h != "" {
+						pulledKnownHashes = append(pulledKnownHashes, h)
+					}
 				}
+			}
+			if !cursorBlocked && op.Seq > safeSince {
+				safeSince = op.Seq
 			}
 		}
 		if !pullOut.HasMore || len(pullOut.Ops) == 0 {
 			break
 		}
 	}
-	if since > 0 {
-		_ = localStore.SetCursor(cursorKey, since)
+	if len(pulledKnownOps) > 0 || len(pulledKnownHashes) > 0 {
+		_ = localStore.MarkRemoteKnown(scope, pulledKnownOps, pulledKnownHashes)
+	}
+	if safeSince > 0 {
+		_ = localStore.SetCursor(cursorKey, safeSince)
 	}
 	emit(SyncProgress{Stage: "done", Done: rep.UploadedBlobs + rep.DownloadedBlobs, Total: rep.UploadedBlobs + rep.DownloadedBlobs})
 	return rep, nil

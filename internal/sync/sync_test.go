@@ -488,3 +488,107 @@ func TestGenerateAndParseE2EEKeyAndSync(t *testing.T) {
 		t.Fatalf("decryptBlob mismatch: err=%v", err)
 	}
 }
+
+func TestCrossDeviceSameAccountBlankDeviceIDAndKeySwitch(t *testing.T) {
+	srvDir := t.TempDir()
+	srvStore, err := OpenStore(srvDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer srvStore.Close()
+	blobs, err := NewLocalBlobStore(srvDir, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := &Handler{Store: srvStore, Blobs: blobs}
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	// Device A (Windows) with BLANK DeviceID (default user config) imports a PNG and pushes.
+	dirWin := t.TempDir()
+	libWin, err := library.Open(dirWin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer libWin.Close()
+	aWin, _, err := libWin.ImportBytes("windows-ref.png", samplePNG(t, color.RGBA{255, 92, 51, 255}), nil, "", "")
+	if err != nil {
+		t.Fatalf("win import failed: %v", err)
+	}
+	_ = libWin.SetRating(aWin.ID, 4)
+
+	keyWin, err := GenerateE2EEKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	repWin, err := SyncNow(context.Background(), ClientConfig{
+		ServerURL:      ts.URL,
+		Token:          "tok-same-account",
+		DeviceID:       "", // default blank
+		E2EEPassphrase: keyWin,
+	}, libWin, project.New(libWin.DB))
+	if err != nil || repWin.PushedOps != 1 || repWin.UploadedBlobs != 1 {
+		t.Fatalf("windows push failed: rep=%+v err=%v", repWin, err)
+	}
+
+	// Device B (Mac) ALSO has BLANK DeviceID and starts with its own auto-generated different key.
+	dirMac := t.TempDir()
+	libMac, err := library.Open(dirMac)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer libMac.Close()
+	keyMacWrong, _ := GenerateE2EEKey()
+	repWrong, err := SyncNow(context.Background(), ClientConfig{
+		ServerURL:      ts.URL,
+		Token:          "tok-same-account",
+		DeviceID:       "", // default blank
+		E2EEPassphrase: keyMacWrong,
+	}, libMac, project.New(libMac.DB))
+	if err != nil {
+		t.Fatalf("mac sync with wrong key errored: %v", err)
+	}
+	if repWrong.DecryptFailedOps != 1 || repWrong.DownloadedBlobs != 0 {
+		t.Fatalf("expected 1 decrypt failure with mismatched key, got %+v", repWrong)
+	}
+
+	// Now Mac loads Windows's key file -> MUST re-pull from 0 and download the Windows asset!
+	repMac, err := SyncNow(context.Background(), ClientConfig{
+		ServerURL:      ts.URL,
+		Token:          "tok-same-account",
+		DeviceID:       "", // still blank!
+		E2EEPassphrase: keyWin,
+	}, libMac, project.New(libMac.DB))
+	if err != nil {
+		t.Fatalf("mac sync with windows key failed: %v", err)
+	}
+	if repMac.PulledOps != 1 || repMac.DownloadedBlobs != 1 || repMac.DecryptFailedOps != 0 {
+		t.Fatalf("expected Mac to pull 1 op + 1 blob, got %+v", repMac)
+	}
+	snapMac, err := libMac.LoadCatalogSnapshot()
+	if err != nil || len(snapMac.Assets) != 1 || snapMac.Assets[0].Hash != aWin.Hash || snapMac.Assets[0].Rating != 4 {
+		t.Fatalf("mac library missing synced asset: %+v err=%v", snapMac.Assets, err)
+	}
+
+	// Also verify plaintext cross-device sync with blank DeviceIDs (no E2EE).
+	if _, _, err := libWin.ImportBytes("plain-win.png", samplePNG(t, color.RGBA{30, 140, 220, 255}), nil, "", ""); err != nil {
+		t.Fatalf("plain import failed: %v", err)
+	}
+	if _, err := SyncNow(context.Background(), ClientConfig{
+		ServerURL: ts.URL,
+		Token:     "tok-same-account",
+		DeviceID:  "",
+	}, libWin, project.New(libWin.DB)); err != nil {
+		t.Fatalf("win plain push failed: %v", err)
+	}
+	repMacPlain, err := SyncNow(context.Background(), ClientConfig{
+		ServerURL: ts.URL,
+		Token:     "tok-same-account",
+		DeviceID:  "",
+	}, libMac, project.New(libMac.DB))
+	if err != nil || repMacPlain.DownloadedBlobs != 1 {
+		t.Fatalf("expected Mac to download plaintext asset from Windows with blank DeviceID, got rep=%+v err=%v", repMacPlain, err)
+	}
+}

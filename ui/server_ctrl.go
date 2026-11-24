@@ -123,6 +123,7 @@ func (a *App) importSyncE2EEKeyFile() {
 			a.syncE2EEPassphrase = parsed
 			a.syncConfigFromState()
 			a.notify(a.t("sync.e2eeLoaded"))
+			a.scheduleAutoSync(1 * time.Second)
 		})
 	}()
 }
@@ -1246,7 +1247,7 @@ func (a *App) runCloudSync(quiet, pullOnly bool) {
 	cfg := rsync.ClientConfig{
 		ServerURL:            serverURL,
 		Token:                token,
-		DeviceID:             strings.TrimSpace(a.deviceName),
+		DeviceID:             "", // Always use sync.db's persistent unique per-library DeviceID so Windows/Mac never collide
 		E2EEPassphrase:       a.effectiveSyncE2EEKey(),
 		ExcludedFolderIDs:    exMap,
 		ExcludeUncategorized: !a.syncIncludeUncat,
@@ -1301,6 +1302,9 @@ func (a *App) runCloudSync(quiet, pullOnly bool) {
 			a.autoSyncFailCount = 0
 			a.lastSyncAt = time.Now()
 			msg := fmt.Sprintf(a.t("sync.done"), rep.PushedOps, rep.PulledOps, rep.UploadedBlobs, rep.DownloadedBlobs)
+			if rep.DecryptFailedOps > 0 {
+				msg = fmt.Sprintf(a.t("sync.e2eeDecryptFailed"), rep.DecryptFailedOps)
+			}
 			a.syncStatusMsg = msg
 			pulled := rep.PulledOps + rep.DownloadedBlobs
 			pushed := rep.PushedOps + rep.UploadedBlobs
@@ -1312,7 +1316,7 @@ func (a *App) runCloudSync(quiet, pullOnly bool) {
 			if !quiet || pushed > 0 || pulled > 0 {
 				a.refreshAccountProfile()
 			}
-			if !quiet {
+			if !quiet || rep.DecryptFailedOps > 0 {
 				a.notify(msg)
 			} else if pulled > 0 {
 				a.notify(fmt.Sprintf(a.t("sync.pulledNotice"), pulled))

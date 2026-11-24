@@ -389,6 +389,33 @@ func (s *Store) SetCursor(key string, seq uint64) error {
 	})
 }
 
+// EnsureDeviceID returns a stable, unique random device ID persisted inside
+// this library's sync.db so two separate devices (e.g. Windows + macOS) signed
+// into the same account never collide on a shared default device name.
+func (s *Store) EnsureDeviceID() string {
+	var id string
+	_ = s.db.View(func(tx *bbolt.Tx) error {
+		if v := tx.Bucket(bucketMeta).Get([]byte("device_id")); len(v) > 0 {
+			id = string(v)
+		}
+		return nil
+	})
+	if id != "" {
+		return id
+	}
+	var rnd [12]byte
+	_, _ = rand.Read(rnd[:])
+	id = "dev-" + hex.EncodeToString(rnd[:])
+	_ = s.db.Update(func(tx *bbolt.Tx) error {
+		if cur := tx.Bucket(bucketMeta).Get([]byte("device_id")); len(cur) > 0 {
+			id = string(cur)
+			return nil
+		}
+		return tx.Bucket(bucketMeta).Put([]byte("device_id"), []byte(id))
+	})
+	return id
+}
+
 // LoadRemoteKnown returns the sets of OpIDs and SHA-256 blob hashes already
 // confirmed to exist on the remote server identified by scope.
 func (s *Store) LoadRemoteKnown(scope string) (ops map[string]bool, hashes map[string]bool) {
