@@ -1,0 +1,20 @@
+---
+interface Props {
+  id: string;
+  label: string;
+  code: string;
+  compact?: boolean;
+}
+
+const { id, label, code, compact = false } = Astro.props;
+---
+
+<div class="code-wrap" style={compact ? "margin:4px 0 0" : undefined}>
+  <div class="code-head">
+    <span>{label}</span>
+    <button type="button" class="copy-btn" data-copy-target={id} data-i18n-zh="複製" data-i18n-en="Copy" data-i18n-ja="コピー">
+      複製
+    </button>
+  </div>
+  <pre id={id}>{code}</pre>
+</div>

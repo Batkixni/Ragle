@@ -13,7 +13,7 @@
 <p align="center">
   <a href="LICENSE"><img src="https://shieldcn.dev/github/license/Batkixni/Raglex.svg?variant=secondary" alt="License: MPL 2.0" /></a>
   <a href="https://github.com/Batkixni/Raglex/stargazers"><img src="https://shieldcn.dev/github/stars/Batkixni/Raglex.svg?variant=secondary" alt="GitHub Stars" /></a>
-  <img src="https://shieldcn.dev/badge/Version-v0.4.5-FF5C33.svg" alt="v0.4.5" />
+  <img src="https://shieldcn.dev/badge/Version-v0.5.0-FF5C33.svg" alt="v0.5.0" />
   <img src="https://shieldcn.dev/badge/Go-1.27+-00ADD8.svg" alt="Go 1.27+" />
   <img src="https://shieldcn.dev/badge/UI-MyGo_Native-FF5C33.svg" alt="MyGo Native UI" />
   <img src="https://shieldcn.dev/badge/Platform-macOS_%7C_Windows_%7C_Linux-3F3F46.svg" alt="Platforms" />
@@ -92,8 +92,8 @@
 
 | 平台 | 架構 | 檔案 |
 | :--- | :--- | :--- |
-| **Windows** | x64 (`windows/amd64`) | `raglex-setup-0.4.5-amd64.exe`（安裝版） / `Raglex-windows-amd64.zip` |
-| **Windows** | ARM64 (`windows/arm64`) | `raglex-setup-0.4.5-arm64.exe`（安裝版） / `Raglex-windows-arm64.zip` |
+| **Windows** | x64 (`windows/amd64`) | `raglex-setup-0.5.0-amd64.exe`（安裝版） / `Raglex-windows-amd64.zip` |
+| **Windows** | ARM64 (`windows/arm64`) | `raglex-setup-0.5.0-arm64.exe`（安裝版） / `Raglex-windows-arm64.zip` |
 | **macOS** | Apple Silicon (`darwin/arm64`) | `Raglex-darwin-arm64.zip` |
 | **macOS** | Intel (`darwin/amd64`) | `Raglex-darwin-amd64.zip` |
 | **Linux** | x64 / ARM64 | `.deb`、`.rpm`、`.tar.gz` |

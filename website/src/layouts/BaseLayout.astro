@@ -1,0 +1,171 @@
+---
+import "../styles/global.css";
+
+interface Props {
+  titleZh: string;
+  titleEn: string;
+  titleJa: string;
+  description: string;
+  activeNav?: "home" | "docs";
+}
+
+const { titleZh, titleEn, titleJa, description, activeNav = "home" } = Astro.props;
+---
+
+<!DOCTYPE html>
+<html lang="zh-Hant" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{titleZh}</title>
+    <meta name="description" content={description} />
+    <link rel="icon" type="image/png" href="/assets/app-icon.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&family=Noto+Sans+JP:wght@400;500;700;800&family=Noto+Sans+TC:wght@400;500;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <script is:inline>
+      try {
+        var t = localStorage.getItem("raglex-theme");
+        if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t);
+        var l = new URLSearchParams(location.search).get("lang") || localStorage.getItem("raglex-lang");
+        if (l === "zh-Hant" || l === "en" || l === "ja") document.documentElement.lang = l;
+      } catch (e) {}
+    </script>
+  </head>
+  <body data-title-zh={titleZh} data-title-en={titleEn} data-title-ja={titleJa}>
+    <header class="nav">
+      <div class="container nav-inner">
+        <a href="/" class="brand">
+          <img src="/assets/logo.png" alt="Raglex" class="brand-mark" />
+          <span>Raglex</span>
+        </a>
+        <nav class="nav-links" aria-label="Primary">
+          {
+            activeNav === "home" ? (
+              <a href="#features" class="nav-link" data-i18n-zh="核心特色" data-i18n-en="Features" data-i18n-ja="主な機能">
+                核心特色
+              </a>
+            ) : (
+              <a href="/" class="nav-link" data-i18n-zh="首頁" data-i18n-en="Home" data-i18n-ja="ホーム">
+                首頁
+              </a>
+            )
+          }
+          <a
+            href="/docs"
+            class={`nav-link${activeNav === "docs" ? " is-active" : ""}`}
+            data-i18n-zh="文件與教學"
+            data-i18n-en="Docs"
+            data-i18n-ja="ドキュメント"
+          >
+            文件與教學
+          </a>
+          <a
+            href={activeNav === "home" ? "#download" : "/#download"}
+            class="nav-link"
+            data-i18n-zh="下載"
+            data-i18n-en="Download"
+            data-i18n-ja="ダウンロード"
+          >
+            下載
+          </a>
+          <a href="https://github.com/Batkixni/Raglex" target="_blank" rel="noopener noreferrer" class="nav-link">
+            GitHub
+          </a>
+        </nav>
+        <div class="nav-controls">
+          <div class="lang-pill" role="group" aria-label="Language">
+            <button type="button" class="lang-btn" data-set-lang="zh-Hant">繁中</button>
+            <button type="button" class="lang-btn" data-set-lang="en">EN</button>
+            <button type="button" class="lang-btn" data-set-lang="ja">日本語</button>
+          </div>
+          <button type="button" id="theme-toggle" class="icon-btn" aria-label="Toggle Theme">
+            <svg
+              id="theme-icon-sun"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <circle cx="12" cy="12" r="4"></circle>
+              <path d="M12 2v2"></path>
+              <path d="M12 20v2"></path>
+              <path d="m4.93 4.93 1.41 1.41"></path>
+              <path d="m17.66 17.66 1.41 1.41"></path>
+              <path d="M2 12h2"></path>
+              <path d="M20 12h2"></path>
+              <path d="m6.34 17.66-1.41 1.41"></path>
+              <path d="m19.07 4.93-1.41 1.41"></path>
+            </svg>
+            <svg
+              id="theme-icon-moon"
+              style="display:none"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"></path>
+            </svg>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <slot />
+
+    <footer class="footer">
+      <div class="container footer-inner">
+        <span>© 2026 Raglex · MPL-2.0 Open Source</span>
+        <div class="footer-links">
+          {
+            activeNav === "docs" ? (
+              <a href="/" data-i18n-zh="回首頁" data-i18n-en="Home" data-i18n-ja="ホーム">
+                回首頁
+              </a>
+            ) : (
+              <a href="/docs" data-i18n-zh="文件中心" data-i18n-en="Docs" data-i18n-ja="ドキュメント">
+                文件中心
+              </a>
+            )
+          }
+          <a
+            href="https://github.com/Batkixni/Raglex/blob/main/PRIVACY.md"
+            target="_blank"
+            rel="noopener noreferrer"
+            data-i18n-zh="隱私政策"
+            data-i18n-en="Privacy"
+            data-i18n-ja="プライバシー"
+          >
+            隱私政策
+          </a>
+          <a
+            href="https://github.com/Batkixni/raglex-plugins"
+            target="_blank"
+            rel="noopener noreferrer"
+            data-i18n-zh="插件市集"
+            data-i18n-en="Plugins"
+            data-i18n-ja="プラグイン"
+          >
+            插件市集
+          </a>
+          <a href="https://github.com/Batkixni/Raglex" target="_blank" rel="noopener noreferrer">GitHub</a>
+          <a href="https://github.com/Batkixni/Raglex/releases" target="_blank" rel="noopener noreferrer">Releases</a>
+        </div>
+      </div>
+    </footer>
+
+    <script is:inline src="/assets/app.js"></script>
+  </body>
+</html>

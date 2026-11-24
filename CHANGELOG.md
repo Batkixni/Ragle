@@ -4,6 +4,21 @@ All notable changes to **Raglex** are documented in this file.
 
 ---
 
+## [v0.5.0] - 2026-11-24
+
+### 🎉 Milestone Release — 完整穩定體驗、零知識加密與官網全面升級 / Highlights
+- **修復側邊欄與右側檢閱欄拖曳調整寬度時的畫面 Glitch 與回彈**：
+  - 展開／收合動畫改採正規化 `0..1` 係數（`"sidebar-open"` / `"inspector-open"`），徹底消除 `Jump()` 速度殘留過衝、透明度閃爍與拖曳中途卸載握把的問題。
+  - 視覺分隔線維持固定 `1px`，上方疊加 `7px` 無位移浮動拖曳熱區，左右調整皆 1:1 絲滑跟手。
+- **預設開啟零知識端對端加密（AES-256-GCM）＋ 隨機金鑰另存／載入**：
+  - 自動在本機產生 256-bit 隨機 AES 金鑰（`rglx-aes256-...`），開箱即加密所有個人同步檔案、檔名、標籤、資料夾與備註，支援顯示／隱藏、複製、**另存金鑰檔**（`0o600`）、**載入金鑰檔**與重新產生。
+- **刪除素材新增「同時永久刪除硬碟實體檔案」防呆勾選**：
+  - 單筆與批次刪除整合為統一確認彈窗，預設絕不勾選，勾選後即時顯示紅色警示框與紅色 `永久刪除` 按鈕，並內建防誤刪資料夾保護。
+- **Self-Host 文件、瀏覽器擴充教學與全新 Astro 官方網站 + 三語 `/docs`**：
+  - 新增 [`docs/SELF_HOST.md`](./docs/SELF_HOST.md) 與 [`docs/BROWSER_EXTENSION.md`](./docs/BROWSER_EXTENSION.md)，三語 README 聚焦核心原生優勢與誠實簽章說明，全新 Astro 官網與三語文件中心已上線於 `https://raglex.sorai.tw/docs`。
+
+---
+
 ## [v0.4.5] - 2026-11-24
 
 ### ✨ 新功能與安全性強化 / What's New

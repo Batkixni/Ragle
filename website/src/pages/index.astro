@@ -1,0 +1,470 @@
+---
+import BaseLayout from "../layouts/BaseLayout.astro";
+import CodeBlock from "../components/CodeBlock.astro";
+
+const version = "0.5.0";
+const releaseBase = `https://github.com/Batkixni/Raglex/releases/download/v${version}`;
+---
+
+<BaseLayout
+  titleZh="Raglex — 純原生視覺素材庫、本機 AI 搜圖與無限參考白板"
+  titleEn="Raglex — Native Visual Library, Local AI Search & Infinite Reference Board"
+  titleJa="Raglex — 純ネイティブ素材ライブラリ・ローカル AI 検索＆無限リファレンスボード"
+  description="開源、100% 純原生 Go + MyGo 打造的數位素材管理、本機視覺 AI Embedding 搜圖、無限參考白板與 Self-Host 端對端加密同步工具。零 Electron、索引不複製、檔案永遠屬於你。"
+  activeNav="home"
+>
+  <main>
+    <!-- Hero -->
+    <section class="hero">
+      <div class="container">
+        <div class="hero-badge">
+          <span class="hero-dot"></span>
+          <span class="mono">v{version}</span>
+          <span>·</span>
+          <span
+            data-i18n-zh="開源 MPL-2.0 · 100% 純原生 Go + MyGo · 零遙測"
+            data-i18n-en="Open Source MPL-2.0 · Native Go + MyGo · Zero Telemetry"
+            data-i18n-ja="オープンソース MPL-2.0 · 純ネイティブ Go + MyGo · テレメトリゼロ"
+          >
+            開源 MPL-2.0 · 100% 純原生 Go + MyGo · 零遙測
+          </span>
+        </div>
+
+        <h1
+          class="hero-title"
+          data-i18n-zh="純原生打造的視覺素材庫、本機 AI 搜圖與無限白板"
+          data-i18n-en="The native visual library, local AI search & infinite moodboard."
+          data-i18n-ja="純ネイティブの視覚素材庫、ローカル AI 検索＆無限ボード。"
+        >
+          純原生打造的視覺素材庫、本機 AI 搜圖與無限白板
+        </h1>
+
+        <p
+          class="hero-sub"
+          data-i18n-zh="拒絕 Electron 肥大負擔。預設索引不複製原檔，內建本機視覺 AI Embedding 相似搜圖、永遠置頂浮動參考視窗、瀏覽器擴充與 Self-Host 端對端加密同步 —— 你的檔案永遠留在你自己的硬碟。"
+          data-i18n-en="Zero Electron bloat. Non-destructive indexing leaves your original files untouched, paired with offline visual AI embeddings, an always-on-top floating reference window, browser clipper, and self-hosted AES-256-GCM E2EE sync."
+          data-i18n-ja="Electron 不使用。コピー不要の非破壊インデックス方式に加え、オフライン視覚 AI Embedding 検索、最前面フローティング参照ウィンドウ、ブラウザ拡張機能、Self-Host E2E 暗号化同期を単一バイナリに凝縮。"
+        >
+          拒絕 Electron 肥大負擔。預設索引不複製原檔，內建本機視覺 AI Embedding 相似搜圖、永遠置頂浮動參考視窗、瀏覽器擴充與 Self-Host 端對端加密同步 —— 你的檔案永遠留在你自己的硬碟。
+        </p>
+
+        <div class="hero-actions">
+          <a id="hero-download-btn" href="#download" class="btn btn-primary">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+              <polyline points="7 10 12 15 17 10"></polyline>
+              <line x1="12" x2="12" y1="15" y2="3"></line>
+            </svg>
+            <span class="cta-label">下載 Raglex (v{version})</span>
+          </a>
+          <a href="/docs" class="btn btn-secondary">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"></path>
+            </svg>
+            <span data-i18n-zh="閱讀完整文件 (Docs)" data-i18n-en="Read Documentation" data-i18n-ja="ドキュメントを読む">
+              閱讀完整文件 (Docs)
+            </span>
+          </a>
+        </div>
+
+        <!-- Interactive Workspace Preview Stage -->
+        <div class="stage-wrap">
+          <div class="stage-tabs" role="tablist">
+            <button type="button" class="stage-tab is-active" data-stage-tab="inspector" data-i18n-zh="素材庫與檢閱欄" data-i18n-en="Library & Inspector" data-i18n-ja="ライブラリ & 検閲">
+              素材庫與檢閱欄
+            </button>
+            <button type="button" class="stage-tab" data-stage-tab="board" data-i18n-zh="無限參考白板" data-i18n-en="Infinite Board" data-i18n-ja="無限ボード">
+              無限參考白板
+            </button>
+            <button type="button" class="stage-tab" data-stage-tab="refwin" data-i18n-zh="置頂浮動參考窗" data-i18n-en="Floating Reference" data-i18n-ja="最前面参照窓">
+              置頂浮動參考窗
+            </button>
+            <button type="button" class="stage-tab" data-stage-tab="project" data-i18n-zh="專案與白板預覽" data-i18n-en="Project Space" data-i18n-ja="プロジェクト空間">
+              專案與白板預覽
+            </button>
+          </div>
+          <div class="stage-frame">
+            <img src="/assets/inspector.png" alt="Raglex Library & Inspector" class="stage-img is-active" data-stage-img="inspector" />
+            <img src="/assets/board.png" alt="Raglex Infinite Moodboard" class="stage-img" data-stage-img="board" loading="lazy" />
+            <img src="/assets/refwin.png" alt="Raglex Always-on-Top Floating Reference Window" class="stage-img" data-stage-img="refwin" loading="lazy" />
+            <img src="/assets/project.png" alt="Raglex Project Space" class="stage-img" data-stage-img="project" loading="lazy" />
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Metrics Strip -->
+    <section class="metrics">
+      <div class="container metrics-grid">
+        <div class="metric-item">
+          <div class="metric-val">~21<span> MB</span></div>
+          <div class="metric-lbl" data-i18n-zh="純原生單一執行檔（零 Electron）" data-i18n-en="Single native Go + MyGo binary" data-i18n-ja="純ネイティブ単一バイナリ（Electron 不使用）">
+            純原生單一執行檔（零 Electron）
+          </div>
+        </div>
+        <div class="metric-item">
+          <div class="metric-val">0<span> Copies</span></div>
+          <div class="metric-lbl" data-i18n-zh="預設「索引不複製」模式，原檔留在原地" data-i18n-en="Non-destructive Index mode by default" data-i18n-ja="デフォルト非破壊インデックス方式">
+            預設「索引不複製」模式，原檔留在原地
+          </div>
+        </div>
+        <div class="metric-item">
+          <div class="metric-val">100<span>%</span></div>
+          <div class="metric-lbl" data-i18n-zh="離線視覺 AI Embedding 與色票搜尋" data-i18n-en="On-device visual AI & palette search" data-i18n-ja="完全オフライン視覚 AI ＆色検索">
+            離線視覺 AI Embedding 與色票搜尋
+          </div>
+        </div>
+        <div class="metric-item">
+          <div class="metric-val">AES-<span>256</span></div>
+          <div class="metric-lbl" data-i18n-zh="Self-Host 同步預設開啟零知識端對端加密" data-i18n-en="Default-ON zero-knowledge self-host sync" data-i18n-ja="Self-Host 同期 E2E 暗号化デフォルト有効">
+            Self-Host 同步預設開啟零知識端對端加密
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Core Features Bento -->
+    <section id="features" class="section">
+      <div class="container">
+        <div class="section-head">
+          <span class="eyebrow">Core Architecture</span>
+          <h2
+            class="section-title"
+            data-i18n-zh="專為高密度視覺工作流設計的八大核心能力"
+            data-i18n-en="Built for demanding visual workflows, without compromise."
+            data-i18n-ja="視覚クリエイターの制作現場に最適化された 8 つのコア機能。"
+          >
+            專為高密度視覺工作流設計的八大核心能力
+          </h2>
+          <p
+            class="section-sub"
+            data-i18n-zh="每一項功能都圍繞「極速原生、檔案自主、離線智慧、完全可自架」打造。"
+            data-i18n-en="Every capability focuses on native speed, file ownership, offline intelligence, and self-hosted sovereignty."
+            data-i18n-ja="ネイティブ速度・ファイル所有権・オフライン知能・完全セルフホストを軸に設計されています。"
+          >
+            每一項功能都圍繞「極速原生、檔案自主、離線智慧、完全可自架」打造。
+          </p>
+        </div>
+
+        <div class="bento">
+          <article class="card card-wide">
+            <div class="card-icon">
+              <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+              </svg>
+            </div>
+            <h3 class="card-title" data-i18n-zh="100% 純原生 Go + MyGo（零 Electron）" data-i18n-en="100% Native Go + MyGo (Zero Electron)" data-i18n-ja="100% 純ネイティブ Go + MyGo（Electron 不使用）">
+              100% 純原生 Go + MyGo（零 Electron）
+            </h3>
+            <p
+              class="card-desc"
+              data-i18n-zh="編譯為約 21 MB 單一原生執行檔搭配嵌入式 bbolt，秒開不卡頓、極低記憶體占用。內建視窗虛擬化，面對數萬筆圖庫照樣絲滑捲動；深度貼合 Windows 11 Acrylic、macOS Vibrancy 原生紅黃綠按鈕與 Linux 桌面。"
+              data-i18n-en="Compiled into a ~21 MB native binary backed by embedded bbolt for instant startup and tiny memory usage. Viewport virtualization keeps 10,000+ asset libraries smooth, with native Windows 11 Acrylic, macOS Vibrancy, and Linux support."
+              data-i18n-ja="約 21 MB のネイティブバイナリと組み込み bbolt による瞬時起動・低メモリ動作。ビューポート仮想化により数万件でも滑らかにスクロールし、Windows 11 Acrylic・macOS Vibrancy・Linux に対応します。"
+            >
+              編譯為約 21 MB 單一原生執行檔搭配嵌入式 bbolt，秒開不卡頓、極低記憶體占用。內建視窗虛擬化，面對數萬筆圖庫照樣絲滑捲動；深度貼合 Windows 11 Acrylic、macOS Vibrancy 原生紅黃綠按鈕與 Linux 桌面。
+            </p>
+            <div class="card-tags">
+              <span class="tag">Go 1.27</span>
+              <span class="tag">MyGo Native UI</span>
+              <span class="tag">bbolt</span>
+              <span class="tag">Acrylic &amp; Vibrancy</span>
+            </div>
+          </article>
+
+          <article class="card card-narrow">
+            <div class="card-icon">
+              <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"></path>
+              </svg>
+            </div>
+            <h3 class="card-title" data-i18n-zh="索引不複製，檔案永遠屬於你" data-i18n-en="Non-Destructive Indexing" data-i18n-ja="コピー不要の非破壊インデックス">
+              索引不複製，檔案永遠屬於你
+            </h3>
+            <p
+              class="card-desc"
+              data-i18n-zh="預設「索引（Index）」模式原地讀取你的硬碟資料夾，絕不重複複製佔空間、零專屬格式鎖死。同時支援 Symlink / Copy / Move 策略，刪除時預設保留原檔並可明確勾選「永久刪除實體檔案」。"
+              data-i18n-en="Default Index mode catalogs your folders in place with zero duplication and zero lock-in. Also supports Symlink, Copy, and Move modes, plus an explicit opt-in checkbox when you actually want permanent disk deletion."
+              data-i18n-ja="デフォルトの Index モードは元ファイルを一切複製・移動せずそのまま管理。Symlink / Copy / Move にも対応し、削除時も明示チェックなしに実ファイルを消さない安全設計です。"
+            >
+              預設「索引（Index）」模式原地讀取你的硬碟資料夾，絕不重複複製佔空間、零專屬格式鎖死。同時支援 Symlink / Copy / Move 策略，刪除時預設保留原檔並可明確勾選「永久刪除實體檔案」。
+            </p>
+            <div class="card-tags">
+              <span class="tag">Index</span>
+              <span class="tag">Symlink</span>
+              <span class="tag">Copy / Move</span>
+            </div>
+          </article>
+
+          <article class="card card-narrow">
+            <div class="card-icon">
+              <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="11" cy="11" r="8"></circle>
+                <path d="m21 21-4.3-4.3"></path>
+                <path d="M11 8v6"></path>
+                <path d="M8 11h6"></path>
+              </svg>
+            </div>
+            <h3 class="card-title" data-i18n-zh="本機視覺 AI Embedding & 色票搜圖" data-i18n-en="Local Visual AI Embedding & Palette" data-i18n-ja="ローカル視覚 AI Embedding ＆ 色検索">
+              本機視覺 AI Embedding &amp; 色票搜圖
+            </h3>
+            <p
+              class="card-desc"
+              data-i18n-zh="完全離線計算圖片視覺特徵向量與感知雜湊，直接「以圖搜圖」與尋找相似構圖；自動提取 5 色 OKLab 主色票，亦可選配本機 Ollama / Laya 視覺模型自動建議標籤，素材不外傳。"
+              data-i18n-en="Computes on-device visual embeddings and perceptual hashes for instant search-by-image and similarity matching. Extracts 5-color OKLab palettes automatically, with optional local Ollama / Laya auto-tagging."
+              data-i18n-ja="端末内で画像特徴ベクトルと知覚ハッシュを算出し、類似画像検索を完全オフライン実行。OKLab 5 色パレット抽出やローカル Ollama / Laya による自動タグ提案にも対応。"
+            >
+              完全離線計算圖片視覺特徵向量與感知雜湊，直接「以圖搜圖」與尋找相似構圖；自動提取 5 色 OKLab 主色票，亦可選配本機 Ollama / Laya 視覺模型自動建議標籤，素材不外傳。
+            </p>
+            <div class="card-tags">
+              <span class="tag">AI Embedding</span>
+              <span class="tag">OKLab Palette</span>
+              <span class="tag">Ollama / Laya</span>
+            </div>
+          </article>
+
+          <article class="card card-wide">
+            <div class="card-icon">
+              <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect width="18" height="18" x="3" y="3" rx="2"></rect>
+                <path d="M3 9h18"></path>
+                <path d="M9 21V9"></path>
+              </svg>
+            </div>
+            <h3 class="card-title" data-i18n-zh="無限參考白板 & 永遠置頂浮動參考窗" data-i18n-en="Infinite Reference Boards & Always-on-Top Window" data-i18n-ja="無限リファレンスボード ＆ 最前面参照ウィンドウ">
+              無限參考白板 &amp; 永遠置頂浮動參考窗
+            </h3>
+            <p
+              class="card-desc"
+              data-i18n-zh="GPU 加速無限自由畫布，支援圖片排版、群組、畫框（Frame）、手繪標記筆、箭頭與多行文字筆記；一鍵彈出半透明置頂浮動參考窗（支援透明度、縮放與灰階檢視），搭配 Blender / Photoshop / Figma / Clip Studio 創作零切換干擾。"
+              data-i18n-en="GPU-accelerated freeform moodboards with groups, frames, freehand markup, arrows, and multiline text notes. Pop out an always-on-top translucent reference window with opacity, zoom, and grayscale controls right over Blender, Photoshop, or Figma."
+              data-i18n-ja="GPU 高速化の無限キャンバスでグループ・フレーム・フリーハンド注釈・矢印・メモを自在に配置。半透明・グレースケール切替対応の最前面ウィンドウとして Blender や Photoshop 上に常駐できます。"
+            >
+              GPU 加速無限自由畫布，支援圖片排版、群組、畫框（Frame）、手繪標記筆、箭頭與多行文字筆記；一鍵彈出半透明置頂浮動參考窗（支援透明度、縮放與灰階檢視），搭配 Blender / Photoshop / Figma / Clip Studio 創作零切換干擾。
+            </p>
+            <div class="card-tags">
+              <span class="tag">Infinite Canvas</span>
+              <span class="tag">Always-on-Top</span>
+              <span class="tag">Grayscale Toggle</span>
+            </div>
+          </article>
+
+          <article class="card">
+            <div class="card-icon">
+              <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"></circle>
+                <path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"></path>
+                <path d="M2 12h20"></path>
+              </svg>
+            </div>
+            <h3 class="card-title" data-i18n-zh="瀏覽器擴充 & 離線收件資料夾" data-i18n-en="Browser Companion Extension & Offline Inbox" data-i18n-ja="ブラウザ拡張機能 ＆ オフライン受信トレイ">
+              瀏覽器擴充 &amp; 離線收件資料夾
+            </h3>
+            <p
+              class="card-desc"
+              data-i18n-zh="支援 Chrome、Edge、Brave、Arc、Firefox 與 Zen Browser。右鍵單張存圖或批次掃描整頁圖片，自動保留來源網址與標題；就算沒開 Raglex，也能先存入離線收件資料夾，下次開啟自動匯入。"
+              data-i18n-en="Works across Chrome, Edge, Brave, Arc, Firefox, and Zen. Right-click to clip images with source URL & title, batch-collect whole pages, or clip into an Offline Inbox even while Raglex is closed."
+              data-i18n-ja="Chrome / Edge / Brave / Arc / Firefox / Zen 対応。右クリック保存・ページ内画像一括収集に加え、Raglex 未起動時でもオフライン受信フォルダへ一時保存し次回起動時に自動取り込みします。"
+            >
+              支援 Chrome、Edge、Brave、Arc、Firefox 與 Zen Browser。右鍵單張存圖或批次掃描整頁圖片，自動保留來源網址與標題；就算沒開 Raglex，也能先存入離線收件資料夾，下次開啟自動匯入。
+            </p>
+            <a href="/docs#extension" class="card-link">
+              <span data-i18n-zh="查看瀏覽器擴充安裝教學" data-i18n-en="Extension Installation Guide" data-i18n-ja="拡張機能のインストール手順を見る">
+                查看瀏覽器擴充安裝教學
+              </span>
+              <span>→</span>
+            </a>
+          </article>
+
+          <article class="card">
+            <div class="card-icon">
+              <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect width="18" height="11" x="3" y="11" rx="2" ry="2"></rect>
+                <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+              </svg>
+            </div>
+            <h3 class="card-title" data-i18n-zh="Self-Host 零知識 AES-256 端對端加密同步" data-i18n-en="Self-Hosted Zero-Knowledge AES-256 E2EE Sync" data-i18n-ja="Self-Host ゼロ知識 AES-256 E2E 暗号化同期">
+              Self-Host 零知識 AES-256 端對端加密同步
+            </h3>
+            <p
+              class="card-desc"
+              data-i18n-zh="一行 Docker 指令在自家 NAS 或 VPS 架設開源同步伺服器（支援 R2 / S3、手機 PWA、MCP）。端對端加密預設開啟並自動產生 256-bit 隨機 AES 金鑰（可另存／載入金鑰檔），搭配選擇性資料夾同步與 6 碼 P2P 跨裝置傳檔。"
+              data-i18n-en="Deploy your own private sync server via Docker in one command (with optional R2/S3, Mobile PWA, and MCP). AES-256-GCM E2EE is enabled by default with an auto-generated random key you can back up locally, plus selective folder sync and 6-char P2P transfers."
+              data-i18n-ja="Docker 1 コマンドで自宅 NAS や VPS に同期サーバーを構築（R2 / S3・モバイル PWA・MCP 対応）。ランダム生成 AES-256 キーによる E2E 暗号化がデフォルト有効で、キーファイル保存やフォルダ選択同期にも対応。"
+            >
+              一行 Docker 指令在自家 NAS 或 VPS 架設開源同步伺服器（支援 R2 / S3、手機 PWA、MCP）。端對端加密預設開啟並自動產生 256-bit 隨機 AES 金鑰（可另存／載入金鑰檔），搭配選擇性資料夾同步與 6 碼 P2P 跨裝置傳檔。
+            </p>
+            <a href="/docs#self-host" class="card-link">
+              <span data-i18n-zh="查看 Self-Host 架設指南" data-i18n-en="Self-Host Setup Guide" data-i18n-ja="Self-Host 構築ガイドを見る">
+                查看 Self-Host 架設指南
+              </span>
+              <span>→</span>
+            </a>
+          </article>
+
+          <article class="card">
+            <div class="card-icon">
+              <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
+                <polyline points="2 17 12 22 22 17"></polyline>
+                <polyline points="2 12 12 17 22 12"></polyline>
+              </svg>
+            </div>
+            <h3 class="card-title" data-i18n-zh="平行資料夾、階層標籤與全媒體原生預覽" data-i18n-en="Parallel Folders, Tags & Creative Media" data-i18n-ja="並列フォルダ・階層タグ＆全クリエイティブ形式">
+              平行資料夾、階層標籤與全媒體原生預覽
+            </h3>
+            <p
+              class="card-desc"
+              data-i18n-zh="平行階層資料夾、8 色繼承標籤樹、版本堆疊（Stacks）、監控資料夾自動匯入、規則式批次重新命名。原生支援圖片、內建靜態 ffmpeg 影片、相機 RAW（CR3/ARW/NEF/RAF/DNG）、SVG、字型、音訊與 PDF。"
+              data-i18n-en="Parallel hierarchical folders, 8-color inherited tag trees, version stacks, Watch Folders, and rule-based Batch Rename with undo. Native preview for images, bundled static ffmpeg video, Camera RAW (CR3/ARW/NEF/RAF/DNG), SVG, fonts, audio, and PDF."
+              data-i18n-ja="並列階層フォルダ・8 色継承タグ・スタック・監視フォルダ自動取り込み・一括リネーム。画像・静的 ffmpeg 同梱動画・カメラ RAW・SVG・フォント・音声・PDF をネイティブ表示。"
+            >
+              平行階層資料夾、8 色繼承標籤樹、版本堆疊（Stacks）、監控資料夾自動匯入、規則式批次重新命名。原生支援圖片、內建靜態 ffmpeg 影片、相機 RAW（CR3/ARW/NEF/RAF/DNG）、SVG、字型、音訊與 PDF。
+            </p>
+            <div class="card-tags">
+              <span class="tag">ffmpeg Video</span>
+              <span class="tag">Camera RAW</span>
+              <span class="tag">Watch Folders</span>
+              <span class="tag">Batch Rename</span>
+            </div>
+          </article>
+
+          <article class="card">
+            <div class="card-icon">
+              <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M12 22v-5"></path>
+                <path d="M9 8V2"></path>
+                <path d="M15 8V2"></path>
+                <path d="M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z"></path>
+              </svg>
+            </div>
+            <h3 class="card-title" data-i18n-zh="開放插件市集 & 本機 API / MCP" data-i18n-en="Open Plugin Marketplace & Local API / MCP" data-i18n-ja="オープンプラグイン市場 ＆ ローカル API / MCP">
+              開放插件市集 &amp; 本機 API / MCP
+            </h3>
+            <p
+              class="card-desc"
+              data-i18n-zh="用任意語言（Go / Python / Node / Rust / PowerShell）撰寫 stdin/stdout JSON 插件，透過公開市集一鍵安裝（含 Eagle Import、重複素材掃描、色票匯出器等外掛），並內建 Token 保護的本機 API、手機 PWA 與 AI MCP Server。"
+              data-i18n-en="Build plugins in any language over stdin/stdout JSON and install with 1 click from Batkixni/raglex-plugins (including Eagle Import, Smart Duplicate Finder, Palette Exporter, and more). Includes token-protected local API, Mobile PWA, and MCP server."
+              data-i18n-ja="任意の言語で stdin/stdout JSON プラグインを開発でき、公開レジストリから 1 クリック導入（Eagle Import・重複スキャン・色票出力など）。トークン保護付きローカル API・モバイル PWA・MCP も内蔵。"
+            >
+              用任意語言（Go / Python / Node / Rust / PowerShell）撰寫 stdin/stdout JSON 插件，透過公開市集一鍵安裝（含 Eagle Import、重複素材掃描、色票匯出器等外掛），並內建 Token 保護的本機 API、手機 PWA 與 AI MCP Server。
+            </p>
+            <a href="https://github.com/Batkixni/raglex-plugins" target="_blank" rel="noopener noreferrer" class="card-link">
+              <span data-i18n-zh="瀏覽插件目錄 (raglex-plugins)" data-i18n-en="Browse Plugin Registry" data-i18n-ja="プラグインレジストリを見る">
+                瀏覽插件目錄 (raglex-plugins)
+              </span>
+              <span>→</span>
+            </a>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- Download Section -->
+    <section id="download" class="section" style="padding-top: 24px;">
+      <div class="container">
+        <div class="section-head">
+          <span class="eyebrow">Download v{version}</span>
+          <h2 class="section-title" data-i18n-zh="下載 Raglex 桌面版與伴侶工具" data-i18n-en="Download Raglex & Companion Tools" data-i18n-ja="Raglex ＆ 関連ツールをダウンロード">
+            下載 Raglex 桌面版與伴侶工具
+          </h2>
+          <p class="section-sub" data-i18n-zh="全平台 GitHub Actions 公開自動編譯，提供完整 SHA-256 校驗碼。" data-i18n-en="Transparently built via GitHub Actions for every platform with verifiable SHA-256 checksums." data-i18n-ja="全プラットフォーム向けバイナリを GitHub Actions で自動ビルドし、SHA-256 チェックサムを公開しています。">
+            全平台 GitHub Actions 公開自動編譯，提供完整 SHA-256 校驗碼。
+          </p>
+        </div>
+
+        <div class="os-grid">
+          <div class="os-card" data-os-card="windows">
+            <div class="os-head">
+              <span class="os-name">Windows</span>
+              <span class="rec-badge" style="display:none" data-i18n-zh="推薦" data-i18n-en="Recommended" data-i18n-ja="推奨">推薦</span>
+            </div>
+            <a class="dl-row" href={`${releaseBase}/raglex-setup-${version}-amd64.exe`}>
+              <span>Windows x64 (Setup)</span>
+              <span class="dl-ext">.exe</span>
+            </a>
+            <a class="dl-row" href={`${releaseBase}/Raglex-windows-amd64.zip`}>
+              <span>Windows x64 (Portable)</span>
+              <span class="dl-ext">.zip</span>
+            </a>
+            <a class="dl-row" href={`${releaseBase}/raglex-setup-${version}-arm64.exe`}>
+              <span>Windows ARM64 (Setup)</span>
+              <span class="dl-ext">.exe</span>
+            </a>
+          </div>
+
+          <div class="os-card" data-os-card="macos">
+            <div class="os-head">
+              <span class="os-name">macOS</span>
+              <span class="rec-badge" style="display:none" data-i18n-zh="推薦" data-i18n-en="Recommended" data-i18n-ja="推奨">推薦</span>
+            </div>
+            <a class="dl-row" href={`${releaseBase}/Raglex-darwin-arm64.zip`}>
+              <span>Apple Silicon (M1–M4)</span>
+              <span class="dl-ext">.app.zip</span>
+            </a>
+            <a class="dl-row" href={`${releaseBase}/Raglex-darwin-amd64.zip`}>
+              <span>Intel Mac</span>
+              <span class="dl-ext">.app.zip</span>
+            </a>
+          </div>
+
+          <div class="os-card" data-os-card="linux">
+            <div class="os-head">
+              <span class="os-name">Linux</span>
+              <span class="rec-badge" style="display:none" data-i18n-zh="推薦" data-i18n-en="Recommended" data-i18n-ja="推奨">推薦</span>
+            </div>
+            <a class="dl-row" href={`${releaseBase}/raglex_${version}_amd64.deb`}>
+              <span>Debian / Ubuntu (x64)</span>
+              <span class="dl-ext">.deb</span>
+            </a>
+            <a class="dl-row" href={`${releaseBase}/raglex-${version}-1.x86_64.rpm`}>
+              <span>Fedora / RHEL (x64)</span>
+              <span class="dl-ext">.rpm</span>
+            </a>
+            <a class="dl-row" href={`${releaseBase}/raglex-${version}-linux-amd64.tar.gz`}>
+              <span>Linux Archive (x64)</span>
+              <span class="dl-ext">.tar.gz</span>
+            </a>
+          </div>
+        </div>
+
+        <div class="extras-bar">
+          <strong style="font-size:13.5px" data-i18n-zh="瀏覽器擴充、自架伺服器 CLI 與校驗檔" data-i18n-en="Browser Extensions, Self-Host CLI & Checksums" data-i18n-ja="ブラウザ拡張・Self-Host CLI・チェックサム">
+            瀏覽器擴充、自架伺服器 CLI 與校驗檔
+          </strong>
+          <div class="extras-links">
+            <a class="btn btn-secondary btn-sm" href={`${releaseBase}/raglex-browser-extension.zip`}>Chrome / Edge (.zip)</a>
+            <a class="btn btn-secondary btn-sm" href={`${releaseBase}/raglex-firefox-extension.xpi`}>Firefox / Zen (.xpi)</a>
+            <a class="btn btn-secondary btn-sm" href={`https://github.com/Batkixni/Raglex/releases/tag/v${version}`} target="_blank" rel="noopener noreferrer">
+              All Releases &amp; SHA256SUMS
+            </a>
+          </div>
+        </div>
+
+        <!-- Honest Unsigned / macOS Gatekeeper Notice -->
+        <div class="callout callout-warn">
+          <h3 class="callout-title">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"></path>
+              <path d="M12 9v4"></path>
+              <path d="M12 17h.01"></path>
+            </svg>
+            <span data-i18n-zh="關於 macOS 危險軟體提示與未簽章說明（誠實告知）" data-i18n-en="About macOS Gatekeeper Warning & Unsigned Builds" data-i18n-ja="macOS の警告表示・未署名ビルドについて（重要なお知らせ）">
+              關於 macOS 危險軟體提示與未簽章說明（誠實告知）
+            </span>
+          </h3>
+          <div data-lang-block="zh-Hant">
+            <p>Raglex 100% 採用 MPL-2.0 開源，<strong>保證絕無惡意代碼與任何遙測追蹤</strong>，所有發行檔皆由 GitHub Actions 公開自動編譯。但因個人專案目前沒有額外預算購買 Apple Developer 付費開發者憑證，macOS 首次開啟時會顯示「無法驗證開發者／危險軟體或已損毀」提示（不影響正常使用）。將 App 拖進「應用程式」後執行下方指令即可啟動；若你對未簽章執行檔有疑慮，歡迎自行從原始碼編譯，或選擇不使用也沒關係。</p>
+          </div>
+          <div data-lang-block="en">
+            <p>Raglex is 100% open source under MPL-2.0 with <strong>zero telemetry and zero malicious code</strong>, and every release is built transparently by GitHub Actions. Because this is an independent project without a paid Apple Developer certificate, macOS Gatekeeper displays an "unidentified developer / damaged" warning on first launch. Run the command below after moving <code>Raglex.app</code> to <code>/Applications</code> to open it — and if you have any concern about running unsigned binaries, you are completely welcome to audit and compile from source, or skip using it.</p>
+          </div>
+          <div data-lang-block="ja">
+            <p>Raglex は MPL-2.0 の 100% オープンソースであり、<strong>悪意のあるコードやテレメトリは一切含まれていません</strong>。ただし個人開発のため有料の Apple Developer 署名証明書を取得しておらず、macOS 初回起動時に警告が表示されます（動作に支障はありません）。<code>/Applications</code> に配置後、下のコマンドで起動できます。未署名バイナリに不安がある場合は、ソースからご自身でビルドするかご利用をお控えいただいても全く問題ありません。</p>
+          </div>
+          <CodeBlock id="mac-xattr-home" label="macOS Terminal" code="xattr -cr /Applications/Raglex.app" compact />
+        </div>
+      </div>
+    </section>
+  </main>
+</BaseLayout>

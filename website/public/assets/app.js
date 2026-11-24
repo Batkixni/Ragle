@@ -1,6 +1,6 @@
 (() => {
   const SUPPORTED_LANGS = ["zh-Hant", "en", "ja"];
-  const VERSION = "0.4.5";
+  const VERSION = "0.5.0";
   const RELEASE_BASE = `https://github.com/Batkixni/Raglex/releases/download/v${VERSION}`;
 
   function detectInitialLang() {

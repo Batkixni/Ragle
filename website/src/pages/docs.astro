@@ -1,69 +1,81 @@
-<!DOCTYPE html>
-<html lang="zh-Hant" data-theme="dark">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Raglex 文件中心 — 功能介紹、Self-Host 自架與瀏覽器擴充教學</title>
-  <meta name="description" content="Raglex 完整三語使用文件：核心功能總覽、Self-Host 端對端加密同步伺服器架設、瀏覽器擴充安裝與離線收件資料夾教學。" />
-  <link rel="icon" type="image/png" href="/assets/app-icon.png" />
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&family=Noto+Sans+JP:wght@400;500;700;800&family=Noto+Sans+TC:wght@400;500;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/assets/styles.css" />
-  <script>
-    try {
-      var t = localStorage.getItem("raglex-theme");
-      if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t);
-      var l = new URLSearchParams(location.search).get("lang") || localStorage.getItem("raglex-lang");
-      if (l === "zh-Hant" || l === "en" || l === "ja") document.documentElement.lang = l;
-    } catch (e) {}
-  </script>
-</head>
-<body
-  data-title-zh="Raglex 文件中心 — 功能介紹、Self-Host 自架與瀏覽器擴充"
-  data-title-en="Raglex Docs — Features, Self-Host Sync & Browser Extension"
-  data-title-ja="Raglex ドキュメント — 機能紹介・Self-Host 構築・ブラウザ拡張"
->
-  <header class="nav">
-    <div class="container nav-inner">
-      <a href="/" class="brand">
-        <img src="/assets/logo.png" alt="Raglex" class="brand-mark" />
-        <span>Raglex</span>
-      </a>
-      <nav class="nav-links" aria-label="Primary">
-        <a href="/" class="nav-link" data-i18n-zh="首頁" data-i18n-en="Home" data-i18n-ja="ホーム">首頁</a>
-        <a href="/docs" class="nav-link is-active" data-i18n-zh="文件與教學" data-i18n-en="Docs" data-i18n-ja="ドキュメント">文件與教學</a>
-        <a href="/#download" class="nav-link" data-i18n-zh="下載" data-i18n-en="Download" data-i18n-ja="ダウンロード">下載</a>
-        <a href="https://github.com/Batkixni/Raglex" target="_blank" rel="noopener noreferrer" class="nav-link">GitHub</a>
-      </nav>
-      <div class="nav-controls">
-        <div class="lang-pill" role="group" aria-label="Language">
-          <button type="button" class="lang-btn" data-set-lang="zh-Hant">繁中</button>
-          <button type="button" class="lang-btn" data-set-lang="en">EN</button>
-          <button type="button" class="lang-btn" data-set-lang="ja">日本語</button>
-        </div>
-        <button type="button" id="theme-toggle" class="icon-btn" aria-label="Toggle Theme">
-          <svg id="theme-icon-sun" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg>
-          <svg id="theme-icon-moon" style="display:none" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
-        </button>
-      </div>
-    </div>
-  </header>
+---
+import BaseLayout from "../layouts/BaseLayout.astro";
+import CodeBlock from "../components/CodeBlock.astro";
 
+const dockerUnix = `git clone https://github.com/Batkixni/Raglex.git
+cd Raglex/deploy
+export RAGLEX_TOKEN="$(openssl rand -hex 32)"
+docker compose up -d`;
+
+const dockerWin = `git clone https://github.com/Batkixni/Raglex.git
+cd Raglex\\deploy
+$env:RAGLEX_TOKEN = -join ((1..32) | ForEach-Object { "{0:x2}" -f (Get-Random -Maximum 256) })
+docker compose up -d`;
+
+const cliCmd = `./raglex-server -addr ":47595" -library "/var/lib/raglex" -token "your-strong-secret-token"`;
+
+const caddyConf = `sync.yourdomain.com {
+    reverse_proxy 127.0.0.1:47595
+}`;
+
+const nginxConf = `server {
+    listen 443 ssl http2;
+    server_name sync.yourdomain.com;
+    client_max_body_size 512M;
+
+    location / {
+        proxy_pass http://127.0.0.1:47595;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 900s;
+        proxy_send_timeout 900s;
+    }
+}`;
+
+const s3Env = `RAGLEX_S3_ENDPOINT: "https://<account-id>.r2.cloudflarestorage.com"
+RAGLEX_S3_BUCKET: "raglex-blobs"
+RAGLEX_S3_REGION: "auto"
+RAGLEX_S3_ACCESS_KEY: "<access-key>"
+RAGLEX_S3_SECRET_KEY: "<secret-key>"`;
+
+const sourceBuild = `git clone https://github.com/Batkixni/Raglex.git
+cd Raglex
+CGO_ENABLED=0 go tool mygo build -o build/dev`;
+---
+
+<BaseLayout
+  titleZh="Raglex 文件中心 — 功能介紹、Self-Host 自架與瀏覽器擴充"
+  titleEn="Raglex Docs — Features, Self-Host Sync & Browser Extension"
+  titleJa="Raglex ドキュメント — 機能紹介・Self-Host 構築・ブラウザ拡張"
+  description="Raglex 完整三語使用文件：核心功能總覽、Self-Host 端對端加密同步伺服器架設、瀏覽器擴充安裝與離線收件資料夾教學。"
+  activeNav="docs"
+>
   <div class="container docs-shell">
     <!-- Sticky Sidebar TOC -->
     <aside class="docs-sidebar" aria-label="Documentation navigation">
       <div>
-        <div class="docs-group-label" data-i18n-zh="指南目錄" data-i18n-en="Documentation" data-i18n-ja="ドキュメント目次">指南目錄</div>
+        <div class="docs-group-label" data-i18n-zh="指南目錄" data-i18n-en="Documentation" data-i18n-ja="ドキュメント目次">
+          指南目錄
+        </div>
         <nav class="docs-nav">
-          <a href="#features" data-i18n-zh="1. 核心功能與架構" data-i18n-en="1. Core Features" data-i18n-ja="1. コア機能と設計">1. 核心功能與架構</a>
-          <a href="#self-host" data-i18n-zh="2. Self-Host 自架同步指南" data-i18n-en="2. Self-Host Sync Guide" data-i18n-ja="2. Self-Host 同期構築ガイド">2. Self-Host 自架同步指南</a>
-          <a href="#extension" data-i18n-zh="3. 瀏覽器擴充安裝與使用" data-i18n-en="3. Browser Extension" data-i18n-ja="3. ブラウザ拡張機能">3. 瀏覽器擴充安裝與使用</a>
-          <a href="#signing" data-i18n-zh="4. macOS 提示與原始碼編譯" data-i18n-en="4. macOS Notice & Source Build" data-i18n-ja="4. macOS 警告とソースビルド">4. macOS 提示與原始碼編譯</a>
+          <a href="#features" data-i18n-zh="1. 核心功能與架構" data-i18n-en="1. Core Features" data-i18n-ja="1. コア機能と設計">
+            1. 核心功能與架構
+          </a>
+          <a href="#self-host" data-i18n-zh="2. Self-Host 自架同步指南" data-i18n-en="2. Self-Host Sync Guide" data-i18n-ja="2. Self-Host 同期構築ガイド">
+            2. Self-Host 自架同步指南
+          </a>
+          <a href="#extension" data-i18n-zh="3. 瀏覽器擴充安裝與使用" data-i18n-en="3. Browser Extension" data-i18n-ja="3. ブラウザ拡張機能">
+            3. 瀏覽器擴充安裝與使用
+          </a>
+          <a href="#signing" data-i18n-zh="4. macOS 提示與原始碼編譯" data-i18n-en="4. macOS Notice & Source Build" data-i18n-ja="4. macOS 警告とソースビルド">
+            4. macOS 提示與原始碼編譯
+          </a>
         </nav>
       </div>
       <div>
-        <div class="docs-group-label" data-i18n-zh="延伸閱讀" data-i18n-en="Resources" data-i18n-ja="関連リンク">延伸閱讀</div>
+        <div class="docs-group-label" data-i18n-zh="延伸閱讀" data-i18n-en="Resources" data-i18n-ja="関連リンク">
+          延伸閱讀
+        </div>
         <nav class="docs-nav">
           <a href="https://github.com/Batkixni/Raglex/blob/main/docs/PLUGIN_SDK.md" target="_blank" rel="noopener noreferrer">Plugin SDK ↗</a>
           <a href="https://github.com/Batkixni/raglex-plugins" target="_blank" rel="noopener noreferrer">Plugin Marketplace ↗</a>
@@ -223,83 +235,31 @@
           <p class="docs-lead">自宅 NAS・ホームサーバー・VPS にオープンソースの <code>raglex-server</code> を Docker 1 コマンドで構築し、デフォルト有効の <strong>AES-256-GCM ゼロ知識 E2E 暗号化</strong> で安全にマルチデバイス同期できます。</p>
         </div>
 
-        <h3 class="docs-h3" data-i18n-zh="方式一：Docker Compose 一鍵啟動（推薦）" data-i18n-en="Option 1: Docker Compose (Recommended)" data-i18n-ja="方法 1：Docker Compose で起動（推奨）">方式一：Docker Compose 一鍵啟動（推薦）</h3>
-        <div class="code-wrap">
-          <div class="code-head">
-            <span>macOS / Linux (Bash)</span>
-            <button type="button" class="copy-btn" data-copy-target="sh-docker-unix" data-i18n-zh="複製" data-i18n-en="Copy" data-i18n-ja="コピー">複製</button>
-          </div>
-          <pre id="sh-docker-unix">git clone https://github.com/Batkixni/Raglex.git
-cd Raglex/deploy
-export RAGLEX_TOKEN="$(openssl rand -hex 32)"
-docker compose up -d</pre>
-        </div>
+        <h3 class="docs-h3" data-i18n-zh="方式一：Docker Compose 一鍵啟動（推薦）" data-i18n-en="Option 1: Docker Compose (Recommended)" data-i18n-ja="方法 1：Docker Compose で起動（推奨）">
+          方式一：Docker Compose 一鍵啟動（推薦）
+        </h3>
+        <CodeBlock id="sh-docker-unix" label="macOS / Linux (Bash)" code={dockerUnix} />
+        <CodeBlock id="sh-docker-win" label="Windows (PowerShell)" code={dockerWin} />
 
-        <div class="code-wrap">
-          <div class="code-head">
-            <span>Windows (PowerShell)</span>
-            <button type="button" class="copy-btn" data-copy-target="sh-docker-win" data-i18n-zh="複製" data-i18n-en="Copy" data-i18n-ja="コピー">複製</button>
-          </div>
-          <pre id="sh-docker-win">git clone https://github.com/Batkixni/Raglex.git
-cd Raglex\deploy
-$env:RAGLEX_TOKEN = -join ((1..32) | ForEach-Object { "{0:x2}" -f (Get-Random -Maximum 256) })
-docker compose up -d</pre>
-        </div>
+        <h3 class="docs-h3" data-i18n-zh="方式二：獨立執行檔（免 Docker）" data-i18n-en="Option 2: Standalone Binary (No Docker)" data-i18n-ja="方法 2：単体バイナリ実行（Docker 不要）">
+          方式二：獨立執行檔（免 Docker）
+        </h3>
+        <CodeBlock id="sh-cli" label="raglex-server CLI" code={cliCmd} />
 
-        <h3 class="docs-h3" data-i18n-zh="方式二：獨立執行檔（免 Docker）" data-i18n-en="Option 2: Standalone Binary (No Docker)" data-i18n-ja="方法 2：単体バイナリ実行（Docker 不要）">方式二：獨立執行檔（免 Docker）</h3>
-        <div class="code-wrap">
-          <div class="code-head">
-            <span>raglex-server CLI</span>
-            <button type="button" class="copy-btn" data-copy-target="sh-cli" data-i18n-zh="複製" data-i18n-en="Copy" data-i18n-ja="コピー">複製</button>
-          </div>
-          <pre id="sh-cli">./raglex-server -addr ":47595" -library "/var/lib/raglex" -token "your-strong-secret-token"</pre>
-        </div>
+        <h3 class="docs-h3" data-i18n-zh="HTTPS 反向代理範例（Caddy / Nginx）" data-i18n-en="HTTPS Reverse Proxy (Caddy / Nginx)" data-i18n-ja="HTTPS リバースプロキシ設定（Caddy / Nginx）">
+          HTTPS 反向代理範例（Caddy / Nginx）
+        </h3>
+        <CodeBlock id="sh-caddy" label="Caddyfile" code={caddyConf} />
+        <CodeBlock id="sh-nginx" label="Nginx" code={nginxConf} />
 
-        <h3 class="docs-h3" data-i18n-zh="HTTPS 反向代理範例（Caddy / Nginx）" data-i18n-en="HTTPS Reverse Proxy (Caddy / Nginx)" data-i18n-ja="HTTPS リバースプロキシ設定（Caddy / Nginx）">HTTPS 反向代理範例（Caddy / Nginx）</h3>
-        <div class="code-wrap">
-          <div class="code-head">
-            <span>Caddyfile</span>
-            <button type="button" class="copy-btn" data-copy-target="sh-caddy" data-i18n-zh="複製" data-i18n-en="Copy" data-i18n-ja="コピー">複製</button>
-          </div>
-          <pre id="sh-caddy">sync.yourdomain.com {
-    reverse_proxy 127.0.0.1:47595
-}</pre>
-        </div>
+        <h3 class="docs-h3" data-i18n-zh="選配：串接 Cloudflare R2 / S3 / MinIO 物件儲存" data-i18n-en="Optional: Cloudflare R2 / S3 / MinIO Object Storage" data-i18n-ja="任意：Cloudflare R2 / S3 / MinIO 連携">
+          選配：串接 Cloudflare R2 / S3 / MinIO 物件儲存
+        </h3>
+        <CodeBlock id="sh-s3" label="deploy/docker-compose.yml (environment)" code={s3Env} />
 
-        <div class="code-wrap">
-          <div class="code-head">
-            <span>Nginx</span>
-            <button type="button" class="copy-btn" data-copy-target="sh-nginx" data-i18n-zh="複製" data-i18n-en="Copy" data-i18n-ja="コピー">複製</button>
-          </div>
-          <pre id="sh-nginx">server {
-    listen 443 ssl http2;
-    server_name sync.yourdomain.com;
-    client_max_body_size 512M;
-
-    location / {
-        proxy_pass http://127.0.0.1:47595;
-        proxy_set_header Host $host;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_read_timeout 900s;
-        proxy_send_timeout 900s;
-    }
-}</pre>
-        </div>
-
-        <h3 class="docs-h3" data-i18n-zh="選配：串接 Cloudflare R2 / S3 / MinIO 物件儲存" data-i18n-en="Optional: Cloudflare R2 / S3 / MinIO Object Storage" data-i18n-ja="任意：Cloudflare R2 / S3 / MinIO 連携">選配：串接 Cloudflare R2 / S3 / MinIO 物件儲存</h3>
-        <div class="code-wrap">
-          <div class="code-head">
-            <span>deploy/docker-compose.yml (environment)</span>
-            <button type="button" class="copy-btn" data-copy-target="sh-s3" data-i18n-zh="複製" data-i18n-en="Copy" data-i18n-ja="コピー">複製</button>
-          </div>
-          <pre id="sh-s3">RAGLEX_S3_ENDPOINT: "https://&lt;account-id&gt;.r2.cloudflarestorage.com"
-RAGLEX_S3_BUCKET: "raglex-blobs"
-RAGLEX_S3_REGION: "auto"
-RAGLEX_S3_ACCESS_KEY: "&lt;access-key&gt;"
-RAGLEX_S3_SECRET_KEY: "&lt;secret-key&gt;"</pre>
-        </div>
-
-        <h3 class="docs-h3" data-i18n-zh="在桌面端連線與備份 AES-256 端對端加密金鑰" data-i18n-en="Connect Desktop Clients & Back Up Your AES-256 E2EE Key" data-i18n-ja="デスクトップ接続 ＆ AES-256 E2E キーのバックアップ">在桌面端連線與備份 AES-256 端對端加密金鑰</h3>
+        <h3 class="docs-h3" data-i18n-zh="在桌面端連線與備份 AES-256 端對端加密金鑰" data-i18n-en="Connect Desktop Clients & Back Up Your AES-256 E2EE Key" data-i18n-ja="デスクトップ接続 ＆ AES-256 E2E キーのバックアップ">
+          在桌面端連線與備份 AES-256 端對端加密金鑰
+        </h3>
 
         <div data-lang-block="zh-Hant">
           <div class="step-list">
@@ -398,41 +358,13 @@ RAGLEX_S3_SECRET_KEY: "&lt;secret-key&gt;"</pre>
           <p><code>Raglex.app</code> を <code>/Applications</code> に配置後、ターミナルで以下を 1 度実行してください：</p>
         </div>
 
-        <div class="code-wrap">
-          <div class="code-head">
-            <span>macOS Terminal</span>
-            <button type="button" class="copy-btn" data-copy-target="doc-xattr" data-i18n-zh="複製" data-i18n-en="Copy" data-i18n-ja="コピー">複製</button>
-          </div>
-          <pre id="doc-xattr">xattr -cr /Applications/Raglex.app</pre>
-        </div>
+        <CodeBlock id="doc-xattr" label="macOS Terminal" code="xattr -cr /Applications/Raglex.app" />
 
-        <h3 class="docs-h3" data-i18n-zh="從原始碼自行編譯（Go 1.27+）" data-i18n-en="Build from Source (Go 1.27+)" data-i18n-ja="ソースからビルド（Go 1.27+）">從原始碼自行編譯（Go 1.27+）</h3>
-        <div class="code-wrap">
-          <div class="code-head">
-            <span>Go Build (CGO_ENABLED=0)</span>
-            <button type="button" class="copy-btn" data-copy-target="doc-build" data-i18n-zh="複製" data-i18n-en="Copy" data-i18n-ja="コピー">複製</button>
-          </div>
-          <pre id="doc-build">git clone https://github.com/Batkixni/Raglex.git
-cd Raglex
-CGO_ENABLED=0 go tool mygo build -o build/dev</pre>
-        </div>
+        <h3 class="docs-h3" data-i18n-zh="從原始碼自行編譯（Go 1.27+）" data-i18n-en="Build from Source (Go 1.27+)" data-i18n-ja="ソースからビルド（Go 1.27+）">
+          從原始碼自行編譯（Go 1.27+）
+        </h3>
+        <CodeBlock id="doc-build" label="Go Build (CGO_ENABLED=0)" code={sourceBuild} />
       </section>
     </article>
   </div>
-
-  <footer class="footer">
-    <div class="container footer-inner">
-      <span>© 2026 Raglex · MPL-2.0 Open Source</span>
-      <div class="footer-links">
-        <a href="/" data-i18n-zh="回首頁" data-i18n-en="Home" data-i18n-ja="ホーム">回首頁</a>
-        <a href="https://github.com/Batkixni/Raglex/blob/main/PRIVACY.md" target="_blank" rel="noopener noreferrer" data-i18n-zh="隱私政策" data-i18n-en="Privacy" data-i18n-ja="プライバシー">隱私政策</a>
-        <a href="https://github.com/Batkixni/raglex-plugins" target="_blank" rel="noopener noreferrer" data-i18n-zh="插件市集" data-i18n-en="Plugins" data-i18n-ja="プラグイン">插件市集</a>
-        <a href="https://github.com/Batkixni/Raglex" target="_blank" rel="noopener noreferrer">GitHub</a>
-        <a href="https://github.com/Batkixni/Raglex/releases" target="_blank" rel="noopener noreferrer">Releases</a>
-      </div>
-    </div>
-  </footer>
-
-  <script src="/assets/app.js"></script>
-</body>
-</html>
+</BaseLayout>

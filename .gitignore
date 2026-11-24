@@ -6,6 +6,9 @@
 /.mygo/
 /.wrangler/
 website/.wrangler/
+website/node_modules/
+website/dist/
+website/.astro/
 *.exe
 *.dll
 *.so
