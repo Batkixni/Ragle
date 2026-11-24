@@ -1103,13 +1103,15 @@ func (a *App) refreshAccountProfile() {
 // runCloudSyncNow executes a user-initiated bidirectional delta + concurrent
 // SHA-256 blob sync with live sidebar progress and toast feedback.
 func (a *App) runCloudSyncNow() {
-	a.runCloudSync(false)
+	a.runCloudSync(false, false)
 }
 
 // runCloudSync executes a bidirectional sync. When quiet is true (smart
 // background auto-sync), no-op scans stay completely invisible and offline
-// errors back off silently without spamming toasts.
-func (a *App) runCloudSync(quiet bool) {
+// errors back off silently without spamming toasts. When pullOnly is true
+// (periodic idle poll), it skips local DB snapshotting and push entirely,
+// sending only a ~150B GET /v1/sync/pull request.
+func (a *App) runCloudSync(quiet, pullOnly bool) {
 	serverURL, token := a.effectiveSyncEndpoint()
 	if a.lib == nil || a.syncBusy || serverURL == "" {
 		return
@@ -1144,6 +1146,7 @@ func (a *App) runCloudSync(quiet bool) {
 		DeviceID:             strings.TrimSpace(a.deviceName),
 		ExcludedFolderIDs:    exMap,
 		ExcludeUncategorized: !a.syncIncludeUncat,
+		PullOnly:             pullOnly,
 	}
 	win := a.win
 	run := func() {
@@ -1258,7 +1261,7 @@ func (a *App) scheduleAutoSync(delay time.Duration) {
 			if a.isClosed() || !a.autoSync || a.lib == nil {
 				return
 			}
-			a.runCloudSync(true)
+			a.runCloudSync(true, false)
 		})
 	})
 	a.mu.Unlock()
@@ -1291,7 +1294,7 @@ func (a *App) startAutoSyncLoop() {
 				return
 			}
 			if a.autoSync && a.hasSyncConnection() {
-				a.runCloudSync(true)
+				a.runCloudSync(true, false)
 			}
 		})
 
@@ -1316,7 +1319,7 @@ func (a *App) startAutoSyncLoop() {
 					}
 					ticksSkipped = 0
 					if !a.syncBusy && !a.importing {
-						a.runCloudSync(true)
+						a.runCloudSync(true, true)
 					}
 					if !a.collabBusy && len(a.collabLocalMap) > 0 {
 						a.syncLinkedCollabsQuietly()

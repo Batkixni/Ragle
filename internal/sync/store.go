@@ -5,6 +5,7 @@
 package sync
 
 import (
+	"bytes"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/binary"
@@ -23,10 +24,11 @@ import (
 )
 
 var (
-	bucketOps    = []byte("sync_ops")
-	bucketOpIDs  = []byte("sync_op_ids")
-	bucketShares = []byte("share_links")
-	bucketMeta   = []byte("sync_meta")
+	bucketOps         = []byte("sync_ops")
+	bucketOpIDs       = []byte("sync_op_ids")
+	bucketShares      = []byte("share_links")
+	bucketMeta        = []byte("sync_meta")
+	bucketRemoteKnown = []byte("remote_known")
 )
 
 // SyncOp is one idempotent delta operation in the append-only sync oplog.
@@ -126,7 +128,7 @@ func OpenStore(root string) (*Store, error) {
 		return nil, err
 	}
 	err = db.Update(func(tx *bbolt.Tx) error {
-		for _, b := range [][]byte{bucketOps, bucketOpIDs, bucketShares, bucketMeta} {
+		for _, b := range [][]byte{bucketOps, bucketOpIDs, bucketShares, bucketMeta, bucketRemoteKnown} {
 			if _, err := tx.CreateBucketIfNotExists(b); err != nil {
 				return err
 			}
@@ -384,6 +386,65 @@ func (s *Store) GetCursor(key string) uint64 {
 func (s *Store) SetCursor(key string, seq uint64) error {
 	return s.db.Update(func(tx *bbolt.Tx) error {
 		return tx.Bucket(bucketMeta).Put([]byte("cursor:"+key), seqKey(seq))
+	})
+}
+
+// LoadRemoteKnown returns the sets of OpIDs and SHA-256 blob hashes already
+// confirmed to exist on the remote server identified by scope.
+func (s *Store) LoadRemoteKnown(scope string) (ops map[string]bool, hashes map[string]bool) {
+	ops = map[string]bool{}
+	hashes = map[string]bool{}
+	if s == nil || s.db == nil || scope == "" {
+		return ops, hashes
+	}
+	opPrefix := []byte(scope + ":op:")
+	hashPrefix := []byte(scope + ":h:")
+	_ = s.db.View(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(bucketRemoteKnown)
+		if b == nil {
+			return nil
+		}
+		c := b.Cursor()
+		for k, _ := c.Seek(opPrefix); k != nil && bytes.HasPrefix(k, opPrefix); k, _ = c.Next() {
+			ops[string(k[len(opPrefix):])] = true
+		}
+		for k, _ := c.Seek(hashPrefix); k != nil && bytes.HasPrefix(k, hashPrefix); k, _ = c.Next() {
+			hashes[string(k[len(hashPrefix):])] = true
+		}
+		return nil
+	})
+	return ops, hashes
+}
+
+// MarkRemoteKnown records OpIDs and SHA-256 hashes confirmed on the remote
+// server so subsequent syncs skip redundant /v1/blobs/check & /v1/sync/push
+// payloads for unchanged assets.
+func (s *Store) MarkRemoteKnown(scope string, opIDs []string, hashes []string) error {
+	if s == nil || s.db == nil || scope == "" || (len(opIDs) == 0 && len(hashes) == 0) {
+		return nil
+	}
+	opPrefix := scope + ":op:"
+	hashPrefix := scope + ":h:"
+	return s.db.Update(func(tx *bbolt.Tx) error {
+		b, err := tx.CreateBucketIfNotExists(bucketRemoteKnown)
+		if err != nil {
+			return err
+		}
+		for _, id := range opIDs {
+			if id != "" {
+				if err := b.Put([]byte(opPrefix+id), []byte{1}); err != nil {
+					return err
+				}
+			}
+		}
+		for _, h := range hashes {
+			if h != "" {
+				if err := b.Put([]byte(hashPrefix+h), []byte{1}); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
 	})
 }
 

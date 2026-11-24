@@ -29,6 +29,12 @@ type ClientConfig struct {
 	DeviceID             string
 	ExcludedFolderIDs    map[string]bool // Folder IDs (and their nested descendants) skipped during push/upload
 	ExcludeUncategorized bool            // Skip assets that do not belong to any folder
+	PullOnly             bool            // Skip local catalog scan / blob check / push; only poll /v1/sync/pull
+}
+
+func remoteScopeKey(base, token string) string {
+	sum := sha256.Sum256([]byte(base + "\n" + strings.TrimSpace(token)))
+	return hex.EncodeToString(sum[:8])
 }
 
 // SyncProgress reports live stage and item progress during a cloud sync.
@@ -126,276 +132,337 @@ func SyncNowWithProgress(ctx context.Context, cfg ClientConfig, lib *library.Lib
 		return metaHC.Do(req)
 	}
 
-	// 1. Load entire catalog in ONE single bbolt read transaction (zero N+1 queries!).
-	snap, err := lib.LoadCatalogSnapshot()
-	if err != nil {
-		return rep, err
-	}
-	folderByID := make(map[string]model.Folder, len(snap.Folders))
-	for _, f := range snap.Folders {
-		folderByID[f.ID] = f
-	}
-	folderPathOf := func(fid string) []string {
-		var rev []string
-		seen := map[string]bool{}
-		cur := fid
-		for cur != "" && !seen[cur] {
-			seen[cur] = true
-			f, ok := folderByID[cur]
-			if !ok {
-				break
-			}
-			rev = append(rev, f.Name)
-			cur = f.ParentID
+	scope := remoteScopeKey(base, cfg.Token)
+	var (
+		snapLoaded  bool
+		snap        library.CatalogSnapshot
+		localByHash map[string]model.Asset
+		tagByName   map[string]string
+	)
+	ensureSnap := func() error {
+		if snapLoaded {
+			return nil
 		}
-		for i, j := 0, len(rev)-1; i < j; i, j = i+1, j-1 {
-			rev[i], rev[j] = rev[j], rev[i]
-		}
-		return rev
-	}
-
-	isFolderExcluded := func(fid string) bool {
-		if len(cfg.ExcludedFolderIDs) == 0 {
-			return false
-		}
-		seen := map[string]bool{}
-		cur := fid
-		for cur != "" && !seen[cur] {
-			seen[cur] = true
-			if cfg.ExcludedFolderIDs[cur] {
-				return true
-			}
-			f, ok := folderByID[cur]
-			if !ok {
-				break
-			}
-			cur = f.ParentID
-		}
-		return false
-	}
-
-	hashToPath := map[string]string{}
-	hashToName := map[string]string{}
-	var allHashes []string
-	pushOps := make([]SyncOp, 0, len(snap.Assets))
-
-	for _, a := range snap.Assets {
-		flds := snap.AssetFolders[a.ID]
-		if len(flds) == 0 {
-			if cfg.ExcludeUncategorized {
-				continue
-			}
-		} else if len(cfg.ExcludedFolderIDs) > 0 {
-			anyIncluded := false
-			for _, fl := range flds {
-				if !isFolderExcluded(fl.ID) {
-					anyIncluded = true
-					break
-				}
-			}
-			if !anyIncluded {
-				continue
-			}
-		}
-
-		h := strings.ToLower(strings.TrimSpace(a.Hash))
-		if _, err := ValidateSHA256(h); err == nil && a.Path != "" && !a.Missing {
-			if _, seen := hashToPath[h]; !seen {
-				hashToPath[h] = a.Path
-				hashToName[h] = a.Label()
-				allHashes = append(allHashes, h)
-			}
-		}
-		tgs := snap.AssetTags[a.ID]
-		tagNames := make([]string, 0, len(tgs))
-		for _, tg := range tgs {
-			tagNames = append(tagNames, tg.Name)
-		}
-		var folderPaths [][]string
-		for _, fl := range flds {
-			if isFolderExcluded(fl.ID) {
-				continue
-			}
-			if fp := folderPathOf(fl.ID); len(fp) > 0 {
-				folderPaths = append(folderPaths, fp)
-			}
-		}
-		pl := assetSyncPayload{
-			ID:          a.ID,
-			Name:        a.Label(),
-			Hash:        h,
-			Mime:        a.Mime,
-			Rating:      a.Rating,
-			Notes:       a.Notes,
-			SourceURL:   a.SourceURL,
-			SourceTitle: a.SourceTitle,
-			IsBookmark:  a.IsBookmark,
-			Tags:        tagNames,
-			Folders:     folderPaths,
-		}
-		rawPL, _ := json.Marshal(pl)
-		// Deterministic OpID from payload hash makes pushes 100% idempotent!
-		opSum := sha256.Sum256(rawPL)
-		pushOps = append(pushOps, SyncOp{
-			OpID:      "asset:" + hex.EncodeToString(opSum[:16]),
-			DeviceID:  devID,
-			Timestamp: time.Now().UnixMilli(),
-			Kind:      "asset.upsert",
-			EntityID:  a.ID,
-			Payload:   rawPL,
-		})
-	}
-
-	// 2. Check missing blobs & upload concurrently (up to 6 parallel workers!).
-	if len(allHashes) > 0 {
-		emit(SyncProgress{Stage: "checking", Done: 0, Total: len(allHashes)})
-		chkBody, _ := json.Marshal(map[string]any{"hashes": allHashes})
-		resp, err := doReq(ctx, http.MethodPost, "/v1/blobs/check", bytes.NewReader(chkBody), "application/json")
+		var err error
+		snap, err = lib.LoadCatalogSnapshot()
 		if err != nil {
+			return err
+		}
+		localByHash = make(map[string]model.Asset, len(snap.Assets))
+		for _, a := range snap.Assets {
+			if a.Hash != "" {
+				localByHash[strings.ToLower(a.Hash)] = a
+			}
+		}
+		tagByName = make(map[string]string, len(snap.Tags))
+		for _, tg := range snap.Tags {
+			tagByName[strings.ToLower(tg.Name)] = tg.ID
+		}
+		snapLoaded = true
+		return nil
+	}
+
+	// When PullOnly is false, compute ONLY the delta against locally cached
+	// confirmed OpIDs & SHA-256 hashes so unchanged items send zero bytes.
+	if !cfg.PullOnly {
+		// 1. Load entire catalog in ONE single bbolt read transaction (zero N+1 queries!).
+		if err := ensureSnap(); err != nil {
 			return rep, err
 		}
-		var chkOut struct {
-			Missing []string `json:"missing"`
-			Error   string   `json:"error"`
+		knownOps, knownHashes := localStore.LoadRemoteKnown(scope)
+
+		folderByID := make(map[string]model.Folder, len(snap.Folders))
+		for _, f := range snap.Folders {
+			folderByID[f.ID] = f
 		}
-		_ = json.NewDecoder(resp.Body).Decode(&chkOut)
-		_ = resp.Body.Close()
-		if resp.StatusCode != http.StatusOK {
-			if chkOut.Error != "" {
-				return rep, fmt.Errorf("sync check failed: %s", chkOut.Error)
+		folderPathOf := func(fid string) []string {
+			var rev []string
+			seen := map[string]bool{}
+			cur := fid
+			for cur != "" && !seen[cur] {
+				seen[cur] = true
+				f, ok := folderByID[cur]
+				if !ok {
+					break
+				}
+				rev = append(rev, f.Name)
+				cur = f.ParentID
 			}
-			return rep, fmt.Errorf("sync check failed: HTTP %d", resp.StatusCode)
+			for i, j := 0, len(rev)-1; i < j; i, j = i+1, j-1 {
+				rev[i], rev[j] = rev[j], rev[i]
+			}
+			return rev
 		}
 
-		totalMissing := len(chkOut.Missing)
-		if totalMissing > 0 {
-			emit(SyncProgress{Stage: "uploading", Done: 0, Total: totalMissing})
-			upCtx, cancelUp := context.WithCancel(ctx)
-			defer cancelUp()
-
-			jobs := make(chan string, totalMissing)
-			for _, mh := range chkOut.Missing {
-				jobs <- mh
+		isFolderExcluded := func(fid string) bool {
+			if len(cfg.ExcludedFolderIDs) == 0 {
+				return false
 			}
-			close(jobs)
-
-			workers := 6
-			if totalMissing < workers {
-				workers = totalMissing
+			seen := map[string]bool{}
+			cur := fid
+			for cur != "" && !seen[cur] {
+				seen[cur] = true
+				if cfg.ExcludedFolderIDs[cur] {
+					return true
+				}
+				f, ok := folderByID[cur]
+				if !ok {
+					break
+				}
+				cur = f.ParentID
 			}
+			return false
+		}
 
-			var (
-				wg        sync.WaitGroup
-				doneCount atomic.Int64
-				okCount   atomic.Int64
-				firstErr  error
-				errOnce   sync.Once
-			)
-			setErr := func(e error) {
-				errOnce.Do(func() {
-					firstErr = e
-					cancelUp()
-				})
-			}
+		hashToPath := map[string]string{}
+		hashToName := map[string]string{}
+		var candidateHashes []string
+		pushOps := make([]SyncOp, 0, 16)
 
-			for i := 0; i < workers; i++ {
-				wg.Add(1)
-				go func() {
-					defer wg.Done()
-					for mh := range jobs {
-						if upCtx.Err() != nil {
-							return
-						}
-						p := hashToPath[mh]
-						if p == "" {
-							d := int(doneCount.Add(1))
-							emit(SyncProgress{Stage: "uploading", Done: d, Total: totalMissing})
-							continue
-						}
-						f, err := os.Open(p)
-						if err != nil {
-							d := int(doneCount.Add(1))
-							emit(SyncProgress{Stage: "uploading", Done: d, Total: totalMissing})
-							continue
-						}
-						upResp, err := doReq(upCtx, http.MethodPut, "/v1/blobs/"+mh, f, "application/octet-stream")
-						_ = f.Close()
-						if err != nil {
-							if upCtx.Err() == nil {
-								setErr(err)
-							}
-							return
-						}
-						var upOut struct {
-							Error string `json:"error"`
-						}
-						_ = json.NewDecoder(io.LimitReader(upResp.Body, 16<<10)).Decode(&upOut)
-						_, _ = io.Copy(io.Discard, upResp.Body)
-						_ = upResp.Body.Close()
-
-						if upResp.StatusCode == http.StatusOK {
-							okCount.Add(1)
-						} else if upResp.StatusCode == http.StatusRequestEntityTooLarge || upResp.StatusCode == http.StatusUnauthorized {
-							if upOut.Error != "" {
-								setErr(fmt.Errorf("blob upload failed: %s", upOut.Error))
-							} else {
-								setErr(fmt.Errorf("blob upload failed: HTTP %d", upResp.StatusCode))
-							}
-							return
-						}
-						d := int(doneCount.Add(1))
-						emit(SyncProgress{Stage: "uploading", Done: d, Total: totalMissing, Current: hashToName[mh]})
+		for _, a := range snap.Assets {
+			flds := snap.AssetFolders[a.ID]
+			if len(flds) == 0 {
+				if cfg.ExcludeUncategorized {
+					continue
+				}
+			} else if len(cfg.ExcludedFolderIDs) > 0 {
+				anyIncluded := false
+				for _, fl := range flds {
+					if !isFolderExcluded(fl.ID) {
+						anyIncluded = true
+						break
 					}
-				}()
+				}
+				if !anyIncluded {
+					continue
+				}
 			}
-			wg.Wait()
-			if firstErr != nil {
-				return rep, firstErr
-			}
-			rep.UploadedBlobs = int(okCount.Load())
-		}
-	}
 
-	// 3. Push local ops idempotently in batches.
-	if len(pushOps) > 0 {
-		emit(SyncProgress{Stage: "pushing", Done: 0, Total: len(pushOps)})
-		const opBatch = 400
-		for start := 0; start < len(pushOps); start += opBatch {
-			end := min(start+opBatch, len(pushOps))
-			pushBody, _ := json.Marshal(map[string]any{"ops": pushOps[start:end]})
-			resp, err := doReq(ctx, http.MethodPost, "/v1/sync/push", bytes.NewReader(pushBody), "application/json")
+			h := strings.ToLower(strings.TrimSpace(a.Hash))
+			if _, err := ValidateSHA256(h); err == nil && a.Path != "" && !a.Missing && !knownHashes[h] {
+				if _, seen := hashToPath[h]; !seen {
+					hashToPath[h] = a.Path
+					hashToName[h] = a.Label()
+					candidateHashes = append(candidateHashes, h)
+				}
+			}
+			tgs := snap.AssetTags[a.ID]
+			tagNames := make([]string, 0, len(tgs))
+			for _, tg := range tgs {
+				tagNames = append(tagNames, tg.Name)
+			}
+			var folderPaths [][]string
+			for _, fl := range flds {
+				if isFolderExcluded(fl.ID) {
+					continue
+				}
+				if fp := folderPathOf(fl.ID); len(fp) > 0 {
+					folderPaths = append(folderPaths, fp)
+				}
+			}
+			pl := assetSyncPayload{
+				ID:          a.ID,
+				Name:        a.Label(),
+				Hash:        h,
+				Mime:        a.Mime,
+				Rating:      a.Rating,
+				Notes:       a.Notes,
+				SourceURL:   a.SourceURL,
+				SourceTitle: a.SourceTitle,
+				IsBookmark:  a.IsBookmark,
+				Tags:        tagNames,
+				Folders:     folderPaths,
+			}
+			rawPL, _ := json.Marshal(pl)
+			// Deterministic OpID from payload hash makes pushes 100% idempotent
+			// and lets us skip unchanged assets locally with zero network traffic!
+			opSum := sha256.Sum256(rawPL)
+			opID := "asset:" + hex.EncodeToString(opSum[:16])
+			if knownOps[opID] {
+				continue
+			}
+			pushOps = append(pushOps, SyncOp{
+				OpID:      opID,
+				DeviceID:  devID,
+				Timestamp: time.Now().UnixMilli(),
+				Kind:      "asset.upsert",
+				EntityID:  a.ID,
+				Payload:   rawPL,
+			})
+		}
+
+		var confirmedHashes []string
+		var confirmedOps []string
+
+		// 2. Check missing blobs & upload concurrently (up to 6 parallel workers!).
+		if len(candidateHashes) > 0 {
+			emit(SyncProgress{Stage: "checking", Done: 0, Total: len(candidateHashes)})
+			chkBody, _ := json.Marshal(map[string]any{"hashes": candidateHashes})
+			resp, err := doReq(ctx, http.MethodPost, "/v1/blobs/check", bytes.NewReader(chkBody), "application/json")
 			if err != nil {
 				return rep, err
 			}
-			var pushOut struct {
-				LatestSeq uint64 `json:"latest_seq"`
-				Accepted  int    `json:"accepted"`
+			var chkOut struct {
+				Missing []string `json:"missing"`
+				Error   string   `json:"error"`
 			}
-			_ = json.NewDecoder(resp.Body).Decode(&pushOut)
+			_ = json.NewDecoder(resp.Body).Decode(&chkOut)
 			_ = resp.Body.Close()
 			if resp.StatusCode != http.StatusOK {
-				return rep, fmt.Errorf("sync push failed: HTTP %d", resp.StatusCode)
+				if chkOut.Error != "" {
+					return rep, fmt.Errorf("sync check failed: %s", chkOut.Error)
+				}
+				return rep, fmt.Errorf("sync check failed: HTTP %d", resp.StatusCode)
 			}
-			rep.PushedOps += pushOut.Accepted
-			rep.LatestSeq = pushOut.LatestSeq
-			emit(SyncProgress{Stage: "pushing", Done: end, Total: len(pushOps)})
+
+			missingSet := make(map[string]bool, len(chkOut.Missing))
+			for _, mh := range chkOut.Missing {
+				missingSet[mh] = true
+			}
+			for _, ch := range candidateHashes {
+				if !missingSet[ch] {
+					confirmedHashes = append(confirmedHashes, ch)
+				}
+			}
+
+			totalMissing := len(chkOut.Missing)
+			if totalMissing > 0 {
+				emit(SyncProgress{Stage: "uploading", Done: 0, Total: totalMissing})
+				upCtx, cancelUp := context.WithCancel(ctx)
+				defer cancelUp()
+
+				jobs := make(chan string, totalMissing)
+				for _, mh := range chkOut.Missing {
+					jobs <- mh
+				}
+				close(jobs)
+
+				workers := 6
+				if totalMissing < workers {
+					workers = totalMissing
+				}
+
+				var (
+					wg          sync.WaitGroup
+					doneCount   atomic.Int64
+					okCount     atomic.Int64
+					firstErr    error
+					errOnce     sync.Once
+					uploadedMu  sync.Mutex
+					uploadedOK  []string
+				)
+				setErr := func(e error) {
+					errOnce.Do(func() {
+						firstErr = e
+						cancelUp()
+					})
+				}
+
+				for i := 0; i < workers; i++ {
+					wg.Add(1)
+					go func() {
+						defer wg.Done()
+						for mh := range jobs {
+							if upCtx.Err() != nil {
+								return
+							}
+							p := hashToPath[mh]
+							if p == "" {
+								d := int(doneCount.Add(1))
+								emit(SyncProgress{Stage: "uploading", Done: d, Total: totalMissing})
+								continue
+							}
+							f, err := os.Open(p)
+							if err != nil {
+								d := int(doneCount.Add(1))
+								emit(SyncProgress{Stage: "uploading", Done: d, Total: totalMissing})
+								continue
+							}
+							upResp, err := doReq(upCtx, http.MethodPut, "/v1/blobs/"+mh, f, "application/octet-stream")
+							_ = f.Close()
+							if err != nil {
+								if upCtx.Err() == nil {
+									setErr(err)
+								}
+								return
+							}
+							var upOut struct {
+								Error string `json:"error"`
+							}
+							_ = json.NewDecoder(io.LimitReader(upResp.Body, 16<<10)).Decode(&upOut)
+							_, _ = io.Copy(io.Discard, upResp.Body)
+							_ = upResp.Body.Close()
+
+							if upResp.StatusCode == http.StatusOK {
+								okCount.Add(1)
+								uploadedMu.Lock()
+								uploadedOK = append(uploadedOK, mh)
+								uploadedMu.Unlock()
+							} else if upResp.StatusCode == http.StatusRequestEntityTooLarge || upResp.StatusCode == http.StatusUnauthorized {
+								if upOut.Error != "" {
+									setErr(fmt.Errorf("blob upload failed: %s", upOut.Error))
+								} else {
+									setErr(fmt.Errorf("blob upload failed: HTTP %d", upResp.StatusCode))
+								}
+								return
+							}
+							d := int(doneCount.Add(1))
+							emit(SyncProgress{Stage: "uploading", Done: d, Total: totalMissing, Current: hashToName[mh]})
+						}
+					}()
+				}
+				wg.Wait()
+				if len(uploadedOK) > 0 {
+					confirmedHashes = append(confirmedHashes, uploadedOK...)
+				}
+				if firstErr != nil {
+					_ = localStore.MarkRemoteKnown(scope, nil, confirmedHashes)
+					return rep, firstErr
+				}
+				rep.UploadedBlobs = int(okCount.Load())
+			}
 		}
+
+		// 3. Push only delta local ops idempotently in batches.
+		if len(pushOps) > 0 {
+			emit(SyncProgress{Stage: "pushing", Done: 0, Total: len(pushOps)})
+			const opBatch = 400
+			for start := 0; start < len(pushOps); start += opBatch {
+				end := min(start+opBatch, len(pushOps))
+				batch := pushOps[start:end]
+				pushBody, _ := json.Marshal(map[string]any{"ops": batch})
+				resp, err := doReq(ctx, http.MethodPost, "/v1/sync/push", bytes.NewReader(pushBody), "application/json")
+				if err != nil {
+					_ = localStore.MarkRemoteKnown(scope, confirmedOps, confirmedHashes)
+					return rep, err
+				}
+				var pushOut struct {
+					LatestSeq uint64 `json:"latest_seq"`
+					Accepted  int    `json:"accepted"`
+				}
+				_ = json.NewDecoder(resp.Body).Decode(&pushOut)
+				_ = resp.Body.Close()
+				if resp.StatusCode != http.StatusOK {
+					_ = localStore.MarkRemoteKnown(scope, confirmedOps, confirmedHashes)
+					return rep, fmt.Errorf("sync push failed: HTTP %d", resp.StatusCode)
+				}
+				rep.PushedOps += pushOut.Accepted
+				rep.LatestSeq = pushOut.LatestSeq
+				for _, op := range batch {
+					confirmedOps = append(confirmedOps, op.OpID)
+				}
+				emit(SyncProgress{Stage: "pushing", Done: end, Total: len(pushOps)})
+			}
+		}
+
+		_ = localStore.MarkRemoteKnown(scope, confirmedOps, confirmedHashes)
 	}
 
 	// 4. Pull remote ops since last cursor and apply missing assets + metadata locally.
+	// In PullOnly mode with 0 remote ops, this completes with ONE ~150B GET and ZERO local DB scan!
 	emit(SyncProgress{Stage: "pulling"})
 	cursorKey := base
 	since := localStore.GetCursor(cursorKey)
-	localByHash := map[string]model.Asset{}
-	for _, a := range snap.Assets {
-		if a.Hash != "" {
-			localByHash[strings.ToLower(a.Hash)] = a
-		}
-	}
-	tagByName := map[string]string{}
-	for _, tg := range snap.Tags {
-		tagByName[strings.ToLower(tg.Name)] = tg.ID
-	}
 
 	for {
 		resp, err := doReq(ctx, http.MethodGet, fmt.Sprintf("/v1/sync/pull?since=%d&limit=500", since), nil, "")
@@ -416,6 +483,21 @@ func SyncNowWithProgress(ctx context.Context, cfg ClientConfig, lib *library.Lib
 			return rep, decErr
 		}
 		rep.LatestSeq = pullOut.LatestSeq
+
+		if len(pullOut.Ops) > 0 {
+			hasRemote := false
+			for _, op := range pullOut.Ops {
+				if op.DeviceID != devID {
+					hasRemote = true
+					break
+				}
+			}
+			if hasRemote {
+				if err := ensureSnap(); err != nil {
+					return rep, err
+				}
+			}
+		}
 
 		for idx, op := range pullOut.Ops {
 			if op.Seq > since {

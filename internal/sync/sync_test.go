@@ -242,3 +242,95 @@ func TestOpenStoreConcurrentSameProcess(t *testing.T) {
 		t.Fatalf("GetCursor on s1 after s2.Close() = %d, want 42", got)
 	}
 }
+
+func TestSyncDeltaCacheAndPullOnlyZeroWaste(t *testing.T) {
+	srvDir := t.TempDir()
+	srvStore, err := OpenStore(srvDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer srvStore.Close()
+	srvBlobs, _ := NewLocalBlobStore(srvDir, nil)
+	h := &Handler{Store: srvStore, Blobs: srvBlobs}
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	var checkHits, pushHits, pullHits int
+	counted := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/blobs/check":
+			checkHits++
+		case "/v1/sync/push":
+			pushHits++
+		case "/v1/sync/pull":
+			pullHits++
+		}
+		mux.ServeHTTP(w, r)
+	})
+	ts := httptest.NewServer(counted)
+	defer ts.Close()
+
+	cliDir := t.TempDir()
+	lib, err := library.Open(cliDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lib.Close()
+	projs := project.New(lib.DB)
+
+	a1, _, err := lib.ImportBytes("one.png", samplePNG(t, color.RGBA{200, 50, 50, 255}), nil, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := lib.ImportBytes("two.png", samplePNG(t, color.RGBA{50, 200, 50, 255}), nil, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := lib.ImportBytes("three.png", samplePNG(t, color.RGBA{50, 50, 200, 255}), nil, "", ""); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := ClientConfig{ServerURL: ts.URL, Token: "tok-1", DeviceID: "dev-a"}
+
+	// 1. Initial sync uploads 3 blobs & pushes 3 ops.
+	rep1, err := SyncNow(context.Background(), cfg, lib, projs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep1.UploadedBlobs != 3 || rep1.PushedOps != 3 || checkHits != 1 || pushHits != 1 {
+		t.Fatalf("initial sync mismatch: rep=%+v check=%d push=%d pull=%d", rep1, checkHits, pushHits, pullHits)
+	}
+
+	// 2. Immediate repeat sync with NO edits sends ZERO /v1/blobs/check and ZERO /v1/sync/push!
+	checkHits, pushHits, pullHits = 0, 0, 0
+	rep2, err := SyncNow(context.Background(), cfg, lib, projs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if checkHits != 0 || pushHits != 0 || pullHits != 1 || rep2.UploadedBlobs != 0 || rep2.PushedOps != 0 {
+		t.Fatalf("repeat idle sync wasted network! rep=%+v check=%d push=%d pull=%d", rep2, checkHits, pushHits, pullHits)
+	}
+
+	// 3. Edit 1 asset's rating -> sends ZERO blob checks and pushes ONLY 1 delta op!
+	if err := lib.SetRating(a1.ID, 5); err != nil {
+		t.Fatal(err)
+	}
+	checkHits, pushHits, pullHits = 0, 0, 0
+	rep3, err := SyncNow(context.Background(), cfg, lib, projs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if checkHits != 0 || pushHits != 1 || rep3.PushedOps != 1 || rep3.UploadedBlobs != 0 {
+		t.Fatalf("1-asset edit should push exactly 1 op with 0 blob checks: rep=%+v check=%d push=%d", rep3, checkHits, pushHits)
+	}
+
+	// 4. PullOnly periodic poll sends ONLY /v1/sync/pull even when local assets exist.
+	checkHits, pushHits, pullHits = 0, 0, 0
+	pullCfg := cfg
+	pullCfg.PullOnly = true
+	if _, err := SyncNow(context.Background(), pullCfg, lib, projs); err != nil {
+		t.Fatal(err)
+	}
+	if checkHits != 0 || pushHits != 0 || pullHits != 1 {
+		t.Fatalf("PullOnly poll sent unexpected requests: check=%d push=%d pull=%d", checkHits, pushHits, pullHits)
+	}
+}
