@@ -885,11 +885,6 @@ func (a *App) sidebar(c *gui.Context) {
 									gui.Row(c).FillWidth().Padding(14, 4, 4, 10).Gap(2).AlignItems(gui.Center).Children(func() {
 										a.sectionLabel(c, a.t("shell.folders"))
 										gui.Spacer(c)
-										if len(a.folders) > 0 {
-											a.miniHeaderButton(c, "sb-batch-del-folder", iconTrash, a.t("folder.batchDelete"), a.batchDelFoldersOpen).OnClick(func() {
-												a.openBatchDeleteFoldersModal()
-											})
-										}
 										a.miniHeaderButton(c, "sb-add-folder", iconPlus, a.t("folder.new"), a.newFolderOpen).OnClick(func() {
 											a.newFolderParentID = ""
 											a.newFolderOpen = !a.newFolderOpen

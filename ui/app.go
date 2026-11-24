@@ -242,6 +242,9 @@ type App struct {
 	editFolderName         string
 	editFolderParentID     string
 	editFolderColor        string
+	delFolderOpen          bool
+	delFolderID            string
+	delFolderIncludeSubs   bool
 	batchDelFoldersOpen    bool
 	batchDelFolderIDs      map[string]bool
 	batchDelIncludeSubs    bool

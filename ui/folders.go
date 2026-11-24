@@ -295,6 +295,16 @@ func (a *App) moveFolderParent(id, parentID string) {
 }
 
 func (a *App) deleteFolderPrompt(id string) {
+	a.ensureFolderTree()
+	if _, ok := a.folderByID[id]; !ok {
+		return
+	}
+	if len(a.folderChildren[id]) > 0 {
+		a.delFolderID = id
+		a.delFolderIncludeSubs = true
+		a.delFolderOpen = true
+		return
+	}
 	a.ask(a.t("folder.delete"), a.t("folder.deleteNote"), a.t("common.delete"), func() {
 		if err := a.lib.DeleteFolder(id); err != nil {
 			a.notify(err.Error())
@@ -309,33 +319,81 @@ func (a *App) deleteFolderPrompt(id string) {
 	})
 }
 
-func (a *App) deleteFolderRecursivePrompt(id string) {
-	a.ensureFolderTree()
-	f, ok := a.folderByID[id]
-	if !ok {
+func (a *App) executeDeleteSingleFolder() {
+	id := a.delFolderID
+	includeSubs := a.delFolderIncludeSubs
+	a.delFolderOpen = false
+	a.delFolderID = ""
+	if a.lib == nil || id == "" {
 		return
 	}
+	a.ensureFolderTree()
 	desc := a.folderDescendantSet(id)
-	subCount := len(desc) - 1
-	a.ask(
-		fmt.Sprintf(a.t("folder.deleteWithSubs"), len(desc)),
-		fmt.Sprintf(a.t("folder.deleteWithSubsNote"), f.Name, subCount),
-		a.t("common.delete"),
-		func() {
-			n, err := a.lib.DeleteFoldersBatch([]string{id}, true)
-			if err != nil {
-				a.notify(err.Error())
-				return
+	if includeSubs {
+		n, err := a.lib.DeleteFoldersBatch([]string{id}, true)
+		if err != nil {
+			a.notify(err.Error())
+			return
+		}
+		if desc[a.folderID] {
+			a.folderID = ""
+			a.selectedNav = "tag-all"
+			a.lastNav = "tag-all"
+		}
+		a.reload()
+		a.notify(fmt.Sprintf(a.t("folder.batchDeleted"), n))
+		return
+	}
+	if err := a.lib.DeleteFolder(id); err != nil {
+		a.notify(err.Error())
+		return
+	}
+	if a.folderID == id {
+		a.folderID = ""
+		a.selectedNav = "tag-all"
+		a.lastNav = "tag-all"
+	}
+	a.reload()
+}
+
+func (a *App) deleteFolderModal(c *gui.Context) {
+	if !a.delFolderOpen || a.delFolderID == "" {
+		return
+	}
+	a.ensureFolderTree()
+	f, ok := a.folderByID[a.delFolderID]
+	if !ok {
+		a.delFolderOpen = false
+		return
+	}
+	subCount := len(a.folderDescendantSet(a.delFolderID)) - 1
+	a.styledDialog(c, "del-folder-modal", &a.delFolderOpen, 430, 0, func(_ gui.Element) {
+		gui.Column(c).Padding(22, 24).Gap(14).Children(func() {
+			gui.Row(c).FillWidth().Gap(8).AlignItems(gui.Center).Children(func() {
+				gui.Text(c, a.t("folder.delete")+" · "+f.Name).FontSize(15).Bold().Grow(1).SingleLine()
+				a.iconButton(c, "df-close", iconX, a.t("common.close"), false).OnClick(func() {
+					a.delFolderOpen = false
+				})
+			})
+			note := a.t("folder.deleteNote")
+			if a.delFolderIncludeSubs && subCount > 0 {
+				note = fmt.Sprintf(a.t("folder.deleteWithSubsNote"), f.Name, subCount)
 			}
-			if desc[a.folderID] {
-				a.folderID = ""
-				a.selectedNav = "tag-all"
-				a.lastNav = "tag-all"
+			gui.Text(c, note).FontSize(12.5).TextColor(a.pal.inkSecondary).LineHeight(1.5)
+			if subCount > 0 {
+				gui.Checkbox(c.Key("df-inc-subs"), &a.delFolderIncludeSubs, a.t("folder.batchIncludeSubs"))
 			}
-			a.reload()
-			a.notify(fmt.Sprintf(a.t("folder.batchDeleted"), n))
-		},
-	)
+			gui.Box(c).FillWidth().Height(1).Background(a.chromeHairline())
+			gui.Row(c).FillWidth().Gap(8).Justify(gui.End).Children(func() {
+				a.arcButton(c, "df-cancel", a.t("common.cancel"), false).OnClick(func() {
+					a.delFolderOpen = false
+				})
+				a.arcButton(c, "df-submit", a.t("common.delete"), true).OnClick(func() {
+					a.executeDeleteSingleFolder()
+				})
+			})
+		})
+	})
 }
 
 func (a *App) openBatchDeleteFoldersModal() {
@@ -666,12 +724,6 @@ func (a *App) buildFolderContextMenu(m *gui.Menu, f model.Folder, services gui.S
 
 	if a.menuItem(m, iconTrash, a.t("folder.delete"), "Del", true).Chosen() {
 		a.deleteFolderPrompt(folderID)
-	}
-	if len(children) > 0 {
-		descCount := len(a.folderDescendantSet(folderID))
-		if a.menuItem(m, iconTrash, fmt.Sprintf(a.t("folder.deleteWithSubs"), descCount), "", true).Chosen() {
-			a.deleteFolderRecursivePrompt(folderID)
-		}
 	}
 	if len(a.folders) > 1 {
 		if a.menuItem(m, iconCheckSquare, a.t("folder.batchDelete")+"…", "", false).Chosen() {
