@@ -11,6 +11,7 @@ import (
 	"github.com/egoist/mygo"
 	gui "github.com/egoist/mygo/ui"
 
+	"raglex/internal/config"
 	"raglex/internal/model"
 	"raglex/internal/plugin"
 	"raglex/internal/updater"
@@ -18,6 +19,7 @@ import (
 
 const (
 	settingsTabGeneral = iota
+	settingsTabAccount
 	settingsTabDatabase
 	settingsTabImport
 	settingsTabExtension
@@ -261,6 +263,7 @@ func (a *App) settingsModal(c *gui.Context) {
 			label string
 		}{
 			{settingsTabGeneral, iconSliders, a.t("settings.tab.general")},
+			{settingsTabAccount, iconUser, a.t("settings.tab.account")},
 			{settingsTabDatabase, iconDatabase, a.t("settings.tab.database")},
 			{settingsTabImport, iconImport, a.t("settings.tab.import")},
 			{settingsTabExtension, iconGlobe, a.t("settings.tab.extension")},
@@ -350,6 +353,7 @@ func (a *App) settingsModal(c *gui.Context) {
 				activeSub := a.t("settings.sub.general")
 				subKeys := map[int]string{
 					settingsTabGeneral:   "settings.sub.general",
+					settingsTabAccount:   "settings.sub.account",
 					settingsTabDatabase:  "settings.sub.database",
 					settingsTabImport:    "settings.sub.import",
 					settingsTabExtension: "settings.sub.extension",
@@ -397,6 +401,8 @@ func (a *App) settingsModal(c *gui.Context) {
 						switch a.settingsTab {
 						case settingsTabGeneral:
 							a.settingsGeneralTab(c)
+						case settingsTabAccount:
+							a.settingsAccountTab(c)
 						case settingsTabDatabase:
 							a.settingsDatabaseTab(c)
 						case settingsTabImport:
@@ -1035,7 +1041,7 @@ func (a *App) settingsImportTab(c *gui.Context) {
 func (a *App) settingsExtensionTab(c *gui.Context) {
 	services := c.Services()
 	tok := a.ensureServerToken()
-	addr := fmt.Sprintf("http://127.0.0.1:%s", strings.TrimSpace(a.serverPortStr))
+	addr := fmt.Sprintf("http://127.0.0.1:%d", a.serverPortValue())
 	if a.localSrv != nil && a.localSrv.Running() {
 		addr = a.localSrv.LocalURL()
 	}
@@ -1083,6 +1089,30 @@ func (a *App) settingsExtensionTab(c *gui.Context) {
 		})
 	})
 
+	// 1.5 離線收件資料夾（不開軟體也能存圖）
+	a.settingsSection(c, a.t("ext.grpOffline"), a.t("ext.offlineTip"), true, func() {
+		inbox := a.effectiveClipperInboxDir()
+		a.settingsItemRow(c, "ext-offline-dir", iconInbox, filepath.Base(inbox), "", func() {
+			gui.Row(c).Gap(6).AlignItems(gui.Center).Children(func() {
+				a.toolButton(c, "pref-ext-inbox-pick", iconFolder, a.t("ext.offlineChange"), false).OnClick(func() {
+					a.pickClipperInboxDir()
+				})
+				a.iconButton(c, "pref-ext-inbox-open", iconExternal, a.t("settings.openFolder"), false).OnClick(func() {
+					_ = os.MkdirAll(inbox, 0o755)
+					_ = openLocalFile(inbox)
+				})
+				a.iconButton(c, "pref-ext-inbox-sync", iconRefresh, a.t("ext.offlineSync"), false).
+					Disabled(a.watchScanning).
+					OnClick(func() { a.scanWatchFoldersNow() })
+			})
+		})
+		gui.Text(c, inbox).
+			FontSize(11).
+			TextColor(a.pal.inkMuted).
+			Padding(0, 10, 4, 35).
+			SingleLine()
+	})
+
 	// 2. 安裝與步驟
 	a.settingsSection(c, a.t("ext.grpInstall"), "", true, func() {
 		a.settingsItemRow(c, "ext-chrome", iconExternal, a.t("ext.chrome"), a.t("ext.chromeTip"), func() {
@@ -1103,36 +1133,131 @@ func (a *App) settingsExtensionTab(c *gui.Context) {
 	})
 }
 
-func (a *App) settingsSharingTab(c *gui.Context) {
-	services := c.Services()
+// settingsAccountTab provides Raglex Cloud Account Sign-In (using the default
+// placeholder endpoint https://cloud.raglex.app) and a clean 1-click toggle to
+// switch between Raglex Cloud and Self-Host sync servers.
+func (a *App) settingsAccountTab(c *gui.Context) {
+	providerIdx := 0
+	if a.syncProvider == "selfhost" {
+		providerIdx = 1
+	}
 
-	// 1. 接收朋友專案
-	a.settingsSection(c, a.t("pref.grpRecv"), a.t("pref.recvTip"), false, func() {
-		lanText := a.t("settings.lanOff")
-		if node := a.shareNode(); node != nil && node.DiscoveryOK() {
-			lanText = a.t("settings.lanOK")
-		}
-		a.settingsKVRow(c, "lan-state", iconGlobe, a.t("pref.lanState"), lanText)
-		a.settingsItemRow(c, "recv-code", iconLink, a.t("pref.grpRecv"), "", func() {
-			a.arcButton(c, "pref-recv-code", a.t("settings.receiveByCodeBtn"), true).OnClick(func() {
-				a.settingsOpen = false
-				a.pairRecvOpen = true
+	// 1. 同步服務模式切換（Raglex Cloud 預設 / Self-Host）
+	a.settingsSection(c, a.t("account.provider"), a.t("account.providerTip"), false, func() {
+		a.settingsItemRow(c, "sync-provider", iconCloud, a.t("account.provider"), "", func() {
+			a.arcPillTabs(c, "pref-sync-provider", providerIdx, []string{
+				a.t("account.cloud"),
+				a.t("account.selfHost"),
+			}, func(idx int) {
+				if idx == 1 {
+					a.syncProvider = "selfhost"
+				} else {
+					a.syncProvider = "cloud"
+				}
+				a.syncConfigFromState()
 			})
 		})
+
+		if a.syncProvider != "selfhost" {
+			a.settingsKVRow(c, "cloud-endpoint", iconLink, a.t("account.endpoint"), config.DefaultCloudEndpoint)
+		}
 	})
 
-	// 2. 雲端與手機同步
+	// 2A. Raglex Cloud 帳號登入 / 狀態
+	if a.syncProvider != "selfhost" {
+		a.settingsSection(c, a.t("account.grpSignIn"), "", true, func() {
+			if a.accountToken != "" && a.accountEmail != "" {
+				initial := strings.ToUpper(a.accountEmail[:1])
+				a.settingsItemRow(c, "acct-signed", nil, a.accountEmail, "", func() {
+					gui.Row(c).Gap(8).AlignItems(gui.Center).Children(func() {
+						gui.Box(c).Size(24, 24).Radius(radiusPill).Background(gui.Hex("#FF5C33")).Center().Children(func() {
+							gui.Text(c, initial).FontSize(11).Bold().TextColor(gui.Hex("#FFFFFF"))
+						})
+						btnLbl := a.t("sync.now")
+						if a.syncBusy {
+							btnLbl = a.t("sync.syncing")
+						}
+						a.arcButton(c, "acct-sync-now", btnLbl, true).
+							Disabled(a.syncBusy).
+							OnClick(func() { a.runCloudSyncNow() })
+						a.toolButton(c, "acct-signout", iconX, a.t("account.signOut"), false).OnClick(func() {
+							a.signOutAccount()
+						})
+					})
+				})
+			} else {
+				a.settingsItemRow(c, "acct-email", iconUser, a.t("account.email"), "", func() {
+					gui.TextInput(c.Key("pref-auth-email"), &a.authEmailBuf).
+						Placeholder("you@example.com").
+						Width(240).
+						OnSubmit(func() { a.submitCloudAuth(false) })
+				})
+				a.settingsItemRow(c, "acct-pass", iconLock, a.t("account.password"), "", func() {
+					gui.TextInput(c.Key("pref-auth-pass"), &a.authPassBuf).
+						Placeholder("••••••••").
+						Password().
+						Width(240).
+						OnSubmit(func() { a.submitCloudAuth(false) })
+				})
+				gui.Row(c).FillWidth().Padding(8, 10, 4, 10).Gap(8).AlignItems(gui.Center).Justify(gui.End).Children(func() {
+					a.toolButton(c, "pref-auth-reg", nil, a.t("account.register"), false).
+						Disabled(a.authBusy).
+						OnClick(func() { a.submitCloudAuth(true) })
+					signLbl := a.t("account.signIn")
+					if a.authBusy {
+						signLbl = a.t("account.signingIn")
+					}
+					a.arcButton(c, "pref-auth-login", signLbl, true).
+						Disabled(a.authBusy).
+						OnClick(func() { a.submitCloudAuth(false) })
+				})
+			}
+			if a.authStatusMsg != "" {
+				gui.Text(c, a.authStatusMsg).
+					FontSize(11.5).
+					TextColor(a.pal.inkMuted).
+					LineHeight(1.45).
+					Padding(4, 10, 2, 10)
+			}
+			if a.syncStatusMsg != "" {
+				gui.Text(c, a.syncStatusMsg).
+					FontSize(11.5).
+					TextColor(a.pal.inkMuted).
+					Padding(2, 10, 4, 10)
+			}
+		})
+		return
+	}
+
+	// 2B. Self-Host 自架同步伺服器
 	a.settingsSection(c, a.t("pref.grpSync"), a.t("pref.syncTip"), true, func() {
-		gui.Row(c).FillWidth().Padding(4, 10).Gap(8).AlignItems(gui.Center).Children(func() {
-			gui.Icon(c, iconRefresh).Size(15, 15).TextColor(a.pal.inkSecondary)
+		a.settingsItemRow(c, "sh-url", iconGlobe, a.t("ext.addr"), "", func() {
 			gui.TextInput(c.Key("pref-sync-url"), &a.syncServerURL).
-				Placeholder("http://127.0.0.1:47595").
-				Grow(1).
+				Placeholder("https://sync.your-domain.com").
+				Width(240).
 				OnChange(func() { a.syncConfigFromState() })
+		})
+		a.settingsItemRow(c, "sh-tok", iconLock, a.t("pref.advToken"), "", func() {
 			gui.TextInput(c.Key("pref-sync-tok"), &a.syncToken).
 				Placeholder(a.t("pref.advToken")).
-				Width(128).
+				Width(240).
 				OnChange(func() { a.syncConfigFromState() })
+		})
+		a.settingsItemRow(c, "sh-relay", iconLink, a.t("pref.advRelay"), a.t("pref.advRelayTip"), func() {
+			gui.TextInput(c.Key("pref-signal-url"), &a.signalURL).
+				Placeholder("https://relay.your-domain.com").
+				Width(240).
+				OnChange(func() {
+					a.signalURL = strings.TrimSpace(a.signalURL)
+					a.syncConfigFromState()
+				})
+		})
+		gui.Row(c).FillWidth().Padding(8, 10, 4, 10).Gap(8).AlignItems(gui.Center).Children(func() {
+			if a.syncStatusMsg != "" {
+				gui.Text(c, a.syncStatusMsg).FontSize(11.5).TextColor(a.pal.inkMuted).Grow(1).SingleLine()
+			} else {
+				gui.Spacer(c)
+			}
 			btnLbl := a.t("sync.now")
 			if a.syncBusy {
 				btnLbl = a.t("sync.syncing")
@@ -1141,13 +1266,19 @@ func (a *App) settingsSharingTab(c *gui.Context) {
 				Disabled(a.syncBusy || strings.TrimSpace(a.syncServerURL) == "").
 				OnClick(func() { a.runCloudSyncNow() })
 		})
-		if a.syncStatusMsg != "" {
-			gui.Text(c, a.syncStatusMsg).FontSize(11.5).TextColor(a.pal.inkMuted).Padding(0, 10, 4, 35)
-		}
 	})
+}
 
-	// 3. 本機分享設定 (+ collapsible 進階連線設定)
-	a.settingsSection(c, a.t("pref.grpShareLocal"), "", true, func() {
+func (a *App) settingsSharingTab(c *gui.Context) {
+	services := c.Services()
+
+	// 1. 本機與區網分享（已把接收專案與雲端同步獨立拆出，這裡只留純淨的本機設定）
+	a.settingsSection(c, a.t("pref.grpShareLocal"), "", false, func() {
+		lanText := a.t("settings.lanOff")
+		if node := a.shareNode(); node != nil && node.DiscoveryOK() {
+			lanText = a.t("settings.lanOK")
+		}
+		a.settingsKVRow(c, "lan-state", iconGlobe, a.t("pref.lanState"), lanText)
 		a.settingsItemRow(c, "dev-name", iconType, a.t("pref.devName"), a.t("pref.devNameTip"), func() {
 			gui.TextInput(c.Key("pref-device-name"), &a.deviceName).
 				Placeholder("My Studio PC").
@@ -1202,15 +1333,6 @@ func (a *App) settingsSharingTab(c *gui.Context) {
 			gui.Icon(c, chev).Size(14, 14).TextColor(a.pal.inkMuted)
 		})
 		if a.settingsAdvShareOpen {
-			a.settingsItemRow(c, "adv-relay", iconLink, a.t("pref.advRelay"), a.t("pref.advRelayTip"), func() {
-				gui.TextInput(c.Key("pref-signal-url"), &a.signalURL).
-					Placeholder("http://127.0.0.1:47595").
-					Width(240).
-					OnChange(func() {
-						a.signalURL = strings.TrimSpace(a.signalURL)
-						a.syncConfigFromState()
-					})
-			})
 			a.settingsItemRow(c, "adv-port", iconSliders, a.t("pref.advPort"), "", func() {
 				gui.TextInput(c.Key("pref-srv-port"), &a.serverPortStr).
 					Placeholder("47595").
@@ -1308,7 +1430,7 @@ func (a *App) settingsPluginsTab(c *gui.Context) {
 					row.Background(a.settingsRowHoverBg())
 				}
 				row.Children(func() {
-					gui.Icon(c, iconLayers).Size(15, 15).TextColor(a.pal.inkSecondary)
+					a.pluginIconBadge(c, "inst-"+p.Manifest.ID, p.Manifest.Icon, p.Manifest.Accent, p.Dir)
 					gui.Column(c).Grow(1).Gap(2).Children(func() {
 						gui.Row(c).Gap(6).AlignItems(gui.Center).Children(func() {
 							gui.Text(c, p.Manifest.Name).FontSize(13).Bold().TextColor(a.pal.ink)
@@ -1320,6 +1442,13 @@ func (a *App) settingsPluginsTab(c *gui.Context) {
 							gui.Text(c, p.Manifest.Description).FontSize(11.5).TextColor(a.pal.inkMuted).LineHeight(1.4)
 						}
 					})
+					if enabled && (pluginHasHook(p.Manifest.Hooks, "importer") || pluginHasHook(p.Manifest.Hooks, "library_action")) {
+						a.toolButton(c, "plug-run-"+p.Manifest.ID, iconPlay, a.t("plugins.run"), false).
+							Padding(5, 10).
+							OnClick(func() {
+								a.runLibraryPlugin(p.Manifest.ID)
+							})
+					}
 					a.arcSwitch(c, "plug-en-"+p.Manifest.ID, &enabled, func() {
 						a.plugins.SetEnabled(p.Manifest.ID, enabled)
 					})
@@ -1372,7 +1501,7 @@ func (a *App) settingsPluginsTab(c *gui.Context) {
 				row.Background(a.settingsRowHoverBg())
 			}
 			row.Children(func() {
-				gui.Icon(c, iconSparkle).Size(15, 15).TextColor(a.pal.inkSecondary)
+				a.pluginIconBadge(c, "mkt-"+entry.ID, entry.Icon, entry.Accent, "")
 				gui.Column(c).Grow(1).Gap(2).Children(func() {
 					gui.Row(c).Gap(6).AlignItems(gui.Center).Wrap().Children(func() {
 						gui.Text(c, entry.Name).FontSize(13).Bold().TextColor(a.pal.ink)
@@ -1388,7 +1517,15 @@ func (a *App) settingsPluginsTab(c *gui.Context) {
 					a.pillBadge(c, a.t("plugins.installing"), a.pal.inkSecondary, a.pal.surfaceRaised)
 				} else if installed && !needsUpdate {
 					gui.Row(c).Gap(6).AlignItems(gui.Center).Children(func() {
-						a.pillBadge(c, "✓ "+a.t("plugins.installedBadge"), gui.Hex("#10B981"), gui.RGBA(16, 185, 129, 0.14))
+						if pluginHasHook(entry.Hooks, "importer") || pluginHasHook(entry.Hooks, "library_action") {
+							a.toolButton(c, "mkt-run-"+entry.ID, iconPlay, a.t("plugins.run"), false).
+								Padding(5, 10).
+								OnClick(func() {
+									a.runLibraryPlugin(entry.ID)
+								})
+						} else {
+							a.pillBadge(c, "✓ "+a.t("plugins.installedBadge"), gui.Hex("#10B981"), gui.RGBA(16, 185, 129, 0.14))
+						}
 						a.iconButton(c, "mkt-del-"+entry.ID, iconTrash, a.t("plugins.uninstall"), false).OnClick(func() {
 							a.uninstallPlugin(entry.ID, entry.Name)
 						})
@@ -1408,6 +1545,70 @@ func (a *App) settingsPluginsTab(c *gui.Context) {
 			gui.Text(c, a.t("plugins.marketEmpty")).FontSize(12).TextColor(a.pal.inkMuted).Padding(8, 10)
 		}
 	})
+}
+
+func (a *App) pluginIconBadge(c *gui.Context, key, iconSpec, accentHex, pluginDir string) {
+	accent := a.pal.inkSecondary
+	bg := a.pal.surfaceMuted
+	if col, ok := parseHexColor(accentHex); ok {
+		accent = col
+		bg = gui.RGBA(col.R, col.G, col.B, 0.14)
+	}
+
+	// Support custom PNG/JPG icon files inside plugin directories.
+	if pluginDir != "" && strings.Contains(iconSpec, ".") {
+		iconPath := filepath.Join(pluginDir, filepath.Clean(iconSpec))
+		if a.pluginIcons == nil {
+			a.pluginIcons = map[string]*gui.Bitmap{}
+		}
+		bm, cached := a.pluginIcons[iconPath]
+		if !cached {
+			if raw, err := os.ReadFile(iconPath); err == nil {
+				bm, _ = gui.DecodeBitmap(raw)
+			}
+			a.pluginIcons[iconPath] = bm
+		}
+		if bm != nil {
+			gui.Box(c.Key("picon-"+key)).
+				Size(34, 34).
+				Radius(9).
+				Clip().
+				Background(bg).
+				Border(1, a.chromeHairline()).
+				Center().
+				Children(func() {
+					gui.Image(c, bm).Fit(gui.Cover).Fill()
+				})
+			return
+		}
+	}
+
+	ic := iconSparkle
+	switch strings.ToLower(strings.TrimSpace(iconSpec)) {
+	case "import", "migrate":
+		ic = iconImport
+	case "duplicate", "copy":
+		ic = iconCopy
+	case "markdown", "doc", "text":
+		ic = iconFileText
+	case "palette", "color":
+		ic = iconPalette
+	case "crop", "aspect", "tag":
+		ic = iconMaximize
+	case "layers":
+		ic = iconLayers
+	case "folder":
+		ic = iconFolder
+	}
+
+	gui.Box(c.Key("picon-" + key)).
+		Size(34, 34).
+		Radius(9).
+		Background(bg).
+		Center().
+		Children(func() {
+			gui.Icon(c, ic).Size(16, 16).TextColor(accent)
+		})
 }
 
 func (a *App) settingsKVRow(c *gui.Context, key string, ic *gui.SVG, label, value string) {

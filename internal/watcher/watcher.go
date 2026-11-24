@@ -21,11 +21,12 @@ const debounce = 500 * time.Millisecond
 
 // WatchRule configures a local folder source that automatically imports new files.
 type WatchRule struct {
-	Path        string
-	TagName     string
-	StorageMode string // default: model.StorageIndex
-	Recursive   bool
-	Enabled     bool
+	Path           string
+	TagName        string
+	StorageMode    string // default: model.StorageIndex
+	Recursive      bool
+	Enabled        bool
+	IsClipperInbox bool // also ingests .raglex-clip.json offline browser clipper sidecars
 }
 
 // Watcher watches the library's files directory, indexed asset folders, and
@@ -38,10 +39,22 @@ type Watcher struct {
 	cancel   context.CancelFunc
 	wg       sync.WaitGroup
 
-	mu      sync.Mutex
-	timers  map[string]*time.Timer
-	watched map[string]bool
-	rules   []WatchRule
+	mu          sync.Mutex
+	timers      map[string]*time.Timer
+	watched     map[string]bool
+	rules       []WatchRule
+	onClipRoute func(ClipRouteEvent)
+}
+
+// SetClipRouteHandler registers an optional callback invoked when an offline
+// browser clip specifies a target ProjectID or BoardID.
+func (w *Watcher) SetClipRouteHandler(fn func(ClipRouteEvent)) {
+	if w == nil {
+		return
+	}
+	w.mu.Lock()
+	w.onClipRoute = fn
+	w.mu.Unlock()
 }
 
 // Start begins watching. onChange runs after a record changes; it is called
@@ -131,6 +144,17 @@ func (w *Watcher) scanSingleRule(ctx context.Context, rule WatchRule) (int, erro
 		return 0, err
 	}
 	var files []string
+	var sidecars []string
+	collect := func(p, base string) {
+		if rule.IsClipperInbox && isClipSidecar(base) {
+			sidecars = append(sidecars, p)
+			return
+		}
+		if isIgnoredWatchFile(base) {
+			return
+		}
+		files = append(files, p)
+	}
 	if rule.Recursive {
 		_ = filepath.WalkDir(rule.Path, func(p string, d fs.DirEntry, walkErr error) error {
 			if walkErr != nil {
@@ -143,10 +167,7 @@ func (w *Watcher) scanSingleRule(ctx context.Context, rule WatchRule) (int, erro
 				}
 				return nil
 			}
-			if isIgnoredWatchFile(base) {
-				return nil
-			}
-			files = append(files, p)
+			collect(p, base)
 			return nil
 		})
 	} else {
@@ -155,14 +176,24 @@ func (w *Watcher) scanSingleRule(ctx context.Context, rule WatchRule) (int, erro
 			return 0, err
 		}
 		for _, ent := range entries {
-			if ent.IsDir() || isIgnoredWatchFile(ent.Name()) {
+			if ent.IsDir() {
 				continue
 			}
-			files = append(files, filepath.Join(rule.Path, ent.Name()))
+			collect(filepath.Join(rule.Path, ent.Name()), ent.Name())
 		}
 	}
+
+	totalAdded := 0
+	// Process offline browser clipper sidecars first so paired images receive their
+	// exact tags, source URLs, notes, and project/board routing immediately.
+	for _, sc := range sidecars {
+		if n, _ := w.ingestClipSidecar(ctx, sc, rule); n > 0 {
+			totalAdded += n
+		}
+	}
+
 	if len(files) == 0 {
-		return 0, nil
+		return totalAdded, nil
 	}
 	var tagIDs []string
 	if rule.TagName != "" {
@@ -172,9 +203,9 @@ func (w *Watcher) scanSingleRule(ctx context.Context, rule WatchRule) (int, erro
 	}
 	res, err := w.lib.Import(ctx, files, rule.StorageMode, tagIDs, nil)
 	if err != nil {
-		return 0, err
+		return totalAdded, err
 	}
-	return res.Added, nil
+	return totalAdded + res.Added, nil
 }
 
 // Sync adds watches for Watch Folders and the directories the library cares about,
@@ -323,16 +354,32 @@ func (w *Watcher) dispatch(ev fsnotify.Event) {
 		// 1. Try relinking a previously moved asset first.
 		if ok, err := w.lib.TryRelink(ev.Name); err == nil && ok {
 			changed = true
-		} else if rule, ok := w.matchWatchRule(ev.Name); ok && !isIgnoredWatchFile(filepath.Base(ev.Name)) {
-			// 2. Auto-import new file from an active Watch Folder!
-			var tagIDs []string
-			if rule.TagName != "" {
-				if tid := w.lib.EnsureTagID(rule.TagName); tid != "" {
-					tagIDs = []string{tid}
+		} else if rule, ok := w.matchWatchRule(ev.Name); ok {
+			base := filepath.Base(ev.Name)
+			if rule.IsClipperInbox && isClipSidecar(base) {
+				if _, handled := w.ingestClipSidecar(w.ctx, ev.Name, rule); handled {
+					changed = true
 				}
-			}
-			if res, err := w.lib.Import(w.ctx, []string{ev.Name}, rule.StorageMode, tagIDs, nil); err == nil && res.Added > 0 {
-				changed = true
+			} else if !isIgnoredWatchFile(base) {
+				if rule.IsClipperInbox {
+					scPath := ev.Name + ClipSidecarSuffix
+					if _, err := os.Stat(scPath); err == nil {
+						if _, handled := w.ingestClipSidecar(w.ctx, scPath, rule); handled {
+							changed = true
+							break
+						}
+					}
+				}
+				// 2. Auto-import new file from an active Watch Folder!
+				var tagIDs []string
+				if rule.TagName != "" {
+					if tid := w.lib.EnsureTagID(rule.TagName); tid != "" {
+						tagIDs = []string{tid}
+					}
+				}
+				if res, err := w.lib.Import(w.ctx, []string{ev.Name}, rule.StorageMode, tagIDs, nil); err == nil && res.Added > 0 {
+					changed = true
+				}
 			}
 		}
 	}
@@ -348,6 +395,7 @@ func isIgnoredWatchFile(base string) bool {
 	low := strings.ToLower(base)
 	switch {
 	case low == "thumbs.db", low == "desktop.ini",
+		strings.HasSuffix(low, ClipSidecarSuffix),
 		strings.HasSuffix(low, ".tmp"),
 		strings.HasSuffix(low, ".part"),
 		strings.HasSuffix(low, ".crdownload"),

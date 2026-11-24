@@ -40,6 +40,8 @@ type RegistryEntry struct {
 	Version          string   `json:"version"`
 	Author           string   `json:"author"`
 	Description      string   `json:"description"`
+	Icon             string   `json:"icon,omitempty"`   // semantic icon name or icon URL/file
+	Accent           string   `json:"accent,omitempty"` // optional #RRGGBB tint for icon badge
 	Category         string   `json:"category,omitempty"` // preview, export, import, utility, ai
 	Repository       string   `json:"repository,omitempty"`
 	DownloadURL      string   `json:"download_url,omitempty"`
@@ -89,11 +91,45 @@ func ValidateRegistryEntry(e RegistryEntry) error {
 func BuiltinStarterCatalog() []RegistryEntry {
 	return []RegistryEntry{
 		{
-			ID:               "raglex.markdown-notes",
-			Name:             "Markdown Notes & Companion",
-			Version:          "0.2.0",
+			ID:               "raglex.library-migrator",
+			Name:             ".library 資料庫遷移匯入",
+			Version:          "1.0.0",
 			Author:           "Raglex Official",
-			Description:      "Preview Markdown (.md) notes directly inside Raglex and export selected assets into a structured .md moodboard sheet.",
+			Description:      "一鍵遷移現有 .library 資料庫資料夾，完整保留巢狀資料夾階層（轉為子標籤與顏色）、素材標籤、星等評分、備註與來源網址。",
+			Icon:             "import",
+			Accent:           "#FF5C33",
+			Category:         "import",
+			Repository:       "https://github.com/Batkixni/Raglex/blob/main/docs/PLUGIN_SDK.md",
+			MinRaglexVersion: "0.3.3",
+			Hooks:            []string{"importer", "library_action"},
+			Permissions:      []string{"read_library", "write_tags", "disk"},
+			Official:         true,
+			Builtin:          true,
+		},
+		{
+			ID:               "raglex.duplicate-finder",
+			Name:             "重複素材智慧掃描",
+			Version:          "1.0.0",
+			Author:           "Raglex Official",
+			Description:      "掃描全庫疑似重複或同檔名同尺寸素材，自動標記為 #Duplicate-Review 方便一鍵檢視與瘦身清理。",
+			Icon:             "duplicate",
+			Accent:           "#A855F7",
+			Category:         "utility",
+			Repository:       "https://github.com/Batkixni/Raglex/blob/main/docs/PLUGIN_SDK.md",
+			MinRaglexVersion: "0.3.3",
+			Hooks:            []string{"library_action"},
+			Permissions:      []string{"read_library", "write_tags"},
+			Official:         true,
+			Builtin:          true,
+		},
+		{
+			ID:               "raglex.markdown-notes",
+			Name:             "Markdown 筆記與靈感簡報",
+			Version:          "0.3.0",
+			Author:           "Raglex Official",
+			Description:      "直接於庫內預覽 .md 筆記內容，並可將選取的靈感素材一鍵匯出為結構化 Markdown 簡報文件。",
+			Icon:             "markdown",
+			Accent:           "#38BDF8",
 			Category:         "preview",
 			Repository:       "https://github.com/Batkixni/Raglex/blob/main/docs/PLUGIN_SDK.md",
 			MinRaglexVersion: "0.2.1",
@@ -104,10 +140,12 @@ func BuiltinStarterCatalog() []RegistryEntry {
 		},
 		{
 			ID:               "raglex.palette-export",
-			Name:             "Palette CSS / JSON Exporter",
-			Version:          "0.1.0",
+			Name:             "設計色票匯出器 (CSS / JSON)",
+			Version:          "0.2.0",
 			Author:           "Raglex Official",
-			Description:      "Generate ready-to-paste CSS Custom Properties and JSON color tokens from selected assets' dominant color palettes.",
+			Description:      "將選取素材的主色票一鍵匯出為 CSS 變數 (:root) 與設計 Token 檔案，直接貼進前端專案。",
+			Icon:             "palette",
+			Accent:           "#10B981",
 			Category:         "export",
 			Repository:       "https://github.com/Batkixni/Raglex/blob/main/docs/PLUGIN_SDK.md",
 			MinRaglexVersion: "0.2.1",
@@ -118,10 +156,12 @@ func BuiltinStarterCatalog() []RegistryEntry {
 		},
 		{
 			ID:               "raglex.auto-aspect-tagger",
-			Name:             "Aspect Ratio Auto-Tagger",
-			Version:          "0.1.0",
+			Name:             "畫面比例與解析度自動標記",
+			Version:          "0.2.0",
 			Author:           "Raglex Official",
-			Description:      "Automatically tag selected images by orientation & aspect ratio (Portrait, Landscape, Square, Ultrawide, 4K+).",
+			Description:      "依圖片方向與解析度自動加上標籤（Portrait、Landscape、Square、Ultrawide、4K+）。",
+			Icon:             "crop",
+			Accent:           "#F59E0B",
 			Category:         "utility",
 			Repository:       "https://github.com/Batkixni/Raglex/blob/main/docs/PLUGIN_SDK.md",
 			MinRaglexVersion: "0.2.1",
@@ -410,6 +450,8 @@ func (m *Manager) installBuiltinStarter(entry RegistryEntry) error {
 		Version:     entry.Version,
 		Description: entry.Description,
 		Author:      entry.Author,
+		Icon:        entry.Icon,
+		Accent:      entry.Accent,
 		Command:     cmd,
 		Hooks:       entry.Hooks,
 		Extensions:  exts,

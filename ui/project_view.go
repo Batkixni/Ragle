@@ -24,87 +24,152 @@ func (a *App) projectView(c *gui.Context) {
 		projRootBg = gui.Transparent
 	}
 	gui.Column(c).Fill().Background(projRootBg).Children(func() {
-		// Flush edge-to-edge top chrome fused seamlessly with window edge.
-		gui.Row(c.Key("proj-chrome")).
-			Height(48).
-			FillWidth().
-			Padding(0, 10, 0, 12).
-			Gap(8).
-			AlignItems(gui.Center).
-			Background(a.pal.surface).
-			BorderWidth(0, 0, 1, 0).
-			BorderColor(a.chromeHairline()).
-			Children(func() {
-				a.toolButton(c, "proj-back-lib", iconArrowLeft, a.t("shell.library"), false).OnClick(func() {
+		filteredAssets := a.filteredProjectAssets()
+
+		// Ultra-clean edge-to-edge top chrome: zero clutter, zero overflow.
+		if !a.focusMode {
+			chrome := gui.Row(c.Key("proj-chrome")).
+				Height(48).
+				FillWidth().
+				Padding(0, 10, 0, 12).
+				Gap(8).
+				Clip().
+				AlignItems(gui.Center).
+				Background(a.pal.surface).
+				BorderWidth(0, 0, 1, 0).
+				BorderColor(a.chromeHairline())
+
+			barW := chrome.LayoutBounds().W
+			compact := barW > 0 && barW < 880
+
+			chrome.Children(func() {
+				a.iconButton(c, "proj-back-lib", iconArrowLeft, a.t("shell.library"), false).OnClick(func() {
 					a.handleNav("tag-all")
 				})
 				gui.Row(c).Gap(8).FillHeight().AlignItems(gui.Center).DragWindow().Children(func() {
-					gui.Text(c, "/").TextColor(a.pal.inkFaint)
-					gui.Text(c, a.project.Name).Bold().FontSize(13).SingleLine().MaxWidth(260)
-					if a.showSidebarCounts {
+					gui.Text(c, a.project.Name).Bold().FontSize(13.5).SingleLine().MaxWidth(220)
+					if a.showSidebarCounts && !compact {
 						a.pillBadge(c, fmt.Sprintf(a.t("project.summary"), len(a.boards), len(a.projectAssets)), a.pal.inkSecondary, a.pal.surfaceMuted)
 					}
 				})
+
 				gui.Box(c).Grow(1).FillHeight().DragWindow()
+
+				a.arcButton(c, "proj-from-lib", "+ "+a.t("project.fromLibrary"), true).
+					Padding(5, 11).
+					OnClick(func() {
+						a.referenceMode = true
+						a.multiSelectMode = true
+						a.clearSelection()
+						a.screen = screenLibrary
+					})
+				a.iconButton(c, "proj-edit-btn", iconEdit, a.t("project.edit"), false).OnClick(func() {
+					a.openEditProjectModal()
+				})
+				a.iconButton(c, "proj-share-btn", iconShare, a.t("share.send"), false).OnClick(func() {
+					a.shareOpen = true
+				})
+				gui.PopoverMenuButton(c.Key("proj-more-btn"), "⋯", func(m *gui.Menu) {
+					if a.menuRadio(m, a.t("library.kind.all"), a.projKindFilter == 0).Chosen() {
+						a.projKindFilter = 0
+					}
+					if a.menuRadio(m, a.t("library.kind.image"), a.projKindFilter == 1).Chosen() {
+						a.projKindFilter = 1
+					}
+					if a.menuRadio(m, a.t("library.kind.video"), a.projKindFilter == 2).Chosen() {
+						a.projKindFilter = 2
+					}
+					m.Separator()
+					if a.menuRadio(m, a.t("view.showTitle"), a.showCardCaption).Chosen() {
+						a.showCardCaption = !a.showCardCaption
+						a.layoutGen++
+						a.syncConfigFromState()
+					}
+					if a.menuRadio(m, a.t("view.grayscale"), a.grayscalePreview).Chosen() {
+						a.grayscalePreview = !a.grayscalePreview
+						a.syncConfigFromState()
+					}
+					a.menuSub(m, iconChecker, a.t("view.thumbBg"), func(sm *gui.Menu) {
+						if a.menuRadio(sm, a.t("view.thumbBgNone"), a.thumbBg == "").Chosen() {
+							a.setThumbBg("")
+						}
+						sm.Separator()
+						if a.menuRadio(sm, a.t("view.thumbBgBlack"), a.thumbBg == "black").Chosen() {
+							a.setThumbBg("black")
+						}
+						if a.menuRadio(sm, a.t("view.thumbBgGray"), a.thumbBg == "gray").Chosen() {
+							a.setThumbBg("gray")
+						}
+						if a.menuRadio(sm, a.t("view.thumbBgWhite"), a.thumbBg == "white").Chosen() {
+							a.setThumbBg("white")
+						}
+						if a.menuRadio(sm, a.t("view.thumbBgChecker"), a.thumbBg == "checker").Chosen() {
+							a.setThumbBg("checker")
+						}
+					})
+					m.Separator()
+					if a.menuItem(m, iconTrash, a.t("project.delete"), "Del", true).Chosen() {
+						a.deleteProjectPrompt(a.projectID)
+					}
+				}, a.popoverMenuBtnOpts())
+
+				gui.Box(c).Width(1).Height(18).Background(a.pal.surfaceMuted)
 				a.windowControls(c)
 			})
+		}
 
-		// Scrollable project content: compact header -> Boards shelf on top -> Waterfall Masonry assets below.
+		// Scrollable minimalist project stage: calm editorial header -> sleek boards strip -> borderless waterfall assets.
 		scroll := gui.Scroll(c.Key("proj-scroll")).Grow(1).FillWidth().Background(a.pal.canvas)
 		availW := scroll.LayoutBounds().W
 		if availW <= 0 {
 			availW = 1040
 		}
 		scroll.Children(func() {
-			col := gui.Column(c.Key("proj-view-"+a.projectID)).FillWidth().Padding(20, 26, 32, 26).Gap(16)
+			col := gui.Column(c.Key("proj-view-"+a.projectID)).FillWidth().Padding(22, 28, 36, 28).Gap(20)
 			applyPanelSwitch(col, a.projectID, 0, 6)
 			col.Children(func() {
-				// Clean frameless Project Hero directly on canvas (no card box or corner radius).
+				// Calm, ultra-clean Editorial Header (only title, optional description & subtle tag chips).
+				var appliedTags []model.Tag
+				for _, tg := range a.tags {
+					if a.projectTags[tg.ID] {
+						appliedTags = append(appliedTags, tg)
+					}
+				}
 				gui.Column(c.Key("proj-hero")).
 					FillWidth().
-					Padding(2, 0, 16, 0).
-					Gap(10).
+					Padding(0, 0, 16, 0).
+					Gap(8).
 					BorderWidth(0, 0, 1, 0).
 					BorderColor(a.chromeHairline()).
 					Children(func() {
-						gui.Row(c).FillWidth().Gap(8).AlignItems(gui.Center).Children(func() {
+						gui.Row(c).FillWidth().Gap(10).AlignItems(gui.Center).Children(func() {
 							gui.Text(c, a.project.Name).
-								FontSize(22).
+								FontSize(20).
 								Bold().
 								LetterSpacing(-0.4).
 								SingleLine().
-								MinWidth(0).
-								Grow(1)
-							a.arcButton(c, "proj-from-lib", a.t("project.fromLibrary"), true).OnClick(func() {
-								a.referenceMode = true
-								a.screen = screenLibrary
-							})
-							a.toolButton(c, "proj-edit-btn", iconEdit, a.t("project.edit"), false).OnClick(func() {
-								a.openEditProjectModal()
-							})
-							a.toolButton(c, "proj-share-btn", iconShare, a.t("share.send"), false).OnClick(func() {
-								a.shareOpen = true
-							})
-							a.iconButton(c, "proj-del-btn", iconTrash, a.t("project.delete"), false).OnClick(func() {
-								a.deleteProjectPrompt(a.projectID)
-							})
+								MinWidth(0)
+							gui.Spacer(c)
+							if a.searchQuery != "" || a.projSearchQuery != "" || a.projKindFilter != 0 {
+								a.toolButton(c, "proj-filter-clear", iconX, a.t("common.clear"), false).
+									Padding(4, 8).
+									OnClick(func() {
+										a.searchQuery = ""
+										a.projSearchQuery = ""
+										a.projKindFilter = 0
+										a.applyFilters()
+									})
+							}
 						})
 
 						if a.project.Description != "" {
 							gui.Text(c, a.project.Description).
-								MaxWidth(760).
-								FontSize(13).
+								MaxWidth(720).
+								FontSize(12.5).
 								TextColor(a.pal.inkSecondary).
 								LineHeight(1.55)
 						}
 
-						// Read-only applied project tags (edited via Edit Project modal).
-						var appliedTags []model.Tag
-						for _, tg := range a.tags {
-							if a.projectTags[tg.ID] {
-								appliedTags = append(appliedTags, tg)
-							}
-						}
 						if len(appliedTags) > 0 {
 							gui.Row(c).FillWidth().Padding(2, 0, 0, 0).Gap(6).Wrap().AlignItems(gui.Center).Children(func() {
 								for _, tag := range appliedTags {
@@ -115,151 +180,72 @@ func (a *App) projectView(c *gui.Context) {
 						}
 					})
 
-				// Clean frameless Filter & Display Bar directly below Project Hero (no card box).
-				filteredAssets := a.filteredProjectAssets()
-				gui.Row(c.Key("proj-filter-bar")).
+				// Section 1: Sleek Moodboards Strip.
+				gui.Column(c).
 					FillWidth().
-					Padding(0, 0, 14, 0).
-					Gap(8).
+					Padding(0, 0, 18, 0).
+					Gap(12).
 					BorderWidth(0, 0, 1, 0).
 					BorderColor(a.chromeHairline()).
-					AlignItems(gui.Center).
 					Children(func() {
-						gui.SearchField(c.Key("proj-asset-search"), &a.projSearchQuery).
-							Placeholder(a.t("library.search")).
-							Width(190)
-
-						a.arcPillTabs(c, "proj-kind-tabs", a.projKindFilter, []string{
-							a.t("library.kind.all"),
-							a.t("library.kind.image"),
-							a.t("library.kind.video"),
-						}, func(idx int) {
-							a.projKindFilter = idx
-						})
-
-						if a.projSearchQuery != "" || a.projKindFilter != 0 {
-							a.toolButton(c, "proj-filter-clear", iconX, a.t("common.clear"), false).
-								Padding(4, 8).
-								OnClick(func() {
-									a.projSearchQuery = ""
-									a.projKindFilter = 0
-								})
-						}
-
-						gui.Spacer(c)
-
-						a.toolButton(c, "proj-toggle-caption", iconType, a.t("view.showTitle"), a.showCardCaption).
-							Padding(5, 9).
-							OnClick(func() {
-								a.showCardCaption = !a.showCardCaption
-								a.layoutGen++
-								a.syncConfigFromState()
-							})
-
-						a.iconButton(c, "proj-thumbbg", iconChecker, a.t("view.thumbBg"), a.thumbBg != "").
-							Size(28, 28).
-							OnClick(func() {
-								order := []string{"", "checker", "black", "gray", "white"}
-								next := "checker"
-								for i, m := range order {
-									if m == a.thumbBg {
-										next = order[(i+1)%len(order)]
-										break
-									}
-								}
-								a.setThumbBg(next)
-							})
-
-						a.iconButton(c, "proj-gray", iconContrast, a.t("view.grayscale")+" (Ctrl+Alt+G)", a.grayscalePreview).
-							Size(28, 28).
-							OnClick(func() {
-								a.grayscalePreview = !a.grayscalePreview
-								a.syncConfigFromState()
-							})
-
-						gui.Box(c).Size(1, 16).Background(a.chromeHairline())
-
-						gui.Row(c).Gap(6).AlignItems(gui.Center).Children(func() {
-							gui.Icon(c, iconZoomIn).Size(13, 13).TextColor(a.pal.inkMuted)
-							gui.Slider(c.Key("proj-card-zoom"), &a.cardSize, 128, 300).Width(72).OnChange(func() {
-								a.syncConfigFromState()
-							})
-						})
-					})
-
-				// Section 1 (Top): Moodboards shelf with live miniature canvas previews.
-				gui.Column(c).FillWidth().Gap(12).Children(func() {
-					gui.Row(c).FillWidth().Gap(10).AlignItems(gui.Center).Children(func() {
-						gui.Text(c, a.t("project.boards")).FontSize(15).Bold().LetterSpacing(-0.2)
-						a.pillBadge(c, fmt.Sprintf("%d", len(a.boards)), a.pal.inkSecondary, a.pal.surface)
-						gui.Spacer(c)
-						gui.TextInput(c.Key("new-board"), &a.newBoardName).
-							Placeholder(a.t("project.newBoard")).
-							Width(188).
-							OnSubmit(func() { a.createBoard() })
-						a.arcButton(c, "create-board-btn", "+ "+a.t("project.newBoard"), true).OnClick(func() {
-							a.createBoard()
-						})
-					})
-
-					if len(a.boards) == 0 {
-						gui.Column(c).
-							FillWidth().
-							Padding(28).
-							Gap(8).
-							Radius(radiusControl).
-							Background(a.pal.surface).
-							Border(1, a.chromeHairline()).
-							Center().
-							Children(func() {
-								gui.Icon(c, iconBoard).Size(22, 22).TextColor(a.pal.inkFaint)
-								gui.Text(c, a.t("project.emptyBoards")).FontSize(13).Bold()
-								gui.Text(c, a.t("project.emptyBoardsHint")).FontSize(12).TextColor(a.pal.inkSecondary)
-							})
-					} else {
-						gui.Row(c).FillWidth().Gap(14).Wrap().Children(func() {
-							for i, b := range a.boards {
-								a.boardCard(c, i, b)
+						gui.Row(c).FillWidth().Gap(8).AlignItems(gui.Center).Children(func() {
+							a.sectionLabel(c, a.t("project.boards"))
+							if a.showSidebarCounts {
+								gui.Text(c, fmt.Sprintf("%d", len(a.boards))).FontSize(11).TextColor(a.pal.inkMuted)
 							}
+							gui.Spacer(c)
+							a.toolButton(c, "create-board-btn", nil, "+ "+a.t("project.newBoard"), false).
+								Padding(5, 10).
+								OnClick(func() {
+									a.createBoard()
+								})
 						})
-					}
-				})
 
-				// Section 2 (Bottom): Referenced Assets in true Waterfall Masonry layout.
+						if len(a.boards) == 0 {
+							gui.Row(c).
+								FillWidth().
+								Padding(18, 12).
+								Gap(10).
+								AlignItems(gui.Center).
+								Children(func() {
+									gui.Icon(c, iconBoard).Size(16, 16).TextColor(a.pal.inkFaint)
+									gui.Text(c, a.t("project.emptyBoardsHint")).FontSize(12).TextColor(a.pal.inkMuted)
+								})
+						} else {
+							gui.Row(c).FillWidth().Gap(12).Wrap().Children(func() {
+								for i, b := range a.boards {
+									a.boardCard(c, i, b)
+								}
+							})
+						}
+					})
+
+				// Section 2: Seamless Waterfall Masonry Assets.
 				gui.Column(c).FillWidth().Gap(12).Children(func() {
-					gui.Row(c).FillWidth().Gap(10).AlignItems(gui.Center).Children(func() {
-						gui.Text(c, a.t("project.assets")).FontSize(15).Bold().LetterSpacing(-0.2)
-						a.pillBadge(c, fmt.Sprintf("%d", len(filteredAssets)), a.pal.inkSecondary, a.pal.surface)
+					gui.Row(c).FillWidth().Gap(8).AlignItems(gui.Center).Children(func() {
+						a.sectionLabel(c, a.t("project.assets"))
+						if a.showSidebarCounts {
+							gui.Text(c, fmt.Sprintf("%d", len(filteredAssets))).FontSize(11).TextColor(a.pal.inkMuted)
+						}
 					})
 
 					if len(a.projectAssets) == 0 {
 						gui.Column(c).
 							FillWidth().
-							Padding(32).
+							Padding(40, 20).
 							Gap(8).
-							Radius(radiusControl).
-							Background(a.pal.surface).
-							Border(1, a.chromeHairline()).
 							Center().
 							Children(func() {
-								gui.Icon(c, iconImage).Size(24, 24).TextColor(a.pal.inkFaint)
+								gui.Icon(c, iconImage).Size(22, 22).TextColor(a.pal.inkFaint)
 								gui.Text(c, a.t("project.emptyAssets")).FontSize(13).Bold()
-								gui.Text(c, a.t("project.emptyAssetsHint")).FontSize(12).TextColor(a.pal.inkSecondary)
+								gui.Text(c, a.t("project.emptyAssetsHint")).FontSize(12).TextColor(a.pal.inkMuted)
 							})
 					} else if len(filteredAssets) == 0 {
-						gui.Column(c).
-							FillWidth().
-							Padding(28).
-							Gap(8).
-							Radius(radiusControl).
-							Background(a.pal.surface).
-							Border(1, a.chromeHairline()).
-							Center().
-							Children(func() {
-								gui.Text(c, a.t("library.noMatch")).FontSize(12).TextColor(a.pal.inkSecondary)
-							})
+						gui.Box(c).FillWidth().Padding(32).Center().Children(func() {
+							gui.Text(c, a.t("library.noMatch")).FontSize(12).TextColor(a.pal.inkSecondary)
+						})
 					} else {
-						a.projectAssetsWaterfall(c, filteredAssets, availW-48)
+						a.projectAssetsWaterfall(c, filteredAssets, availW-56)
 					}
 				})
 			})
@@ -268,7 +254,10 @@ func (a *App) projectView(c *gui.Context) {
 }
 
 func (a *App) filteredProjectAssets() []model.Asset {
-	q := strings.ToLower(strings.TrimSpace(a.projSearchQuery))
+	q := strings.ToLower(strings.TrimSpace(a.searchQuery))
+	if q == "" {
+		q = strings.ToLower(strings.TrimSpace(a.projSearchQuery))
+	}
 	if q == "" && a.projKindFilter == 0 {
 		return a.projectAssets
 	}
@@ -440,8 +429,9 @@ func (a *App) boardCard(c *gui.Context, index int, board model.Board) {
 	}
 
 	card := gui.Column(c.Key("board-card-" + board.ID)).
-		Width(272).
-		Radius(radiusPanel).
+		Width(236).
+		Radius(radiusControl).
+		Border(1, a.chromeHairline()).
 		Clip()
 
 	card.PopoverMenu(func(m *gui.Menu) {
@@ -454,16 +444,17 @@ func (a *App) boardCard(c *gui.Context, index int, board model.Board) {
 		}
 	}, a.popoverMenuOpts())
 
+	hovered := card.Hovered()
 	targetBg := a.pal.surface
 	liftY := float32(0)
 	shadow := a.pal.shadowResting
-	if card.Hovered() {
+	if hovered {
 		targetBg = a.pal.surfaceMuted
-		liftY = -3
+		liftY = -2
 		shadow = a.pal.shadowRaised
 	}
 	card.Background(card.AnimateColor("bg", targetBg, animFast)).
-		Shadow(0, 6, 18, 0, shadow).
+		Shadow(0, 4, 14, 0, shadow).
 		AnimatePose(gui.Pose{Y: liftY}, springGentle)
 	applyCardBlurFade(card, board.ID, time.Duration(min(index, 6))*arcStaggerItem)
 
@@ -471,7 +462,7 @@ func (a *App) boardCard(c *gui.Context, index int, board model.Board) {
 		// Live miniature moodboard preview canvas (click anywhere to open board).
 		preview := gui.ButtonBase(c.Key("open-b-" + board.ID)).
 			FillWidth().
-			Height(158).
+			Height(134).
 			Clip().
 			Background(a.pal.paper).
 			Label(board.Name).
@@ -485,23 +476,32 @@ func (a *App) boardCard(c *gui.Context, index int, board model.Board) {
 
 		preview.Children(func() {
 			if len(items) == 0 {
-				gui.Column(c).Fill().Center().Gap(6).Children(func() {
-					gui.Icon(c, iconBoard).Size(22, 22).TextColor(a.pal.inkFaint)
+				gui.Column(c).Fill().Center().Gap(5).Children(func() {
+					gui.Icon(c, iconBoard).Size(18, 18).TextColor(a.pal.inkFaint)
 					gui.Text(c, a.t("project.boardBlank")).FontSize(11).TextColor(a.pal.inkMuted)
 				})
 			}
 		})
 
-		// Clean card footer with board title, placement count, and delete button.
-		gui.Row(c).FillWidth().Padding(10, 12).Gap(8).AlignItems(gui.Center).Children(func() {
-			gui.Column(c).Grow(1).Gap(2).Children(func() {
-				gui.Text(c, board.Name).FontSize(13).Bold().SingleLine()
-				gui.Text(c, fmt.Sprintf(a.t("project.boardItems"), count)).FontSize(11).TextColor(a.pal.inkMuted)
+		// Sleek single-line footer with hover-revealed delete icon.
+		gui.Row(c).
+			FillWidth().
+			Padding(8, 10).
+			Gap(6).
+			AlignItems(gui.Center).
+			BorderWidth(1, 0, 0, 0).
+			BorderColor(a.chromeHairline()).
+			Children(func() {
+				gui.Text(c, board.Name).FontSize(12.5).Bold().Grow(1).SingleLine().MinWidth(0)
+				if a.showSidebarCounts {
+					gui.Text(c, fmt.Sprintf("%d", count)).FontSize(11).TextColor(a.pal.inkMuted).SingleLine()
+				}
+				if hovered {
+					a.miniHeaderButton(c, "del-b-"+board.ID, iconTrash, a.t("project.deleteBoard"), false).OnClick(func() {
+						a.deleteBoardPrompt(board)
+					})
+				}
 			})
-			a.iconButton(c, "del-b-"+board.ID, iconTrash, a.t("project.deleteBoard"), false).OnClick(func() {
-				a.deleteBoardPrompt(board)
-			})
-		})
 	})
 }
 

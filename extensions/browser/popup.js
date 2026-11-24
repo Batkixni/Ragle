@@ -7,8 +7,8 @@ const DEFAULT_URL = "http://127.0.0.1:47595";
 const STRINGS = {
   zh: {
     connected: (n) => `已連線 · ${n}`,
-    offline: "未連線",
-    offlineBanner: "尚未連線至 Raglex 桌面版",
+    offline: "離線收件模式",
+    offlineBanner: "桌面版未開啟 — 存圖將暫存至 Downloads/RaglexInbox，開啟後自動匯入",
     retry: "重試",
     settings: "設定",
     savePage: "儲存此頁（書籤 / 來源）",
@@ -28,11 +28,12 @@ const STRINGS = {
     dragCapsule: "拖拉存圖膠囊",
     autoStack: "多圖自動堆疊",
     autoTag: "自動來源標籤",
+    offlineDir: "離線資料夾",
     connSec: "進階連線設定",
     localAddr: "連線位址",
     accessKey: "存取金鑰",
     keyPlaceholder: "選填（若桌面版有設定）",
-    connHint: "開啟 Raglex 偏好設定 → 瀏覽器擴充，開啟「擴充連線」並點擊「複製金鑰」貼上即可配對。",
+    connHint: "不開軟體也會自動存到「下載 / 離線資料夾」；開啟 Raglex 偏好設定 → 瀏覽器擴充可即時連線同步。",
     back: "返回",
     testConn: "儲存並測試連線",
     openWeb: "開啟網頁圖庫 ↗",
@@ -42,11 +43,13 @@ const STRINGS = {
     selectedCount: (sel, total) => `已選 ${sel} / ${total} 張`,
     saving: "正在儲存至 Raglex…",
     savedPage: (n, s) => s > 0 ? `✓ 已匯入 ${n} 個素材（${s} 組堆疊）` : `✓ 已儲存至 Raglex（${n}）`,
+    savedOffline: "✓ 已存至離線收件資料夾（開啟 Raglex 自動匯入）",
     savedShot: "✓ 截圖已存入 Raglex",
     noImages: "本頁找不到適合擷取的圖片。",
     savedBatch: (ok, fail, stacked) => stacked ? `✓ 已存 ${ok} 張並合併堆疊` : `✓ 已存 ${ok} 張${fail ? `，失敗 ${fail}` : ""}`,
+    savedBatchOffline: (ok) => `✓ 已存 ${ok} 張至離線收件資料夾`,
     connOK: "✓ 已成功連線至 Raglex",
-    connFail: "無法連線，請確認 Raglex 已開啟",
+    connFail: "桌面版未連線，已切換為離線收件模式",
     badgeWeb: "網頁",
     badgeYT: "YouTube",
     badgeFeed: "RSS / Feed",
@@ -54,8 +57,8 @@ const STRINGS = {
   },
   en: {
     connected: (n) => `Connected · ${n}`,
-    offline: "Offline",
-    offlineBanner: "Raglex desktop app not connected",
+    offline: "Offline Drop",
+    offlineBanner: "Desktop closed — clips save to Downloads/RaglexInbox & auto-import on launch",
     retry: "Retry",
     settings: "Settings",
     savePage: "Save Page (Bookmark / Source)",
@@ -75,11 +78,12 @@ const STRINGS = {
     dragCapsule: "Drag-to-Save",
     autoStack: "Auto-Stack",
     autoTag: "Auto Source Tags",
+    offlineDir: "Offline Folder",
     connSec: "Advanced Connection",
     localAddr: "Address",
     accessKey: "Access Key",
     keyPlaceholder: "Optional (from Preferences)",
-    connHint: "Open Raglex Preferences → Web Clipper, turn ON Connection, and click Copy Key to pair.",
+    connHint: "Works even while Raglex is closed via Downloads/RaglexInbox; open Raglex Preferences → Web Clipper for live sync.",
     back: "Back",
     testConn: "Save & Test",
     openWeb: "Open Web Gallery ↗",
@@ -89,11 +93,13 @@ const STRINGS = {
     selectedCount: (sel, total) => `${sel} / ${total} selected`,
     saving: "Saving to Raglex…",
     savedPage: (n, s) => s > 0 ? `✓ Saved ${n} item(s) (${s} stack)` : `✓ Saved to Raglex (${n})`,
+    savedOffline: "✓ Saved to Offline Drop Folder (auto-imports on launch)",
     savedShot: "✓ Screenshot saved to Raglex",
     noImages: "No large images found on this page.",
     savedBatch: (ok, fail, stacked) => stacked ? `✓ Saved ${ok} images into 1 stack` : `✓ Saved ${ok}${fail ? `, ${fail} failed` : ""}`,
+    savedBatchOffline: (ok) => `✓ Saved ${ok} images to Offline Drop Folder`,
     connOK: "✓ Connected to Raglex",
-    connFail: "Unable to connect. Open Raglex desktop first.",
+    connFail: "Desktop offline — using Offline Drop Mode",
     badgeWeb: "Web",
     badgeYT: "YouTube",
     badgeFeed: "RSS / Feed",
@@ -104,6 +110,7 @@ const STRINGS = {
 const $ = (id) => document.getElementById(id);
 const urlEl = $("url");
 const tokenEl = $("token");
+const offlineFolderEl = $("offlineFolder");
 const tagEl = $("tag");
 const projEl = $("project");
 const boardEl = $("board");
@@ -236,6 +243,7 @@ async function savePrefs() {
   await storageSet({
     serverUrl: (urlEl.value || DEFAULT_URL).trim().replace(/\/+$/, ""),
     token: tokenEl.value.trim(),
+    offlineFolder: (offlineFolderEl.value || "RaglexInbox").trim(),
     defaultTagId: tagEl.value,
     defaultProjectId: projEl.value,
     defaultBoardId: boardEl.value,
@@ -292,9 +300,13 @@ async function checkConnection(showToast = false) {
       fetch(`${base}/api/v1/boards`, { headers }).then((x) => x.json()).catch(() => ({}))
     ]);
 
-    populateSelect(tagEl, tr("noneTag"), trResp.tags || []);
-    populateSelect(projEl, tr("noneProject"), prResp.projects || []);
-    populateSelect(boardEl, tr("noneBoard"), brResp.boards || []);
+    const tags = trResp.tags || [];
+    const projects = prResp.projects || [];
+    const boards = brResp.boards || [];
+    populateSelect(tagEl, tr("noneTag"), tags);
+    populateSelect(projEl, tr("noneProject"), projects);
+    populateSelect(boardEl, tr("noneBoard"), boards);
+    await storageSet({ cachedMeta: { tags, projects, boards } });
 
     if (showToast) setMsg(tr("connOK"), "ok");
     return true;
@@ -302,7 +314,14 @@ async function checkConnection(showToast = false) {
     connPill.className = "conn-pill off";
     connText.textContent = tr("offline");
     offlineBar.classList.add("show");
-    if (showToast) setMsg(`${tr("connFail")} (${err?.message || "network"})`, "err");
+    // Restore last known tags/projects/boards so user can still organize clips offline!
+    const st = await storageGet({ cachedMeta: { tags: [], projects: [], boards: [] } });
+    if (st.cachedMeta) {
+      populateSelect(tagEl, tr("noneTag"), st.cachedMeta.tags || []);
+      populateSelect(projEl, tr("noneProject"), st.cachedMeta.projects || []);
+      populateSelect(boardEl, tr("noneBoard"), st.cachedMeta.boards || []);
+    }
+    if (showToast) setMsg(tr("connFail"), "");
     return false;
   }
 }
@@ -371,11 +390,15 @@ $("savePageBtn").addEventListener("click", async () => {
   });
   btn.disabled = false;
   if (resp?.ok) {
-    const added = resp.res?.added ?? 1;
-    const stacks = resp.res?.stacks ?? 0;
-    setMsg(tr("savedPage")(added, stacks), "ok");
+    if (resp.res?.offline) {
+      setMsg(tr("savedOffline"), "ok");
+    } else {
+      const added = resp.res?.added ?? 1;
+      const stacks = resp.res?.stacks ?? 0;
+      setMsg(tr("savedPage")(added, stacks), "ok");
+      checkConnection(false);
+    }
     noteEl.value = "";
-    checkConnection(false);
   } else {
     setMsg(resp?.error || tr("connFail"), "err");
   }
@@ -393,9 +416,9 @@ $("captureBtn").addEventListener("click", async () => {
   });
   btn.disabled = false;
   if (resp?.ok) {
-    setMsg(tr("savedShot"), "ok");
+    setMsg(resp.res?.offline ? tr("savedOffline") : tr("savedShot"), "ok");
     noteEl.value = "";
-    checkConnection(false);
+    if (!resp.res?.offline) checkConnection(false);
   } else {
     setMsg(resp?.error || tr("connFail"), "err");
   }
@@ -451,6 +474,7 @@ $("saveBatchBtn").addEventListener("click", async () => {
   btn.disabled = true;
   let ok = 0;
   let fail = 0;
+  let anyOffline = false;
   const importedIds = [];
   setMsg(tr("saving"));
   for (const url of selectedUrls) {
@@ -465,6 +489,7 @@ $("saveBatchBtn").addEventListener("click", async () => {
     });
     if (resp?.ok) {
       ok++;
+      if (resp.res?.offline) anyOffline = true;
       const aid = resp.res?.asset?.id || resp.res?.asset?.ID;
       if (aid) importedIds.push(aid);
     } else {
@@ -472,7 +497,7 @@ $("saveBatchBtn").addEventListener("click", async () => {
     }
   }
   let stacked = false;
-  if (dest.autoStack && importedIds.length >= 2) {
+  if (!anyOffline && dest.autoStack && importedIds.length >= 2) {
     const stResp = await sendMsg({
       type: "CREATE_STACK",
       payload: { name: pageMeta.title || "Web Gallery", assetIds: importedIds }
@@ -480,8 +505,8 @@ $("saveBatchBtn").addEventListener("click", async () => {
     stacked = !!stResp?.ok;
   }
   btn.disabled = false;
-  setMsg(tr("savedBatch")(ok, fail, stacked), ok > 0 ? "ok" : "err");
-  checkConnection(false);
+  setMsg(anyOffline ? tr("savedBatchOffline")(ok) : tr("savedBatch")(ok, fail, stacked), ok > 0 ? "ok" : "err");
+  if (!anyOffline) checkConnection(false);
 });
 
 // Init
@@ -489,6 +514,7 @@ $("saveBatchBtn").addEventListener("click", async () => {
   const cfg = await storageGet({
     serverUrl: DEFAULT_URL,
     token: "",
+    offlineFolder: "RaglexInbox",
     defaultTagId: "",
     defaultProjectId: "",
     defaultBoardId: "",
@@ -500,6 +526,7 @@ $("saveBatchBtn").addEventListener("click", async () => {
   if (cfg.lang === "zh" || cfg.lang === "en") lang = cfg.lang;
   urlEl.value = cfg.serverUrl || DEFAULT_URL;
   tokenEl.value = cfg.token || "";
+  offlineFolderEl.value = cfg.offlineFolder || "RaglexInbox";
   dragEl.checked = cfg.dragEnabled !== false;
   stackEl.checked = cfg.autoStack !== false;
   autoTagEl.checked = cfg.autoTag !== false;
@@ -518,10 +545,8 @@ $("saveBatchBtn").addEventListener("click", async () => {
   });
 
   applyI18n();
-  const ok = await checkConnection(false);
-  if (ok) {
-    if (cfg.defaultTagId) tagEl.value = cfg.defaultTagId;
-    if (cfg.defaultProjectId) projEl.value = cfg.defaultProjectId;
-    if (cfg.defaultBoardId) boardEl.value = cfg.defaultBoardId;
-  }
+  await checkConnection(false);
+  if (cfg.defaultTagId) tagEl.value = cfg.defaultTagId;
+  if (cfg.defaultProjectId) projEl.value = cfg.defaultProjectId;
+  if (cfg.defaultBoardId) boardEl.value = cfg.defaultBoardId;
 })();

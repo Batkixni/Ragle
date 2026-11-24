@@ -102,3 +102,63 @@ func TestWatchFolderScanAndLiveAutoImport(t *testing.T) {
 		t.Fatalf("expected auto-created Watch Folder tag 'InboxWatch', got %+v", tags)
 	}
 }
+
+func TestClipperInboxSidecarIngest(t *testing.T) {
+	lib, err := library.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lib.Close()
+
+	inboxDir := t.TempDir()
+	imgPath := filepath.Join(inboxDir, "offline_shot.png")
+	if err := os.WriteFile(imgPath, makePNGBytes(t, 16, 185, 129), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sidecarPath := imgPath + ClipSidecarSuffix
+	sidecarJSON := `{"version":1,"kind":"image","filename":"offline_shot.png","source_url":"https://example.com/art/1","source_title":"Offline Art","notes":"Saved while closed","tag_names":["OfflineTag"]}`
+	if err := os.WriteFile(sidecarPath, []byte(sidecarJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	w, err := Start(lib, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.Close()
+
+	w.SetWatchRules([]WatchRule{{
+		Path:           inboxDir,
+		StorageMode:    model.StorageIndex,
+		Enabled:        true,
+		IsClipperInbox: true,
+	}})
+
+	added, err := w.ScanWatchRules(context.Background())
+	if err != nil {
+		t.Fatalf("ScanWatchRules: %v", err)
+	}
+	if added != 1 {
+		t.Fatalf("expected 1 ingested offline clip, got %d", added)
+	}
+	if _, err := os.Stat(sidecarPath); !os.IsNotExist(err) {
+		t.Fatalf("expected sidecar cleaned up after ingest, stat err=%v", err)
+	}
+	assets, err := lib.List(library.Filter{})
+	if err != nil || len(assets) != 1 {
+		t.Fatalf("expected 1 asset, got %d err=%v", len(assets), err)
+	}
+	if assets[0].SourceURL != "https://example.com/art/1" || assets[0].Notes != "Saved while closed" {
+		t.Fatalf("expected offline metadata preserved, got %+v", assets[0])
+	}
+	tags, _ := lib.Tags()
+	found := false
+	for _, tg := range tags {
+		if tg.Name == "OfflineTag" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected OfflineTag created from sidecar, got %+v", tags)
+	}
+}

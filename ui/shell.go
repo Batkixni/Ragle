@@ -141,8 +141,8 @@ func (a *App) shell(c *gui.Context) {
 			gui.Box(c.Key("shell-main-slot")).Grow(1).FillHeight().Clip().Children(renderMain)
 		})
 
-		// Floating bottom-corner re-open buttons with smooth enter/exit transitions.
-		if !a.sidebarOpen {
+		// Floating bottom-corner re-open buttons (hidden during Focus Mode for a pure canvas).
+		if !a.focusMode && !a.sidebarOpen {
 			gui.Box(c.Key("reopen-sidebar-wrap")).
 				Absolute().
 				Left(14).
@@ -167,7 +167,7 @@ func (a *App) shell(c *gui.Context) {
 				})
 		}
 		_, hasSel := a.selectedAsset()
-		if !a.inspectorOpen && ((a.screen == screenLibrary && hasSel) || a.previewOpen) {
+		if !a.focusMode && !a.inspectorOpen && ((a.screen == screenLibrary && hasSel) || a.previewOpen) {
 			gui.Box(c.Key("reopen-inspector-wrap")).
 				Absolute().
 				Right(14).
@@ -191,7 +191,46 @@ func (a *App) shell(c *gui.Context) {
 						})
 				})
 		}
+
+		// Whisper-quiet floating Focus Mode exit pill in top-right corner (never traps user).
+		if a.focusMode {
+			a.focusModeExitPill(c)
+		}
 	})
+}
+
+func (a *App) focusModeExitPill(c *gui.Context) {
+	wrap := gui.Box(c.Key("focus-exit-wrap")).
+		Absolute().
+		Top(10).
+		Right(12).
+		Transition(gui.ElementTransition{
+			Animation: &springSnappy,
+			Enter:     &gui.Motion{Y: -8, Opacity: 0},
+			Exit:      &gui.Motion{Y: -8, Opacity: 0},
+		})
+	targetOp := float32(0.32)
+	if wrap.Hovered() {
+		targetOp = 0.96
+	}
+	wrap.Opacity(wrap.AnimateTo("focus-op", targetOp, animFast)).
+		Children(func() {
+			gui.Row(c).
+				Radius(radiusPill).
+				Background(a.popoverSurface()).
+				Border(1, a.chromeHairline()).
+				Shadow(0, 8, 22, 0, a.pal.shadowRaised).
+				Padding(4, 10).
+				Gap(6).
+				AlignItems(gui.Center).
+				Children(func() {
+					a.toolButton(c, "focus-exit-btn", iconRestore, a.t("view.focusExit"), false).
+						Padding(2, 4).
+						OnClick(func() {
+							a.toggleFocusMode()
+						})
+				})
+		})
 }
 
 func (a *App) inspectorShouldShow() bool {
@@ -484,7 +523,36 @@ func (a *App) arcNavItem(
 func (a *App) sidebar(c *gui.Context) {
 	a.ensureTagTree()
 	services := c.Services()
-	sf := strings.ToLower(strings.TrimSpace(a.sidebarFilter))
+	rawQ := strings.ToLower(strings.TrimSpace(a.searchQuery))
+	sf := ""
+	if rawQ != "" {
+		matchedNav := false
+		for _, sb := range a.standaloneBoards {
+			if strings.Contains(strings.ToLower(sb.Name), rawQ) {
+				matchedNav = true
+				break
+			}
+		}
+		if !matchedNav {
+			for _, p := range a.projectList {
+				if strings.Contains(strings.ToLower(p.Name), rawQ) {
+					matchedNav = true
+					break
+				}
+			}
+		}
+		if !matchedNav {
+			for _, tg := range a.tags {
+				if strings.Contains(strings.ToLower(tg.Name), rawQ) {
+					matchedNav = true
+					break
+				}
+			}
+		}
+		if matchedNav {
+			sf = rawQ
+		}
+	}
 
 	gui.Column(c).
 		Fill().
@@ -505,11 +573,17 @@ func (a *App) sidebar(c *gui.Context) {
 						gui.Text(c, a.libraryTitle()).Bold().FontSize(13).Grow(1).SingleLine()
 					})
 
-				// Clean sidebar quick-filter + Ctrl+T Go to launcher right below header.
+				// Single unified search bar (filters assets, projects & matching nav items) + Ctrl+T launcher.
 				gui.Row(c).Padding(6, 10, 6, 10).Gap(6).AlignItems(gui.Center).Children(func() {
-					sbSearch := gui.SearchField(c.Key("sidebar-filter"), &a.sidebarFilter).
+					sbSearch := gui.SearchField(c.Key("library-search"), &a.searchQuery).
+						Bind(&a.searchHandle).
 						Placeholder(a.t("library.search")).
-						Grow(1)
+						Label(a.t("library.search")).
+						Grow(1).
+						OnChange(func() {
+							a.projSearchQuery = a.searchQuery
+							a.applyFilters()
+						})
 					if a.glassActive {
 						sbSearch.Border(1, a.chromeHairline())
 					}
@@ -746,14 +820,21 @@ func (a *App) sidebar(c *gui.Context) {
 					attachGlidingPill(track, activeBtn, hasActive, radiusControl, a.pal.pillActive, a.pal.shadowResting)
 				})
 
-				// Bottom utility footer inside the sidebar (Settings, Help, and Collapse Sidebar).
+				// Bottom utility footer inside the sidebar (Account, Settings, Help, and Collapse Sidebar).
 				gui.Row(c).
 					Height(44).
 					Padding(0, 10).
 					Gap(4).
 					AlignItems(gui.Center).
 					Children(func() {
-						a.iconButton(c, "sb-settings", iconSettings, a.t("settings.open"), a.settingsOpen).OnClick(func() {
+						acctTip := a.t("account.openSidebar")
+						if a.accountEmail != "" {
+							acctTip = a.accountEmail
+						}
+						a.iconButton(c, "sb-account", iconUser, acctTip, a.settingsOpen && a.settingsTab == settingsTabAccount).OnClick(func() {
+							a.openSettings(settingsTabAccount)
+						})
+						a.iconButton(c, "sb-settings", iconSettings, a.t("settings.open"), a.settingsOpen && a.settingsTab != settingsTabAccount).OnClick(func() {
 							a.openSettings(a.settingsTab)
 						})
 						a.iconButton(c, "sb-help-guide", iconHelp, a.t("onboarding.open"), a.onboardingOpen).OnClick(func() {
@@ -807,6 +888,9 @@ func (a *App) deleteTagPrompt(id string) {
 // fuses cleanly with the window edge (no floating card gap or outer corner radius)
 // and includes the Global Display Options Popover & Web URL import.
 func (a *App) workspaceBar(c *gui.Context) {
+	if a.focusMode {
+		return
+	}
 	bar := gui.Row(c.Key("floating-navbar")).
 		Height(48).
 		FillWidth().
@@ -822,14 +906,11 @@ func (a *App) workspaceBar(c *gui.Context) {
 	compact := barW > 0 && barW < 920
 	tight := barW > 0 && barW < 740
 
-	searchW := float32(220)
-	titleMaxW := float32(140)
+	titleMaxW := float32(200)
 	if tight {
-		searchW = 112
-		titleMaxW = 78
+		titleMaxW = 110
 	} else if compact {
-		searchW = 152
-		titleMaxW = 104
+		titleMaxW = 150
 	}
 
 	bar.Children(func() {
@@ -839,20 +920,6 @@ func (a *App) workspaceBar(c *gui.Context) {
 				a.pillBadge(c, fmt.Sprintf(a.t("common.itemsCount"), len(a.assets)), a.pal.inkSecondary, a.pal.surfaceMuted)
 			}
 		})
-
-		gui.Box(c).Grow(1).FillHeight().DragWindow()
-
-		topSearch := gui.SearchField(c.Key("library-search"), &a.searchQuery).
-			Bind(&a.searchHandle).
-			Placeholder(a.t("library.search")).
-			Label(a.t("library.search")).
-			Width(searchW).
-			OnChange(func() {
-				a.applyFilters()
-			})
-		if a.glassActive {
-			topSearch.Border(1, a.chromeHairline())
-		}
 
 		gui.Box(c).Grow(1).FillHeight().DragWindow()
 
@@ -1033,6 +1100,10 @@ func (a *App) workspaceBar(c *gui.Context) {
 						gui.Box(c).FillWidth().Height(1).Background(a.chromeHairline())
 						switchRow("disp-sw-sb", a.t("view.showSidebar"), &a.sidebarOpen, nil)
 						switchRow("disp-sw-insp", a.t("view.showInspector"), &a.inspectorOpen, nil)
+						focusVal := a.focusMode
+						switchRow("disp-sw-focus", a.t("view.focusMode")+" (Ctrl+Alt+C)", &focusVal, func() {
+							a.toggleFocusMode()
+						})
 					})
 				})
 		})
@@ -1071,10 +1142,18 @@ func (a *App) workspaceBar(c *gui.Context) {
 			if a.menuItem(m, iconRefresh, watchLabel, "", false).Chosen() {
 				a.watchFoldersOpen = true
 			}
+			if a.isPluginEnabled("raglex.library-migrator") {
+				if a.menuItem(m, iconImport, a.t("plugins.migrateMenu"), "", false).Chosen() {
+					a.startMigrateExternalLibrary()
+				}
+			}
 			m.Separator()
 			if a.menuItem(m, iconLink, a.t("webimport.menu"), "Ctrl+Shift+U", false).Chosen() {
 				a.webImportOpen = true
 				a.webImportURL = ""
+			}
+			if a.menuItem(m, iconShare, a.t("account.receiveMenu"), "", false).Chosen() {
+				a.pairRecvOpen = true
 			}
 		}, a.popoverMenuBtnOpts())
 

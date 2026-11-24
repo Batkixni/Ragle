@@ -962,4 +962,39 @@ func TestStacksNativePreviewsAndRefWindowUI(t *testing.T) {
 	a.editText = "First line\nSecond line\nThird line\nFourth line\nFifth line"
 	a.session.SetText(tid, a.editText)
 	tt.Frame()
+
+	// 8. Focus Mode (Ctrl+Alt+C) hides top nav bar, sidebar, and inspector, and restores cleanly!
+	a.handleNav("tag-all")
+	a.sidebarOpen = true
+	a.inspectorOpen = true
+	tt.Frame()
+	if !tt.HasText("+ 匯入") {
+		t.Fatalf("expected topbar visible before Focus Mode, texts=%v", tt.Texts())
+	}
+	a.toggleFocusMode()
+	tt.Frame()
+	if a.sidebarOpen || a.inspectorOpen || tt.HasText("+ 匯入") {
+		t.Fatalf("expected topbar/sidebar/inspector hidden in Focus Mode, sb=%v insp=%v texts=%v", a.sidebarOpen, a.inspectorOpen, tt.Texts())
+	}
+	a.toggleFocusMode()
+	tt.Frame()
+	if !a.sidebarOpen || !a.inspectorOpen || !tt.HasText("+ 匯入") {
+		t.Fatalf("expected topbar/sidebar/inspector restored after exiting Focus Mode, sb=%v insp=%v", a.sidebarOpen, a.inspectorOpen)
+	}
+
+	// 9. Multi-select referenceSelected() MUST reference ALL selected assets into the active project.
+	a.projectID = p1.ID
+	a.project = p1
+	a.referenceMode = true
+	a.multiSelectMode = true
+	a.selectAllVisible()
+	wantRefCount := len(a.selectedAssetIDs())
+	if wantRefCount < 2 {
+		t.Fatalf("expected at least 2 visible assets for multi-select reference test, got %d", wantRefCount)
+	}
+	a.referenceSelected()
+	refAssets, err := a.projects.Assets(p1.ID)
+	if err != nil || len(refAssets) != wantRefCount {
+		t.Fatalf("expected all %d selected assets referenced into project, got %d err=%v", wantRefCount, len(refAssets), err)
+	}
 }

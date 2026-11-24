@@ -3,6 +3,7 @@ package ui
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -691,11 +692,48 @@ func (a *App) watchFoldersPanel(c *gui.Context, prefix string) {
 	})
 }
 
+func (a *App) effectiveClipperInboxDir() string {
+	dir := strings.TrimSpace(a.clipperInboxDir)
+	if dir == "" {
+		dir = config.DefaultClipperInboxDir()
+	}
+	return filepath.Clean(dir)
+}
+
+func (a *App) pickClipperInboxDir() {
+	if a.win == nil {
+		return
+	}
+	win := a.win
+	title := a.t("ext.grpOffline")
+	go func() {
+		dirs, err := mygo.Dialog.Open(mygo.OpenDialogOptions{
+			Parent:    win,
+			Title:     title,
+			Directory: true,
+		})
+		if err != nil || len(dirs) == 0 || strings.TrimSpace(dirs[0]) == "" {
+			return
+		}
+		clean := filepath.Clean(dirs[0])
+		win.Update(func() {
+			if a.isClosed() {
+				return
+			}
+			a.clipperInboxDir = clean
+			a.syncConfigFromState()
+			a.syncWatcherRules()
+			a.notify(fmt.Sprintf(a.t("ext.offlineSet"), clean))
+			a.scanWatchFoldersNow()
+		})
+	}()
+}
+
 func (a *App) syncWatcherRules() {
 	if a.watch == nil {
 		return
 	}
-	rules := make([]watcher.WatchRule, 0, len(a.watchFolders))
+	rules := make([]watcher.WatchRule, 0, len(a.watchFolders)+1)
 	for _, wf := range a.watchFolders {
 		mode := wf.StorageMode
 		if mode == "" {
@@ -707,6 +745,22 @@ func (a *App) syncWatcherRules() {
 			StorageMode: mode,
 			Recursive:   wf.Recursive,
 			Enabled:     wf.Enabled,
+		})
+	}
+	// Always watch the Offline Browser Clipper Drop Folder so images/sources
+	// saved while Raglex was closed auto-import seamlessly!
+	if inbox := a.effectiveClipperInboxDir(); inbox != "" {
+		_ = os.MkdirAll(inbox, 0o755)
+		mode := model.StorageIndex
+		if a.storageMode >= 0 && a.storageMode < len(storageModes) {
+			mode = storageModes[a.storageMode]
+		}
+		rules = append(rules, watcher.WatchRule{
+			Path:           inbox,
+			StorageMode:    mode,
+			Recursive:      false,
+			Enabled:        true,
+			IsClipperInbox: true,
 		})
 	}
 	a.watch.SetWatchRules(rules)

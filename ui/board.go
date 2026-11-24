@@ -69,6 +69,9 @@ func (a *App) boardView(c *gui.Context) {
 }
 
 func (a *App) boardToolbar(c *gui.Context) {
+	if a.focusMode {
+		return
+	}
 	t := c.Theme()
 	zoomPct := 100
 	itemCount := 0

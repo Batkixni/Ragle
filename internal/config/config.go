@@ -63,15 +63,20 @@ type Config struct {
 	LayaModel         string  `json:"laya_model,omitempty"`
 	LayaAutoThreshold float64 `json:"laya_auto_threshold,omitempty"`
 
-	// Stage 15: Built-in local/LAN server preferences.
+	// Stage 15: Built-in local/LAN server & Offline Browser Clipper preferences.
 	ServerPort      int    `json:"server_port,omitempty"`
 	ServerBindAll   bool   `json:"server_bind_all,omitempty"`
 	ServerAutoStart bool   `json:"server_auto_start,omitempty"`
 	ServerToken     string `json:"server_token,omitempty"`
+	ClipperInboxDir string `json:"clipper_inbox_dir,omitempty"`
 
-	// Open Sync API v1 (Self-Hosted Docker or Raglex Cloud) & E2E Relay.
+	// Open Sync API v1 (Raglex Cloud default or Self-Hosted Docker) & Account Auth.
+	SyncProvider   string `json:"sync_provider,omitempty"` // "cloud" (default) or "selfhost"
 	SyncServerURL  string `json:"sync_server_url,omitempty"`
 	SyncToken      string `json:"sync_token,omitempty"`
+	AccountEmail   string `json:"account_email,omitempty"`
+	AccountName    string `json:"account_name,omitempty"`
+	AccountToken   string `json:"account_token,omitempty"`
 	PairForceRelay bool   `json:"pair_force_relay,omitempty"`
 
 	// Auto-updater preferences (GitHub Releases).
@@ -99,6 +104,19 @@ func BoolOr(p *bool, def bool) bool {
 
 // BoolPtr returns a pointer to v for optional JSON fields.
 func BoolPtr(v bool) *bool { return &v }
+
+// DefaultCloudEndpoint is the official placeholder endpoint for Raglex Cloud.
+const DefaultCloudEndpoint = "https://cloud.raglex.app"
+
+// DefaultClipperInboxDir returns the default offline browser-clipper drop
+// folder (~/Downloads/RaglexInbox) watched automatically by Raglex.
+func DefaultClipperInboxDir() string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return filepath.Join(os.TempDir(), "RaglexInbox")
+	}
+	return filepath.Join(home, "Downloads", "RaglexInbox")
+}
 
 // Path is os.UserConfigDir()/Raglex/config.json.
 func Path() (string, error) {

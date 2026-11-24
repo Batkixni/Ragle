@@ -178,14 +178,25 @@ func TestPairingShareUIControls(t *testing.T) {
 
 	tt := gui.NewTester(a.View, 1360, 860)
 
-	// Open receive-by-code modal via Preferences -> Sharing.
-	a.openSettings(settingsTabSharing)
+	// Verify new Account & Cloud/Self-Host tab defaults to Raglex Cloud placeholder endpoint.
+	a.openSettings(settingsTabAccount)
 	tt.Advance(300 * time.Millisecond)
-	if err := tt.Click("輸入配對碼接收專案…"); err != nil {
+	if !tt.HasText("https://cloud.raglex.app") || !tt.HasText("登入帳號") {
+		t.Fatalf("Raglex Cloud account UI missing, texts: %v", tt.Texts())
+	}
+	if err := tt.Click("Self-Host"); err != nil {
 		t.Fatal(err)
 	}
 	tt.Frame()
-	if !tt.HasText("連線接收") {
+	if a.syncProvider != "selfhost" || !tt.HasText("立即雙向同步") {
+		t.Fatalf("Self-Host sync mode switch failed, provider=%q texts=%v", a.syncProvider, tt.Texts())
+	}
+	a.settingsOpen = false
+
+	// Open standalone receive-by-code modal (also directly accessible from "+ 匯入 -> 接收朋友專案…").
+	a.pairRecvOpen = true
+	tt.Frame()
+	if !tt.HasText("連線接收") || !tt.HasText("同 Wi-Fi 偵測") {
 		t.Fatalf("receive pair modal missing, texts: %v", tt.Texts())
 	}
 

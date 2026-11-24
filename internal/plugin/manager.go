@@ -28,8 +28,10 @@ type Manifest struct {
 	Version     string   `json:"version"`
 	Description string   `json:"description,omitempty"`
 	Author      string   `json:"author,omitempty"`
+	Icon        string   `json:"icon,omitempty"`        // semantic icon key (import, palette, markdown, duplicate, crop, layers) or relative PNG file
+	Accent      string   `json:"accent,omitempty"`      // optional #RRGGBB icon badge accent
 	Command     []string `json:"command"`               // executable + args (resolved relative to plugin dir if relative)
-	Hooks       []string `json:"hooks,omitempty"`       // context_menu, batch_action, preview_renderer, inspector_card, exporter, importer
+	Hooks       []string `json:"hooks,omitempty"`       // context_menu, batch_action, preview_renderer, inspector_card, exporter, importer, library_action
 	Extensions  []string `json:"extensions,omitempty"`  // optional file extensions handled by preview_renderer (e.g. [".md", ".markdown"])
 	Permissions []string `json:"permissions,omitempty"` // read_library, write_tags, disk, network
 }

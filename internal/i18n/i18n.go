@@ -938,6 +938,47 @@ var pairs = []pair{
 	{"share.relayLink", "中繼網址（選填）", "Relay URL (Advanced)"},
 	{"share.webCard", "網頁分享連結", "Web Share Link"},
 	{"share.webCardTip", "產生一個唯讀網頁連結（可設密碼），讓客戶或朋友在瀏覽器直接檢視此專案。", "Create a read-only web link (with optional password) so clients can view this project in any browser."},
+
+	// Offline browser clipper drop folder, Focus Mode, and Plugin Actions.
+	{"ext.grpOffline", "離線收件資料夾", "Offline Drop Folder"},
+	{"ext.offlineTip", "不開 Raglex 也能用瀏覽器擴充存圖！擴充會自動下載至此收件資料夾，下次開啟 Raglex 時自動匯入並完整保留標籤、備註與來源網址。", "Clip images even when Raglex is closed! The extension saves into this drop folder and Raglex auto-imports everything with tags, notes, and source URLs on launch."},
+	{"ext.offlineChange", "變更位置", "Change"},
+	{"ext.offlineSync", "立即匯入", "Sync Now"},
+	{"ext.offlineSet", "已更新離線收件資料夾：%s", "Updated offline drop folder: %s"},
+
+	{"view.focusMode", "專注模式", "Focus Mode"},
+	{"view.focusEntered", "已進入專注模式（按 Ctrl+Alt+C 退出）", "Focus Mode enabled (press Ctrl+Alt+C to exit)"},
+	{"view.focusExit", "退出專注 (Ctrl+Alt+C)", "Exit Focus (Ctrl+Alt+C)"},
+
+	{"plugins.run", "執行", "Run"},
+	{"plugins.migrateMenu", "匯入 .library 資料庫…", "Import .library Folder…"},
+	{"plugins.migrateTitle", "選擇要匯入的 .library 資料庫資料夾", "Select .library Folder to Import"},
+	{"plugins.migrateDone", "已遷移匯入 %d 個素材與 %d 個標籤資料夾", "Migrated %d asset(s) and %d tag folder(s)"},
+	{"plugins.migrateNone", "未在該資料夾中找到有效的 .library 素材結構", "No valid .library items found in selected folder"},
+	{"plugins.dupDone", "掃描完成：標記了 %d 個疑似重複素材（#Duplicate-Review）", "Scan complete: tagged %d potential duplicate(s) (#Duplicate-Review)"},
+	{"plugins.dupNone", "掃描完成：沒有發現重複素材！", "Scan complete: no duplicate assets found!"},
+
+	// Account, Raglex Cloud (default placeholder endpoint) & Self-Host switcher.
+	{"settings.tab.account", "帳號與雲端", "Account"},
+	{"settings.sub.account", "登入 Raglex Cloud 帳號或切換為 Self-Host 自架同步伺服器。", "Sign in to Raglex Cloud or switch to your Self-Host sync server."},
+	{"account.provider", "同步服務", "Sync Service"},
+	{"account.providerTip", "預設連線至官方 Raglex Cloud（目前尚未上線）；你也可以隨時切換為 Self-Host 連線至自己的 Docker 伺服器。", "Uses official Raglex Cloud by default (coming soon), or switch to Self-Host for your own server."},
+	{"account.cloud", "Raglex Cloud", "Raglex Cloud"},
+	{"account.selfHost", "Self-Host", "Self-Host"},
+	{"account.endpoint", "雲端端點", "Cloud Endpoint"},
+	{"account.grpSignIn", "Raglex 帳號", "Raglex Account"},
+	{"account.email", "電子信箱", "Email"},
+	{"account.password", "密碼", "Password"},
+	{"account.signIn", "登入帳號", "Sign In"},
+	{"account.register", "建立帳號", "Create Account"},
+	{"account.signingIn", "連線中…", "Connecting…"},
+	{"account.signOut", "登出", "Sign Out"},
+	{"account.signedOut", "已登出 Raglex 帳號", "Signed out of Raglex Account"},
+	{"account.needCreds", "請輸入電子信箱與密碼。", "Please enter both email and password."},
+	{"account.unreachable", "無法連線至 Raglex Cloud（%s），雲端服務目前尚未上線，可先切至 Self-Host。", "Cannot reach Raglex Cloud (%s). Cloud is not live yet — switch to Self-Host anytime."},
+	{"account.signedInAs", "已登入：%s", "Signed in as %s"},
+	{"account.openSidebar", "Raglex 帳號與雲端", "Raglex Account & Cloud"},
+	{"account.receiveMenu", "接收朋友專案…", "Receive Project…"},
 }
 
 var (

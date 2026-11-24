@@ -2,6 +2,8 @@ package ui
 
 import (
 	"fmt"
+	"io"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -67,6 +69,12 @@ func (a *App) libraryView(c *gui.Context) {
 }
 
 func (a *App) libraryMain(c *gui.Context) {
+	if !a.dragSeenFrame {
+		a.activeDragLeadID = ""
+		a.activeDragIDs = nil
+	}
+	a.dragSeenFrame = false
+
 	dropZone := gui.Column(c.Key("library-dropzone")).Fill().Padding(6, 12, 10, 8).Gap(10).Background(a.pal.canvas)
 	if files := dropZone.DroppedFiles(); len(files) > 0 {
 		a.importPaths(files)
@@ -156,11 +164,20 @@ func (a *App) libraryMain(c *gui.Context) {
 					gui.Icon(c, iconFolder).Size(15, 15).TextColor(a.pal.ink)
 					gui.Text(c, fmt.Sprintf(a.t("library.referencing"), a.project.Name)).Bold().FontSize(12).TextColor(a.pal.ink)
 					gui.Spacer(c)
-					a.arcButton(c, "ref-selected-btn", a.t("library.reference"), true).OnClick(func() {
-						a.referenceSelected()
-					})
+					selCount := len(a.selectedAssetIDs())
+					refLbl := a.t("library.reference")
+					if selCount > 0 {
+						refLbl = fmt.Sprintf("%s (%d)", refLbl, selCount)
+					}
+					a.arcButton(c, "ref-selected-btn", refLbl, true).
+						Disabled(selCount == 0).
+						OnClick(func() {
+							a.referenceSelected()
+						})
 					a.arcButton(c, "ref-done-btn", a.t("common.done"), false).OnClick(func() {
 						a.referenceMode = false
+						a.multiSelectMode = false
+						a.clearSelection()
 						if a.projectID != "" {
 							a.screen = screenProject
 							a.syncNavSelection()
@@ -1270,30 +1287,68 @@ func (a *App) assetCard(c *gui.Context, index int, asset model.Asset, selected b
 	hovered := card.Hovered()
 	pressed := card.Pressed()
 	dragging := card.Dragging()
+	dragIDs := a.dragIDsFor(asset.ID)
+	if dragging {
+		a.dragSeenFrame = true
+		a.activeDragLeadID = asset.ID
+		a.activeDragIDs = dragIDs
+	}
+
+	// Detect whether this card is one of the companion cards in an active multi-select drag bundle.
+	companionDragging := !dragging && a.activeDragLeadID != "" && len(a.activeDragIDs) > 1 && a.selectedIDs[asset.ID]
 
 	targetBg := a.pal.surface
+	liftX := float32(0)
 	liftY := float32(0)
 	cardScale := float32(1)
 	imgScale := float32(1)
 	shadow := a.pal.shadowResting
 	switch {
 	case dragging:
-		// Shrink dragged preview to a crisp ~56px miniature so the cursor stays
-		// clearly visible for accurate aiming at sidebar tags, boards & projects.
+		// Shrink dragged preview to a crisp ~64px miniature (slightly larger for
+		// multi-image stacked bundles so the count pill & stack edge read cleanly).
 		bounds := card.LayoutBounds()
 		maxDim := max(bounds.W, bounds.H)
-		dragScale := float32(0.30)
+		targetSize := float32(58.0)
+		if len(dragIDs) > 1 {
+			targetSize = 72.0
+		}
+		dragScale := float32(0.32)
 		if maxDim > 0 {
-			dragScale = 56.0 / maxDim
-			if dragScale < 0.14 {
-				dragScale = 0.14
-			} else if dragScale > 0.42 {
-				dragScale = 0.42
+			dragScale = targetSize / maxDim
+			if dragScale < 0.16 {
+				dragScale = 0.16
+			} else if dragScale > 0.48 {
+				dragScale = 0.48
 			}
 		}
 		cardScale = dragScale
 		shadow = a.pal.shadowFloating
-		card.Opacity(0.26)
+		card.Opacity(0.24)
+	case companionDragging:
+		// Gather all other selected cards inward toward the lead dragged card so
+		// the entire multi-selection visually lifts and bundles together!
+		leadB := a.cardBounds[a.activeDragLeadID]
+		myB := card.LayoutBounds()
+		if leadB.W > 0 && myB.W > 0 {
+			dx := (leadB.X + leadB.W/2) - (myB.X + myB.W/2)
+			dy := (leadB.Y + leadB.H/2) - (myB.Y + myB.H/2)
+			const maxPull = float32(28)
+			if dx > maxPull {
+				dx = maxPull
+			} else if dx < -maxPull {
+				dx = -maxPull
+			}
+			if dy > maxPull {
+				dy = maxPull
+			} else if dy < -maxPull {
+				dy = -maxPull
+			}
+			liftX = dx
+			liftY = dy
+		}
+		cardScale = 0.86
+		card.Opacity(0.22)
 	case pressed:
 		targetBg = a.pal.surfaceActive
 		cardScale = 0.985
@@ -1312,10 +1367,10 @@ func (a *App) assetCard(c *gui.Context, index int, asset model.Asset, selected b
 
 	bg := card.AnimateColor("card-bg", targetBg, animFast)
 	card.Background(bg).Shadow(0, 4, 14, 0, shadow)
-	if dragging || pressed {
-		card.AnimatePose(gui.Pose{Y: liftY, Scale: cardScale}, springResponsive)
+	if dragging || companionDragging || pressed {
+		card.AnimatePose(gui.Pose{X: liftX, Y: liftY, Scale: cardScale}, springSnappy)
 	} else {
-		card.AnimatePose(gui.Pose{Y: liftY, Scale: cardScale}, springGentle)
+		card.AnimatePose(gui.Pose{X: 0, Y: liftY, Scale: cardScale}, springGentle)
 	}
 	if len(a.assets) <= 250 {
 		stagger := time.Duration(min(index, 6)) * arcStaggerItem
@@ -1335,6 +1390,29 @@ func (a *App) assetCard(c *gui.Context, index int, asset model.Asset, selected b
 				if a.grayscalePreview {
 					imgEl.Grayscale()
 				}
+			} else if isTextSnippetExt(ext) {
+				// Sleek miniature document card preview for .MD / .TXT notes instead of a blank grey box.
+				snippet := a.cachedTextSnippet(asset.Path)
+				gui.Column(c).
+					Fill().
+					Padding(12, 12, 10, 12).
+					Gap(6).
+					Background(a.pal.surface).
+					Border(1, a.chromeHairline()).
+					Children(func() {
+						gui.Row(c).FillWidth().Gap(5).AlignItems(gui.Center).Children(func() {
+							gui.Icon(c, iconFileText).Size(12, 12).TextColor(gui.Hex("#38BDF8"))
+							gui.Text(c, ext).FontSize(10).Bold().TextColor(gui.Hex("#38BDF8")).SingleLine()
+						})
+						gui.Text(c, a.assetName(asset)).FontSize(12).Bold().TextColor(a.pal.ink).SingleLine()
+						if snippet != "" {
+							gui.Text(c, snippet).
+								FontSize(10.5).
+								TextColor(a.pal.inkMuted).
+								LineHeight(1.45).
+								Grow(1)
+						}
+					})
 			} else {
 				gui.Column(c).Center().Gap(6).Children(func() {
 					ic := iconFile
@@ -1353,6 +1431,41 @@ func (a *App) assetCard(c *gui.Context, index int, asset model.Asset, selected b
 					gui.Icon(c, ic).Size(24, 24).TextColor(a.pal.inkFaint)
 					gui.Text(c, ext).FontSize(11).Bold().TextColor(a.pal.inkMuted)
 				})
+			}
+
+			// Multi-select stacked drag bundle indicator directly on the dragged miniature.
+			if dragging && len(dragIDs) > 1 {
+				invScale := float32(1)
+				if cardScale > 0.15 {
+					invScale = 1.0 / cardScale
+					if invScale > 2.6 {
+						invScale = 2.6
+					}
+				}
+				// Stacked border ring + bold orange count pill so the floating bundle reads unmistakably as N items.
+				gui.Box(c).
+					Absolute().
+					Top(0).
+					Left(0).
+					Right(0).
+					Bottom(0).
+					Radius(radiusPanel).
+					Border(2.5*invScale, gui.Hex("#FF5C33"))
+				gui.Row(c).
+					Absolute().
+					Top(8).
+					Right(8).
+					Padding(4*invScale, 9*invScale).
+					Radius(radiusPill).
+					Background(gui.Hex("#FF5C33")).
+					Center().
+					Children(func() {
+						gui.Text(c, fmt.Sprintf("%d", len(dragIDs))).
+							FontSize(12 * invScale).
+							Bold().
+							TextColor(gui.Hex("#FFFFFF")).
+							SingleLine()
+					})
 			}
 
 			// Floating selection check badge when caption strip is hidden (only when selected or in multi-select mode).
@@ -2209,4 +2322,45 @@ func (a *App) inspector(c *gui.Context) {
 					}
 				})
 		})
+}
+
+func isTextSnippetExt(ext string) bool {
+	switch strings.ToUpper(strings.TrimSpace(ext)) {
+	case "MD", "MARKDOWN", "TXT":
+		return true
+	}
+	return false
+}
+
+func (a *App) cachedTextSnippet(path string) string {
+	if path == "" {
+		return ""
+	}
+	if a.mdSnippets == nil {
+		a.mdSnippets = map[string]string{}
+	}
+	if s, ok := a.mdSnippets[path]; ok {
+		return s
+	}
+	var snippet string
+	if f, err := os.Open(path); err == nil {
+		raw, _ := io.ReadAll(io.LimitReader(f, 512))
+		_ = f.Close()
+		var lines []string
+		for _, ln := range strings.Split(strings.ReplaceAll(string(raw), "\r\n", "\n"), "\n") {
+			ln = strings.TrimSpace(strings.TrimLeft(ln, "#>-*` "))
+			if ln != "" {
+				lines = append(lines, ln)
+				if len(lines) >= 4 {
+					break
+				}
+			}
+		}
+		snippet = strings.Join(lines, "\n")
+		if len(snippet) > 180 {
+			snippet = snippet[:180] + "…"
+		}
+	}
+	a.mdSnippets[path] = snippet
+	return snippet
 }

@@ -353,6 +353,11 @@ type App struct {
 	// Random discovery seed.
 	randomSeed int64
 
+	// Multi-select live drag bundle animation state.
+	activeDragLeadID string
+	activeDragIDs    []string
+	dragSeenFrame    bool
+
 	// Smooth live drag-and-drop reorder anti-jitter cooldown.
 	lastReorderPair string
 	lastReorderAt   time.Time
@@ -394,8 +399,12 @@ type App struct {
 	webImportAutoStack   bool
 	webImportProgress    string
 	watchFolders         []config.WatchFolder
+	clipperInboxDir      string
 	watchNewTag          string
 	watchScanning        bool
+	focusMode            bool
+	preFocusSidebar      bool
+	preFocusInspector    bool
 	autoSelectImported   bool
 	autoTagOnImport      bool
 	ignoreHiddenOnImport bool
@@ -413,10 +422,18 @@ type App struct {
 	pluginMarketLoaded   bool
 	pluginMarketBusyID   string
 	pluginMarketErr      string
+	syncProvider         string // "cloud" (default) or "selfhost"
 	syncServerURL        string
 	syncToken            string
 	syncBusy             bool
 	syncStatusMsg        string
+	accountEmail         string
+	accountName          string
+	accountToken         string
+	authEmailBuf         string
+	authPassBuf          string
+	authBusy             bool
+	authStatusMsg        string
 	pairForceRelay       bool
 	pairTransport        string // "p2p" or "e2e-relay"
 	pubSharePass         string
@@ -475,6 +492,8 @@ type App struct {
 
 	bitmaps      map[string]*gui.Bitmap
 	bitmapOrder  []string
+	pluginIcons  map[string]*gui.Bitmap
+	mdSnippets   map[string]string
 	bitmapSem    chan struct{}
 	bitmapWake   chan struct{}
 	bitmapGen    map[string]uint64
@@ -722,6 +741,10 @@ func (a *App) applyConfig(cfg config.Config) {
 	a.importRecursive = config.BoolOr(cfg.ImportRecursive, true)
 	a.notifyDuplicates = config.BoolOr(cfg.NotifyDuplicates, true)
 	a.watchFolders = append([]config.WatchFolder(nil), cfg.WatchFolders...)
+	a.clipperInboxDir = strings.TrimSpace(cfg.ClipperInboxDir)
+	if a.clipperInboxDir == "" {
+		a.clipperInboxDir = config.DefaultClipperInboxDir()
+	}
 	a.backupBeforeDelete = config.BoolOr(cfg.BackupBeforeDelete, true)
 	a.shareFiles = config.BoolOr(cfg.ShareIncludeFiles, true)
 	a.deviceName = cfg.DeviceName
@@ -743,8 +766,16 @@ func (a *App) applyConfig(cfg config.Config) {
 	a.serverBindAll = cfg.ServerBindAll
 	a.serverAutoStart = cfg.ServerAutoStart
 	a.serverToken = cfg.ServerToken
+	a.syncProvider = strings.TrimSpace(cfg.SyncProvider)
+	if a.syncProvider != "selfhost" {
+		a.syncProvider = "cloud"
+	}
 	a.syncServerURL = cfg.SyncServerURL
 	a.syncToken = cfg.SyncToken
+	a.accountEmail = strings.TrimSpace(cfg.AccountEmail)
+	a.accountName = strings.TrimSpace(cfg.AccountName)
+	a.accountToken = strings.TrimSpace(cfg.AccountToken)
+	a.authEmailBuf = a.accountEmail
 	a.pairForceRelay = cfg.PairForceRelay
 	a.autoCheckUpdates = config.BoolOr(cfg.AutoCheckUpdates, true)
 	a.updateBetaChannel = config.BoolOr(cfg.UpdateBetaChannel, false)
@@ -783,6 +814,7 @@ func (a *App) syncConfigFromState() {
 	a.cfg.ImportRecursive = config.BoolPtr(a.importRecursive)
 	a.cfg.NotifyDuplicates = config.BoolPtr(a.notifyDuplicates)
 	a.cfg.WatchFolders = append([]config.WatchFolder(nil), a.watchFolders...)
+	a.cfg.ClipperInboxDir = strings.TrimSpace(a.clipperInboxDir)
 	a.cfg.BackupBeforeDelete = config.BoolPtr(a.backupBeforeDelete)
 	a.cfg.ShareIncludeFiles = config.BoolPtr(a.shareFiles)
 	a.cfg.DeviceName = strings.TrimSpace(a.deviceName)
@@ -795,8 +827,12 @@ func (a *App) syncConfigFromState() {
 	a.cfg.ServerBindAll = a.serverBindAll
 	a.cfg.ServerAutoStart = a.serverAutoStart
 	a.cfg.ServerToken = strings.TrimSpace(a.serverToken)
+	a.cfg.SyncProvider = a.syncProvider
 	a.cfg.SyncServerURL = strings.TrimSpace(a.syncServerURL)
 	a.cfg.SyncToken = strings.TrimSpace(a.syncToken)
+	a.cfg.AccountEmail = strings.TrimSpace(a.accountEmail)
+	a.cfg.AccountName = strings.TrimSpace(a.accountName)
+	a.cfg.AccountToken = strings.TrimSpace(a.accountToken)
 	a.cfg.PairForceRelay = a.pairForceRelay
 	a.cfg.AutoCheckUpdates = config.BoolPtr(a.autoCheckUpdates)
 	a.cfg.UpdateBetaChannel = config.BoolPtr(a.updateBetaChannel)
@@ -998,7 +1034,35 @@ func (a *App) attach(lib *library.Library, root string) {
 	})
 	if err == nil {
 		a.watch = w
+		a.watch.SetClipRouteHandler(func(ev watcher.ClipRouteEvent) {
+			if win == nil || len(ev.AssetIDs) == 0 {
+				return
+			}
+			win.Update(func() {
+				if a.isClosed() {
+					return
+				}
+				if ev.ProjectID != "" && a.projects != nil {
+					a.batchReferenceToProject(ev.AssetIDs, ev.ProjectID)
+				}
+				if ev.BoardID != "" && a.projects != nil {
+					a.sendAssetsToBoard(ev.AssetIDs, ev.BoardID)
+				}
+			})
+		})
 		a.syncWatcherRules()
+		// Silently ingest any files/clips saved while Raglex was closed.
+		go func(wt *watcher.Watcher) {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			defer cancel()
+			if added, _ := wt.ScanWatchRules(ctx); added > 0 && win != nil {
+				win.Update(func() {
+					if !a.isClosed() && a.lib != nil {
+						a.reload()
+					}
+				})
+			}
+		}(w)
 	}
 	a.ffmpeg = thumbnail.Available()
 	a.screen = screenLibrary
@@ -2822,11 +2886,23 @@ func (a *App) referenceAssetToProject(assetID, projectID string) {
 }
 
 func (a *App) referenceSelected() {
-	asset, ok := a.selectedAsset()
-	if !ok || a.projectID == "" {
+	if a.projectID == "" {
 		return
 	}
-	a.referenceAssetToProject(asset.ID, a.projectID)
+	ids := a.selectedAssetIDs()
+	if len(ids) == 0 {
+		if asset, ok := a.selectedAsset(); ok {
+			ids = []string{asset.ID}
+		}
+	}
+	if len(ids) == 0 {
+		return
+	}
+	if len(ids) == 1 {
+		a.referenceAssetToProject(ids[0], a.projectID)
+		return
+	}
+	a.batchReferenceToProject(ids, a.projectID)
 }
 
 func (a *App) deleteAssetPrompt(asset model.Asset) {
@@ -3134,6 +3210,22 @@ func (a *App) clearSelection() {
 	a.marqueeDragging = false
 }
 
+func (a *App) toggleFocusMode() {
+	if !a.focusMode {
+		a.preFocusSidebar = a.sidebarOpen
+		a.preFocusInspector = a.inspectorOpen
+		a.focusMode = true
+		a.sidebarOpen = false
+		a.inspectorOpen = false
+		a.displayPopoverOpen = false
+		a.notify(a.t("view.focusEntered"))
+	} else {
+		a.focusMode = false
+		a.sidebarOpen = a.preFocusSidebar
+		a.inspectorOpen = a.preFocusInspector
+	}
+}
+
 func (a *App) canRunLibraryShortcut() bool {
 	return a.lib != nil &&
 		a.screen == screenLibrary &&
@@ -3247,7 +3339,10 @@ func (a *App) registerWindowShortcuts(c *gui.Context) {
 		a.openSettings(a.settingsTab)
 	})
 	c.OnShortcut(gui.Cmd, gui.KeyF, func() {
-		if a.canRunLibraryShortcut() {
+		if a.canRunLibraryShortcut() || a.screen == screenProject {
+			if !a.sidebarOpen && !a.focusMode {
+				a.sidebarOpen = true
+			}
 			a.searchHandle.Focus(c)
 		}
 	})
@@ -3264,6 +3359,9 @@ func (a *App) registerWindowShortcuts(c *gui.Context) {
 	c.OnShortcut(gui.Cmd|gui.Alt, gui.KeyG, func() {
 		a.grayscalePreview = !a.grayscalePreview
 		a.syncConfigFromState()
+	})
+	c.OnShortcut(gui.Cmd|gui.Alt, gui.KeyC, func() {
+		a.toggleFocusMode()
 	})
 	c.OnShortcut(gui.Cmd|gui.Shift, gui.KeyU, func() {
 		a.webImportOpen = true
@@ -3335,6 +3433,10 @@ func (a *App) registerWindowShortcuts(c *gui.Context) {
 			a.clearSelection()
 			a.assetIndex = -1
 			a.syncInspectorSelection(false)
+			return
+		}
+		if a.focusMode {
+			a.toggleFocusMode()
 		}
 	})
 	c.OnShortcut(0, gui.KeySpace, func() {

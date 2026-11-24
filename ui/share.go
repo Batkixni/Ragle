@@ -218,6 +218,18 @@ func (a *App) receivePairModal(c *gui.Context) {
 				})
 			})
 
+			lanText := a.t("settings.lanOff")
+			lanDot := a.pal.inkFaint
+			if node := a.shareNode(); node != nil && node.DiscoveryOK() {
+				lanText = a.t("settings.lanOK")
+				lanDot = gui.Hex("#10B981")
+			}
+			gui.Row(c).FillWidth().Padding(6, 10).Gap(8).Radius(8).Background(a.settingsRowHoverBg()).AlignItems(gui.Center).Children(func() {
+				gui.Box(c).Size(7, 7).Radius(radiusPill).Background(lanDot)
+				gui.Text(c, a.t("pref.lanState")).FontSize(12).TextColor(a.pal.inkSecondary).Grow(1).SingleLine()
+				gui.Text(c, lanText).FontSize(11.5).TextColor(a.pal.inkMuted).SingleLine()
+			})
+
 			gui.Column(c).Gap(6).Children(func() {
 				a.sectionLabel(c, a.t("share.receiveByCode"))
 				gui.TextInput(c.Key("recv-pair-code"), &a.pairRecvCode).
