@@ -129,34 +129,32 @@ func TestRealUserClicksEveryControl(t *testing.T) {
 		t.Fatal("Escape did not close preview modal")
 	}
 
-	// 4. Hovering consolidated "開啟 / 複製" button MUST reveal Open/Reveal/Copy menu, and clicking Copy Path copies path!
+	// 4. "開啟 / 複製" button MUST open on click (NOT hover), and clicking Copy Path copies path & closes menu!
 	actRect, ok := tt.Find("開啟 / 複製")
 	if !ok {
 		t.Fatalf("missing consolidated file actions button, texts=%v", tt.Texts())
 	}
 	tt.Move(actRect.X+actRect.W/2, actRect.Y+actRect.H/2)
 	tt.Advance(260 * time.Millisecond)
+	if tt.HasText("開啟檔案") || tt.HasText("複製路徑") {
+		t.Fatalf("hovering file actions button MUST NOT open menu! texts=%v", tt.Texts())
+	}
+	tt.ClickAt(actRect.X+actRect.W/2, actRect.Y+actRect.H/2)
+	tt.Advance(260 * time.Millisecond)
 	if !tt.HasText("開啟檔案") || !tt.HasText("在資料夾顯示") || !tt.HasText("複製路徑") {
-		t.Fatalf("hovering file actions button did NOT reveal menu options! texts=%v", tt.Texts())
+		t.Fatalf("clicking file actions button did NOT reveal menu options! texts=%v", tt.Texts())
 	}
 	copyRect, ok := tt.Find("複製路徑")
 	if !ok {
-		t.Fatalf("missing 複製路徑 item in hover menu")
-	}
-	tt.Move(copyRect.X+copyRect.W/2, copyRect.Y+copyRect.H/2)
-	tt.Advance(100 * time.Millisecond)
-	if !tt.HasText("複製路徑") {
-		t.Fatalf("hover menu collapsed when moving cursor onto menu item!")
+		t.Fatalf("missing 複製路徑 item in click menu")
 	}
 	tt.ClickAt(copyRect.X+copyRect.W/2, copyRect.Y+copyRect.H/2)
+	tt.Advance(260 * time.Millisecond)
 	if tt.Clipboard() != sel.Path {
 		t.Fatalf("clipboard=%q, want %q", tt.Clipboard(), sel.Path)
 	}
-	// Moving pointer away from button & menu MUST collapse hover menu.
-	tt.Move(10, 10)
-	tt.Advance(300 * time.Millisecond)
 	if tt.HasText("開啟檔案") {
-		t.Fatalf("hover menu stayed open after moving pointer away")
+		t.Fatalf("file actions menu stayed open after clicking menu item")
 	}
 
 	// 5. Clicking "+ 加入專案" PopoverMenuButton inside Right Inspector MUST reference asset into Campaign!

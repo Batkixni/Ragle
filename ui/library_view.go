@@ -2272,7 +2272,7 @@ func (a *App) inspector(c *gui.Context) {
 										MinWidth(0)
 								})
 
-								// Consolidated hover-to-select file actions button (Open / Reveal / Copy Path / Copy File).
+								// Consolidated click-to-toggle file actions button (Open / Reveal / Copy Path / Copy File).
 								trigger := gui.ButtonBase(c.Key("insp-file-act-btn-" + asset.ID)).
 									FillWidth().
 									Height(34).
@@ -2283,23 +2283,12 @@ func (a *App) inspector(c *gui.Context) {
 									Border(1, hairline).
 									Label(a.t("inspector.fileActions")).
 									OnClick(func() {
-										a.inspFileMenuPinned = !a.inspFileMenuPinned
-										a.inspFileMenuOpen = a.inspFileMenuPinned
+										a.inspFileMenuOpen = !a.inspFileMenuOpen
 									})
 								btnHovered := trigger.Hovered()
 								if a.inspFilePrevMode != a.previewOpen {
 									a.inspFilePrevMode = a.previewOpen
 									a.inspFileMenuOpen = false
-									a.inspFileMenuPinned = false
-									a.inspFileSuppressHover = true
-									a.inspFileSuppressFrames = 2
-								}
-								if a.inspFileSuppressFrames > 0 {
-									a.inspFileSuppressFrames--
-								} else if !btnHovered {
-									a.inspFileSuppressHover = false
-								} else if !a.inspFileSuppressHover {
-									a.inspFileMenuOpen = true
 								}
 								actExpanded := a.inspFileMenuOpen
 								trigBg := a.pal.surfaceRaised
@@ -2327,13 +2316,7 @@ func (a *App) inspector(c *gui.Context) {
 								if popW < 200 {
 									popW = 240
 								}
-								panelRendered := false
-								panelHovered := false
-								panelDismissed := false
 								gui.PopoverBase(c.Key("insp-file-act-pop-"+asset.ID), trigger, &a.inspFileMenuOpen, func(p gui.Element) {
-									panelRendered = true
-									panelHovered = p.Hovered()
-									panelDismissed = p.Dismissed()
 									p.AttachTo(trigger, gui.AnchorBottomLeft, gui.AnchorTopLeft).
 										Margin(0).
 										Width(popW).
@@ -2364,7 +2347,6 @@ func (a *App) inspector(c *gui.Context) {
 															Label(label).
 															OnClick(func() {
 																a.inspFileMenuOpen = false
-																a.inspFileMenuPinned = false
 																onClick()
 															})
 														rBg := gui.Transparent
@@ -2412,14 +2394,6 @@ func (a *App) inspector(c *gui.Context) {
 												})
 										})
 								})
-								if panelRendered {
-									if panelDismissed {
-										a.inspFileMenuPinned = false
-									} else if !btnHovered && !panelHovered && !a.inspFileMenuPinned {
-										a.inspFileMenuOpen = false
-										c.Invalidate()
-									}
-								}
 
 								// Extracted 5-color OKLab dominant palette bar.
 								if len(asset.Palette) > 0 {

@@ -367,10 +367,8 @@ func TestRenderScreenshots(t *testing.T) {
 	a.previewOpen = true
 	a.previewAssetID = "art-a"
 	a.inspFileMenuOpen = true
-	a.inspFileMenuPinned = true
 	save("inspector_hover_dark.png", 1360, 860)
 	a.inspFileMenuOpen = false
-	a.inspFileMenuPinned = false
 	a.previewOpen = false
 	save("library_narrow_dark.png", 980, 700)
 	a.multiSelectMode = true

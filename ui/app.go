@@ -262,10 +262,7 @@ type App struct {
 	inspectorSrcURL    string
 	inspectorMetaID    string
 	inspFileMenuOpen       bool
-	inspFileMenuPinned     bool
 	inspFilePrevMode       bool
-	inspFileSuppressHover  bool
-	inspFileSuppressFrames int
 
 	// Stage 12: Batch Rename & Batch Export modals.
 	renameOpen       bool
@@ -2013,7 +2010,6 @@ func (a *App) syncInspectorSelection(force bool) {
 	}
 	a.inspectorAssetID = asset.ID
 	a.inspFileMenuOpen = false
-	a.inspFileMenuPinned = false
 	a.inspectorRating = asset.Rating
 	a.inspectorFileSize = 0
 	if !asset.Missing && asset.Path != "" {
