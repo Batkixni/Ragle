@@ -45,7 +45,8 @@ func DecodeCreativeImage(path string, maxEdge int) (image.Image, error) {
 	case ext == ".tga":
 		return DecodeTGA(path)
 	case model.IsCameraRAW(path):
-		return ExtractEmbeddedJPEG(path)
+		img, _, _, err := DecodeCameraRAWForSize(path, maxEdge)
+		return img, err
 	}
 	f, err := os.Open(path)
 	if err != nil {

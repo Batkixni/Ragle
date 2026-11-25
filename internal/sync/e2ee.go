@@ -116,11 +116,11 @@ func encryptBlob(key []byte, plainHash string, plain []byte) ([]byte, string, er
 		return nil, "", err
 	}
 	nonce := e2eeNonce(key, "blob", plainHash)
-	ct := gcm.Seal(nil, nonce, plain, []byte("blob:"+plainHash))
-	out := make([]byte, 0, len(e2eeBlobMagic)+len(nonce)+len(ct))
-	out = append(out, e2eeBlobMagic...)
-	out = append(out, nonce...)
-	out = append(out, ct...)
+	hdrLen := len(e2eeBlobMagic) + len(nonce)
+	out := make([]byte, hdrLen, hdrLen+len(plain)+gcm.Overhead())
+	copy(out, e2eeBlobMagic)
+	copy(out[len(e2eeBlobMagic):], nonce)
+	out = gcm.Seal(out, nonce, plain, []byte("blob:"+plainHash))
 	sum := sha256.Sum256(out)
 	return out, hex.EncodeToString(sum[:]), nil
 }

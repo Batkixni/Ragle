@@ -4,6 +4,21 @@ All notable changes to **Raglex** are documented in this file.
 
 ---
 
+## [v0.5.3] - 2026-11-25
+
+### ⚡ Camera RAW 低記憶體解碼、捲動才建縮圖與記憶體回收最佳化 / RAW Performance & Memory Optimization
+- **Camera RAW（`.ARW` / `.CR3` / `.CR2` / `.NEF` / `.RAF` / `.DNG` / `.ORF` / `.RW2`）記憶體與 CPU 佔用大幅下降**：
+  - 標頭探測改採 `probeJPEGConfigAt` 直接沿 JPEG marker 跳過任意大小的 EXIF / MakerNote / XMP / ICC 區段（即使超過 64–500 KiB 亦只讀 `< 2 KiB`），不再誤殺真實相機預覽圖。
+  - 新增 **Sony MakerNote (`0x927C → 0x2001`)**、**Nikon MakerNote (`0x927C → 0x0011`)** 與 **Olympus MakerNote** O(1) 定位，並將備援掃描改為 256 KiB 串流分塊掃描（移除舊版 96 MiB 整檔讀入）。
+  - 建立 512px 縮圖時優先選取中等尺寸內嵌預覽（如 1616×1080 而非 45–60 MP 全尺寸預覽），改以兩段式快速 `YCbCr` 降採樣並「先縮圖再套用 EXIF 旋轉」，同時背景縮圖階段停用重度 `ffmpeg` / 專有感測器 `tiff.Decode` 備援。
+- **RAW 捲動至可視範圍才建縮圖 ＋ 單線重型節流 ＋ 即時歸還記憶體**：
+  - 開啟或批次匯入大量 RAW 圖庫時，不再一次將畫面外 RAW 全部塞進背景佇列；改為捲動到畫面或點選檢視時才透過 `Prioritize` 優先逐張建縮圖，重型解碼上限為 1 條並行。
+  - 刪除素材時立即呼叫 `CancelIDs` 取消待處理縮圖佇列並釋放快取；刪除後與每完成 8 張 RAW 縮圖皆即時呼叫 `debug.FreeOSMemory()` 歸還系統記憶體，並預設套用 `1.5 GiB` Go 記憶體軟上限（可由 `GOMEMLIMIT` 覆寫）。
+- **端對端加密（E2EE）同步去暫存最佳化**：
+  - 移除舊版同步時將所有加密檔案暫存於 RAM 的 `encHashToBytes` map，改為本地快取 `plainHash → ctHash` 並於上傳 worker 逐檔即時加密（上限 2 條並行），避免同步大型 RAW / 影片時記憶體暴漲。
+
+---
+
 ## [v0.5.2] - 2026-11-25
 
 ### ✨ 瀏覽器插件完整來源資訊 ＋ 離線收件強化 / Richer Web Clipper & Offline Inbox

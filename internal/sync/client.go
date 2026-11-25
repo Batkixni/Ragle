@@ -263,10 +263,20 @@ func SyncNowWithProgress(ctx context.Context, cfg ClientConfig, lib *library.Lib
 			return false
 		}
 
+		type encBlobRef struct {
+			path      string
+			plainHash string
+		}
 		hashToPath := map[string]string{}
 		hashToName := map[string]string{}
 		encHashToPlain := map[string]string{}
-		encHashToBytes := map[string][]byte{}
+		encHashToFile := map[string]encBlobRef{}
+		var plainToCT map[string]string
+		var newE2EEHashes map[string]string
+		if len(e2eeKey) > 0 {
+			plainToCT = localStore.LoadE2EEBlobHashes(scope)
+			newE2EEHashes = map[string]string{}
+		}
 		var candidateHashes []string
 		pushOps := make([]SyncOp, 0, 16)
 
@@ -340,20 +350,29 @@ func SyncNowWithProgress(ctx context.Context, cfg ClientConfig, lib *library.Lib
 
 			blobHash := h
 			if len(e2eeKey) > 0 && validHash {
-				plainBytes, rerr := os.ReadFile(a.Path)
-				if rerr == nil {
-					ctBytes, ctHash, cerr := encryptBlob(e2eeKey, h, plainBytes)
-					if cerr == nil {
-						blobHash = ctHash
-						pl.BlobHash = ctHash
-						rawPL, _ = json.Marshal(pl)
-						if needBlob {
-							if _, seen := encHashToBytes[ctHash]; !seen {
-								encHashToBytes[ctHash] = ctBytes
-								encHashToPlain[ctHash] = h
-								hashToName[ctHash] = a.Label()
-								candidateHashes = append(candidateHashes, ctHash)
-							}
+				ctHash := plainToCT[h]
+				if ctHash == "" {
+					plainBytes, rerr := os.ReadFile(a.Path)
+					if rerr == nil {
+						_, computedHash, cerr := encryptBlob(e2eeKey, h, plainBytes)
+						plainBytes = nil
+						if cerr == nil {
+							ctHash = computedHash
+							plainToCT[h] = ctHash
+							newE2EEHashes[h] = ctHash
+						}
+					}
+				}
+				if ctHash != "" {
+					blobHash = ctHash
+					pl.BlobHash = ctHash
+					rawPL, _ = json.Marshal(pl)
+					if needBlob {
+						if _, seen := encHashToFile[ctHash]; !seen {
+							encHashToFile[ctHash] = encBlobRef{path: a.Path, plainHash: h}
+							encHashToPlain[ctHash] = h
+							hashToName[ctHash] = a.Label()
+							candidateHashes = append(candidateHashes, ctHash)
 						}
 					}
 				}
@@ -389,6 +408,10 @@ func SyncNowWithProgress(ctx context.Context, cfg ClientConfig, lib *library.Lib
 				EntityID:  entityID,
 				Payload:   wirePayload,
 			})
+		}
+
+		if len(newE2EEHashes) > 0 {
+			_ = localStore.SaveE2EEBlobHashes(scope, newE2EEHashes)
 		}
 
 		var confirmedHashes []string
@@ -442,6 +465,11 @@ func SyncNowWithProgress(ctx context.Context, cfg ClientConfig, lib *library.Lib
 				close(jobs)
 
 				workers := 6
+				if len(e2eeKey) > 0 {
+					// Encrypting large RAW/video files on-the-fly: cap at 2 concurrent workers
+					// so memory stays bounded to ~2 files and CPU stays gentle.
+					workers = 2
+				}
 				if totalMissing < workers {
 					workers = totalMissing
 				}
@@ -472,7 +500,20 @@ func SyncNowWithProgress(ctx context.Context, cfg ClientConfig, lib *library.Lib
 							}
 							var bodyReader io.Reader
 							var closer io.Closer
-							if ctBytes, ok := encHashToBytes[mh]; ok {
+							if ref, ok := encHashToFile[mh]; ok {
+								plainBytes, rerr := os.ReadFile(ref.path)
+								if rerr != nil {
+									d := int(doneCount.Add(1))
+									emit(SyncProgress{Stage: "uploading", Done: d, Total: totalMissing})
+									continue
+								}
+								ctBytes, _, cerr := encryptBlob(e2eeKey, ref.plainHash, plainBytes)
+								plainBytes = nil
+								if cerr != nil {
+									d := int(doneCount.Add(1))
+									emit(SyncProgress{Stage: "uploading", Done: d, Total: totalMissing})
+									continue
+								}
 								bodyReader = bytes.NewReader(ctBytes)
 							} else {
 								p := hashToPath[mh]

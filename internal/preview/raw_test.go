@@ -8,6 +8,7 @@ import (
 	"image/jpeg"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"raglex/internal/model"
@@ -228,5 +229,205 @@ func TestDecodeARWAndNAFNestedEXIFEOISafety(t *testing.T) {
 	}
 	if img2.Bounds().Dx() != 480 || img2.Bounds().Dy() != 320 {
 		t.Fatalf("decoded NAF bounds = %v, want 480x320", img2.Bounds())
+	}
+}
+
+func TestSonyARWMakerNotePreviewLowMemoryAndLargeTail(t *testing.T) {
+	// Simulate a realistic 24 MiB Sony .ARW:
+	// - IFD0 has Orientation=6, ExifIFD pointer (0x8769), and nextIFD -> IFD1 (tiny 160x120 thumb)
+	// - ExifIFD has MakerNote (0x927C) -> Sony IFD -> tag 0x2001 (1616x1080 preview JPEG)
+	// - Followed by 24 MiB of simulated Bayer sensor data!
+	tinyThumb := makeTestJPEG(t, 160, 120, color.RGBA{R: 40, G: 40, B: 40, A: 255})
+	previewJPEG := makeTestJPEG(t, 1200, 800, color.RGBA{R: 255, G: 92, B: 51, A: 255})
+
+	var buf bytes.Buffer
+	buf.WriteString("II")
+	_ = binary.Write(&buf, binary.LittleEndian, uint16(0x002A))
+	_ = binary.Write(&buf, binary.LittleEndian, uint32(8)) // IFD0 at 8
+
+	// Layout offsets:
+	// IFD0 at 8: 2 entries (2 + 24 + 4 = 30 bytes -> ends at 38)
+	// IFD1 at 40: 2 entries (2 + 24 + 4 = 30 bytes -> ends at 70)
+	// ExifIFD at 72: 1 entry (2 + 12 + 4 = 18 bytes -> ends at 90)
+	// MakerNote (Sony IFD) at 92: 1 entry (2 + 12 + 4 = 18 bytes -> ends at 110)
+	// tinyThumb at 128
+	// previewJPEG at 128 + len(tinyThumb)
+	const (
+		ifd1Off  = 40
+		exifOff  = 72
+		makerOff = 92
+		thumbOff = 128
+	)
+	previewOff := thumbOff + len(tinyThumb)
+
+	// IFD0
+	_ = binary.Write(&buf, binary.LittleEndian, uint16(2))
+	// Orientation = 6
+	_ = binary.Write(&buf, binary.LittleEndian, uint16(0x0112))
+	_ = binary.Write(&buf, binary.LittleEndian, uint16(3))
+	_ = binary.Write(&buf, binary.LittleEndian, uint32(1))
+	_ = binary.Write(&buf, binary.LittleEndian, uint16(6))
+	_ = binary.Write(&buf, binary.LittleEndian, uint16(0))
+	// ExifIFD = 0x8769
+	_ = binary.Write(&buf, binary.LittleEndian, uint16(0x8769))
+	_ = binary.Write(&buf, binary.LittleEndian, uint16(4))
+	_ = binary.Write(&buf, binary.LittleEndian, uint32(1))
+	_ = binary.Write(&buf, binary.LittleEndian, uint32(exifOff))
+	// Next IFD -> IFD1
+	_ = binary.Write(&buf, binary.LittleEndian, uint32(ifd1Off))
+	buf.Write(make([]byte, ifd1Off-buf.Len()))
+
+	// IFD1 (tiny 160x120 thumbnail)
+	_ = binary.Write(&buf, binary.LittleEndian, uint16(2))
+	_ = binary.Write(&buf, binary.LittleEndian, uint16(0x0201))
+	_ = binary.Write(&buf, binary.LittleEndian, uint16(4))
+	_ = binary.Write(&buf, binary.LittleEndian, uint32(1))
+	_ = binary.Write(&buf, binary.LittleEndian, uint32(thumbOff))
+	_ = binary.Write(&buf, binary.LittleEndian, uint16(0x0202))
+	_ = binary.Write(&buf, binary.LittleEndian, uint16(4))
+	_ = binary.Write(&buf, binary.LittleEndian, uint32(1))
+	_ = binary.Write(&buf, binary.LittleEndian, uint32(len(tinyThumb)))
+	_ = binary.Write(&buf, binary.LittleEndian, uint32(0))
+	buf.Write(make([]byte, exifOff-buf.Len()))
+
+	// ExifIFD -> MakerNote (0x927C)
+	_ = binary.Write(&buf, binary.LittleEndian, uint16(1))
+	_ = binary.Write(&buf, binary.LittleEndian, uint16(0x927C))
+	_ = binary.Write(&buf, binary.LittleEndian, uint16(7)) // UNDEFINED
+	_ = binary.Write(&buf, binary.LittleEndian, uint32(18))
+	_ = binary.Write(&buf, binary.LittleEndian, uint32(makerOff))
+	_ = binary.Write(&buf, binary.LittleEndian, uint32(0))
+	buf.Write(make([]byte, makerOff-buf.Len()))
+
+	// Sony MakerNote IFD -> tag 0x2001 PreviewImage pointing to previewJPEG
+	_ = binary.Write(&buf, binary.LittleEndian, uint16(1))
+	_ = binary.Write(&buf, binary.LittleEndian, uint16(0x2001))
+	_ = binary.Write(&buf, binary.LittleEndian, uint16(7))
+	_ = binary.Write(&buf, binary.LittleEndian, uint32(len(previewJPEG)))
+	_ = binary.Write(&buf, binary.LittleEndian, uint32(previewOff))
+	_ = binary.Write(&buf, binary.LittleEndian, uint32(0))
+	buf.Write(make([]byte, thumbOff-buf.Len()))
+
+	buf.Write(tinyThumb)
+	buf.Write(previewJPEG)
+
+	arwPath := filepath.Join(t.TempDir(), "sony_a7iv.ARW")
+	f, err := os.Create(arwPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.Write(buf.Bytes()); err != nil {
+		_ = f.Close()
+		t.Fatal(err)
+	}
+	// Append 24 MiB of sensor tail without holding 24 MiB in one slice.
+	chunk := bytes.Repeat([]byte{0xAA, 0x55, 0x13, 0x7F}, 256*1024) // 1 MiB
+	for range 24 {
+		if _, err := f.Write(chunk); err != nil {
+			_ = f.Close()
+			t.Fatal(err)
+		}
+	}
+	_ = f.Close()
+
+	// Verify CameraRAWImageSize reads ONLY headers (< 512 KiB allocated, not 24 MiB!).
+	runtime.GC()
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+	w, h := CameraRAWImageSize(arwPath)
+	runtime.ReadMemStats(&after)
+	if w != 800 || h != 1200 {
+		t.Fatalf("CameraRAWImageSize(ARW) = %dx%d, want 800x1200 (orientation 6)", w, h)
+	}
+	sizeAlloc := after.TotalAlloc - before.TotalAlloc
+	if sizeAlloc > 1<<20 {
+		t.Fatalf("CameraRAWImageSize allocated %d bytes on 24MiB ARW, expected < 1MiB", sizeAlloc)
+	}
+
+	// Verify DecodeCameraRAWForSize(512) returns <= 512px oriented thumbnail AND full orig dimensions.
+	img, origW, origH, err := DecodeCameraRAWForSize(arwPath, 512)
+	if err != nil {
+		t.Fatalf("DecodeCameraRAWForSize(ARW, 512): %v", err)
+	}
+	if origW != 800 || origH != 1200 {
+		t.Fatalf("orig dims = %dx%d, want 800x1200", origW, origH)
+	}
+	if img.Bounds().Dy() != 512 || img.Bounds().Dx() > 512 {
+		t.Fatalf("thumb bounds = %v, want portrait with long edge 512", img.Bounds())
+	}
+}
+
+func TestPickCandidateSelectsMediumPreviewForThumbnails(t *testing.T) {
+	entries := []rawJPEGEntry{
+		{off: 100, length: 8_000, width: 160, height: 120, area: 160 * 120},
+		{off: 9_000, length: 180_000, width: 1616, height: 1080, area: 1616 * 1080},
+		{off: 200_000, length: 9_000_000, width: 8192, height: 5464, area: 8192 * 5464},
+	}
+	thumb := pickCandidate(entries, 512)
+	if thumb.width != 1616 || thumb.height != 1080 {
+		t.Fatalf("pickCandidate(512) picked %dx%d, want medium 1616x1080", thumb.width, thumb.height)
+	}
+	full := pickCandidate(entries, 2400)
+	if full.width != 8192 || full.height != 5464 {
+		t.Fatalf("pickCandidate(2400) picked %dx%d, want full 8192x5464", full.width, full.height)
+	}
+}
+
+func TestProbeJPEGConfigAtSkipsHuge120KiBMetadataHeaders(t *testing.T) {
+	// Real Sony ARW / Nikon NEF / Canon CR3 embedded JPEGs frequently contain >64 KiB
+	// of APP1 (EXIF + MakerNote + nested thumb + XMP) and APP2 (ICC) before SOF0.
+	baseJPEG := makeTestJPEG(t, 1616, 1080, color.RGBA{R: 60, G: 120, B: 220, A: 255})
+	nestedThumb := makeTestJPEG(t, 160, 120, color.RGBA{R: 20, G: 20, B: 20, A: 255})
+	withExif := injectEXIFWithNestedThumb(t, baseJPEG, 6, nestedThumb)
+
+	// Inject two 60 KiB APP2 (ICC/XMP) segments right after APP1 so SOF0 sits > 120 KiB deep!
+	var bloated bytes.Buffer
+	bloated.Write(withExif[:2]) // FF D8
+	for range 2 {
+		payload := bytes.Repeat([]byte{'X'}, 60000)
+		bloated.Write([]byte{0xFF, 0xE2})
+		_ = binary.Write(&bloated, binary.BigEndian, uint16(len(payload)+2))
+		bloated.Write(payload)
+	}
+	bloated.Write(withExif[2:])
+	bigJPEG := bloated.Bytes()
+
+	// Wrap inside a minimal Sony ARW TIFF container.
+	var arw bytes.Buffer
+	arw.WriteString("II")
+	_ = binary.Write(&arw, binary.LittleEndian, uint16(0x002A))
+	_ = binary.Write(&arw, binary.LittleEndian, uint32(8))
+	jpegOff := uint32(8 + 2 + 2*12 + 4 + 16)
+	_ = binary.Write(&arw, binary.LittleEndian, uint16(2))
+	_ = binary.Write(&arw, binary.LittleEndian, uint16(0x0201))
+	_ = binary.Write(&arw, binary.LittleEndian, uint16(4))
+	_ = binary.Write(&arw, binary.LittleEndian, uint32(1))
+	_ = binary.Write(&arw, binary.LittleEndian, jpegOff)
+	_ = binary.Write(&arw, binary.LittleEndian, uint16(0x0202))
+	_ = binary.Write(&arw, binary.LittleEndian, uint16(4))
+	_ = binary.Write(&arw, binary.LittleEndian, uint32(1))
+	_ = binary.Write(&arw, binary.LittleEndian, uint32(len(bigJPEG)))
+	_ = binary.Write(&arw, binary.LittleEndian, uint32(0))
+	arw.Write(make([]byte, 16))
+	arw.Write(bigJPEG)
+
+	p := filepath.Join(t.TempDir(), "sony_huge_exif.ARW")
+	if err := os.WriteFile(p, arw.Bytes(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	w, h := CameraRAWImageSize(p)
+	if w != 1080 || h != 1616 {
+		t.Fatalf("CameraRAWImageSize(huge EXIF ARW) = %dx%d, want 1080x1616", w, h)
+	}
+	img, origW, origH, err := DecodeCameraRAWForSize(p, 512)
+	if err != nil {
+		t.Fatalf("DecodeCameraRAWForSize(huge EXIF ARW, 512): %v", err)
+	}
+	if origW != 1080 || origH != 1616 {
+		t.Fatalf("orig dims = %dx%d, want 1080x1616", origW, origH)
+	}
+	if img.Bounds().Dy() != 512 || img.Bounds().Dx() > 512 {
+		t.Fatalf("thumb bounds = %v, want portrait with long edge 512", img.Bounds())
 	}
 }

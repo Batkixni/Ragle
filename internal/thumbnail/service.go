@@ -9,7 +9,9 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"sync"
+	"sync/atomic"
 
 	"github.com/disintegration/imaging"
 
@@ -41,17 +43,21 @@ func CanThumbnail(mime, path string) bool {
 // Service fills ThumbnailPath in the background. At most four files are
 // encoded at once. onDone runs after a path is stored; it may be nil.
 type Service struct {
-	db     *db.DB
-	jobs   chan string
-	onDone func(assetID string)
-	ctx    context.Context
-	cancel context.CancelFunc
-	wg     sync.WaitGroup
+	db       *db.DB
+	jobs     chan string
+	heavySem chan struct{}
+	onDone   func(assetID string)
+	ctx      context.Context
+	cancel   context.CancelFunc
+	wg       sync.WaitGroup
+
+	heavyDone atomic.Int64
 
 	mu        sync.Mutex
 	pending   []string
 	queued    map[string]bool
 	attempted map[string]bool
+	canceled  map[string]bool
 	wake      chan struct{}
 }
 
@@ -60,12 +66,14 @@ func Start(d *db.DB, onDone func(assetID string)) *Service {
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &Service{
 		db:        d,
-		jobs:      make(chan string, 128),
+		jobs:      make(chan string, 4), // small buffer so Prioritize and CancelIDs take effect immediately
+		heavySem:  make(chan struct{}, 1), // serialize heavy RAW/PSD/Video decodes to keep CPU & RAM low
 		onDone:    onDone,
 		ctx:       ctx,
 		cancel:    cancel,
 		queued:    make(map[string]bool),
 		attempted: make(map[string]bool),
+		canceled:  make(map[string]bool),
 		wake:      make(chan struct{}, 1),
 	}
 	s.wg.Add(1)
@@ -114,6 +122,47 @@ func (s *Service) Reset() {
 	}
 	s.mu.Lock()
 	clear(s.attempted)
+	clear(s.canceled)
+	s.mu.Unlock()
+}
+
+// CancelIDs removes deleted asset IDs from the pending thumbnail queue so
+// deleting RAW/video assets immediately stops any further background decoding.
+func (s *Service) CancelIDs(ids []string) {
+	if s == nil || len(ids) == 0 {
+		return
+	}
+	drop := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		if id != "" {
+			drop[id] = true
+		}
+	}
+	if len(drop) == 0 {
+		return
+	}
+	s.mu.Lock()
+	for id := range drop {
+		s.canceled[id] = true
+		delete(s.queued, id)
+		delete(s.attempted, id)
+	}
+	if len(s.pending) > 0 {
+		kept := s.pending[:0]
+		for _, id := range s.pending {
+			if !drop[id] {
+				kept = append(kept, id)
+			}
+		}
+		for i := len(kept); i < len(s.pending); i++ {
+			s.pending[i] = ""
+		}
+		if len(kept) == 0 {
+			s.pending = nil
+		} else {
+			s.pending = kept
+		}
+	}
 	s.mu.Unlock()
 }
 
@@ -128,6 +177,7 @@ func (s *Service) Enqueue(assetID string) {
 		s.mu.Unlock()
 		return
 	}
+	delete(s.canceled, assetID)
 	s.queued[assetID] = true
 	s.pending = append(s.pending, assetID)
 	s.mu.Unlock()
@@ -144,9 +194,23 @@ func (s *Service) Prioritize(assetID string) {
 		return
 	}
 	s.mu.Lock()
-	if !s.queued[assetID] && !s.attempted[assetID] {
-		s.queued[assetID] = true
-		s.pending = append([]string{assetID}, s.pending...)
+	if !s.attempted[assetID] {
+		delete(s.canceled, assetID)
+		if !s.queued[assetID] {
+			s.queued[assetID] = true
+			s.pending = append([]string{assetID}, s.pending...)
+		} else {
+			// Move already-queued visible card straight to the front so scrolled-in RAWs render first.
+			for i, id := range s.pending {
+				if id == assetID {
+					if i > 0 {
+						copy(s.pending[1:i+1], s.pending[0:i])
+						s.pending[0] = assetID
+					}
+					break
+				}
+			}
+		}
 	}
 	s.mu.Unlock()
 	select {
@@ -174,10 +238,24 @@ func (s *Service) worker() {
 			if s.ctx.Err() != nil {
 				return
 			}
+			s.mu.Lock()
+			wasCanceled := s.canceled[id]
+			if wasCanceled {
+				delete(s.canceled, id)
+				delete(s.queued, id)
+			}
+			s.mu.Unlock()
+			if wasCanceled {
+				continue
+			}
 			changed, err := s.build(id)
 			s.mu.Lock()
 			delete(s.queued, id)
-			s.attempted[id] = true
+			if !s.canceled[id] {
+				s.attempted[id] = true
+			} else {
+				delete(s.canceled, id)
+			}
 			s.mu.Unlock()
 			if err != nil || !changed {
 				continue
@@ -239,18 +317,39 @@ func (s *Service) build(id string) (bool, error) {
 	case model.IsExtraCreativeImage(asset.Mime, asset.Path):
 		var fitted image.Image
 		if !hasThumb {
-			img, err := preview.DecodeCreativeImage(asset.Path, longEdge)
-			if err != nil {
-				return false, err
+			s.heavySem <- struct{}{}
+			var err error
+			if model.IsCameraRAW(asset.Path) {
+				fitted, decodedW, decodedH, err = preview.DecodeCameraRAWForSize(asset.Path, longEdge)
+				<-s.heavySem
+				if err != nil {
+					return false, err
+				}
+				dest = filepath.Join(s.db.ThumbsDir(), asset.ID+".jpg")
+				if err := saveJPEG(fitted, dest); err != nil {
+					return false, err
+				}
+				// Periodically return freed RAW decode buffers to the OS promptly so Task Manager
+				// RAM drops right away instead of waiting minutes for Go's background scavenger.
+				if s.heavyDone.Add(1)%8 == 0 {
+					go debug.FreeOSMemory()
+				}
+			} else {
+				var img image.Image
+				img, err = preview.DecodeCreativeImage(asset.Path, longEdge)
+				<-s.heavySem
+				if err != nil {
+					return false, err
+				}
+				decodedW = img.Bounds().Dx()
+				decodedH = img.Bounds().Dy()
+				fitted = preview.FastFitImage(img, longEdge)
+				savedPath, err := saveSmartThumb(fitted, s.db.ThumbsDir(), asset.ID)
+				if err != nil {
+					return false, err
+				}
+				dest = savedPath
 			}
-			decodedW = img.Bounds().Dx()
-			decodedH = img.Bounds().Dy()
-			fitted = imaging.Fit(img, longEdge, longEdge, imaging.Lanczos)
-			savedPath, err := saveSmartThumb(fitted, s.db.ThumbsDir(), asset.ID)
-			if err != nil {
-				return false, err
-			}
-			dest = savedPath
 		} else if img, err := imaging.Open(dest); err == nil {
 			fitted = img
 		}
@@ -281,7 +380,10 @@ func (s *Service) build(id string) (bool, error) {
 		}
 	case model.MediaKind(asset.Mime) == model.MediaVideo:
 		if !hasThumb {
-			if err := ExtractFrame(asset.Path, dest); err != nil {
+			s.heavySem <- struct{}{}
+			err := ExtractFrame(asset.Path, dest)
+			<-s.heavySem
+			if err != nil {
 				return false, err
 			}
 		}
@@ -364,7 +466,7 @@ func imageThumbAndExtract(src, thumbsDir, id string) (image.Image, string, error
 			return nil, "", err
 		}
 	}
-	fitted := imaging.Fit(img, longEdge, longEdge, imaging.Lanczos)
+	fitted := preview.FastFitImage(img, longEdge)
 	dest, err := saveSmartThumb(fitted, thumbsDir, id)
 	if err != nil {
 		return nil, "", err

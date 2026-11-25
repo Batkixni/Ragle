@@ -519,6 +519,54 @@ func (s *Store) MarkRemoteKnown(scope string, opIDs []string, hashes []string) e
 	})
 }
 
+// LoadE2EEBlobHashes returns cached plaintext SHA-256 -> encrypted blob SHA-256
+// mappings for scope so unchanged or previously seen files never need to be
+// re-read into RAM just to compute their ciphertext hash.
+func (s *Store) LoadE2EEBlobHashes(scope string) map[string]string {
+	out := map[string]string{}
+	if s == nil || s.db == nil || scope == "" {
+		return out
+	}
+	prefix := []byte(scope + ":e2ee:")
+	_ = s.db.View(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(bucketRemoteKnown)
+		if b == nil {
+			return nil
+		}
+		c := b.Cursor()
+		for k, v := c.Seek(prefix); k != nil && bytes.HasPrefix(k, prefix); k, v = c.Next() {
+			if len(v) > 0 {
+				out[string(k[len(prefix):])] = string(v)
+			}
+		}
+		return nil
+	})
+	return out
+}
+
+// SaveE2EEBlobHashes persists plaintext SHA-256 -> encrypted blob SHA-256
+// mappings for scope.
+func (s *Store) SaveE2EEBlobHashes(scope string, pairs map[string]string) error {
+	if s == nil || s.db == nil || scope == "" || len(pairs) == 0 {
+		return nil
+	}
+	prefix := scope + ":e2ee:"
+	return s.db.Update(func(tx *bbolt.Tx) error {
+		b, err := tx.CreateBucketIfNotExists(bucketRemoteKnown)
+		if err != nil {
+			return err
+		}
+		for plainHash, ctHash := range pairs {
+			if plainHash != "" && ctHash != "" {
+				if err := b.Put([]byte(prefix+plainHash), []byte(ctHash)); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	})
+}
+
 // Sanitized returns a copy of ShareLink safe to return in public API responses.
 func (s ShareLink) Sanitized() ShareLink {
 	s.PasswordHash = ""

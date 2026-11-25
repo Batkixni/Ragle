@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"runtime/debug"
 	"sort"
 	"strconv"
 	"strings"
@@ -16,7 +17,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/disintegration/imaging"
 	"github.com/egoist/mygo"
 	gui "github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/video"
@@ -1937,6 +1937,7 @@ func (a *App) deleteProjectPrompt(id string) {
 			a.lastNav = "tag-all"
 		}
 		a.reload()
+		go debug.FreeOSMemory()
 	})
 }
 
@@ -2180,6 +2181,12 @@ func (a *App) queueThumb(asset model.Asset) {
 		a.loadSVGThumbAsync(asset.ID, asset.Path)
 		return
 	}
+	// Camera RAW files generate thumbnails lazily on-demand when scrolled into the
+	// viewport (via requestCardBitmap -> thumbs.Prioritize) so opening or importing
+	// large RAW libraries never spikes CPU/RAM off-screen.
+	if model.IsCameraRAW(asset.Path) {
+		return
+	}
 	if model.MediaKind(asset.Mime) == model.MediaOther &&
 		!model.IsExtraCreativeImage(asset.Mime, asset.Path) &&
 		!model.IsFont(asset.Mime, asset.Path) &&
@@ -2314,7 +2321,7 @@ func (a *App) onThumb(id string) {
 	a.updateAssetInMemory(asset)
 }
 
-const maxCachedBitmaps = 480
+const maxCachedBitmaps = 240
 
 func (a *App) storeBitmap(id string, bm *gui.Bitmap) {
 	if bm == nil || id == "" {
@@ -2614,15 +2621,12 @@ func (a *App) loadPreviewAsset(asset model.Asset) {
 		var player *gui.VideoPlayer
 		if model.IsCameraRAW(path) {
 			// Fast path: decode embedded preview JPEG directly when orientation is normal
-			// (avoids expensive Go PNG re-encoding of 24-60MP RAW previews).
-			if rawJPEG, orient, rerr := preview.ExtractEmbeddedJPEGBytes(path); rerr == nil && len(rawJPEG) > 0 && orient == 1 {
+			// and dimensions are within display budget (avoids Go re-encoding of huge previews).
+			if rawJPEG, orient, origW, origH, rerr := preview.ExtractEmbeddedJPEGForSize(path, 2400); rerr == nil && len(rawJPEG) > 0 && orient == 1 && origW <= 2800 && origH <= 2800 {
 				bm, _ = gui.DecodeBitmap(rawJPEG)
 			}
 			if bm == nil {
-				if img, err := preview.DecodeCameraRAW(path); err == nil && img != nil {
-					if img.Bounds().Dx() > 2800 || img.Bounds().Dy() > 2800 {
-						img = imaging.Fit(img, 2800, 2800, imaging.Linear)
-					}
+				if img, _, _, err := preview.DecodeCameraRAWForSize(path, 2400); err == nil && img != nil {
 					bm, _ = imageToBitmap(img)
 				}
 			}
@@ -2978,7 +2982,7 @@ func (a *App) importPaths(paths []string) {
 					if firstAddedID == "" {
 						firstAddedID = item.AssetID
 					}
-					if a.thumbs != nil {
+					if a.thumbs != nil && !model.IsCameraRAW(item.Path) {
 						a.thumbs.Enqueue(item.AssetID)
 						a.queued[item.AssetID] = true
 					}
@@ -3498,6 +3502,9 @@ func (a *App) executeDeleteAssets() {
 	}
 
 	opts := library.DeleteOptions{PermanentDiskDelete: permanent}
+	if a.thumbs != nil {
+		a.thumbs.CancelIDs(list)
+	}
 
 	if len(list) == 1 {
 		id := list[0]
@@ -3522,13 +3529,16 @@ func (a *App) executeDeleteAssets() {
 			return
 		}
 		delete(a.bitmaps, id)
+		delete(a.queued, id)
+		delete(a.bitmapFailed, id)
 		if a.previewAssetID == id {
-			a.previewOpen = false
+			a.closePreview()
 			a.previewBitmap = nil
 		}
 		a.clearSelection()
 		a.assetIndex = -1
 		a.reload()
+		go debug.FreeOSMemory()
 		return
 	}
 
@@ -3536,9 +3546,21 @@ func (a *App) executeDeleteAssets() {
 	for _, id := range list {
 		idSet[id] = true
 		delete(a.bitmaps, id)
+		delete(a.queued, id)
+		delete(a.bitmapFailed, id)
 		if a.previewAssetID == id {
 			a.closePreview()
+			a.previewBitmap = nil
 		}
+	}
+	if len(a.bitmapOrder) > 0 {
+		kept := a.bitmapOrder[:0]
+		for _, id := range a.bitmapOrder {
+			if !idSet[id] {
+				kept = append(kept, id)
+			}
+		}
+		a.bitmapOrder = kept
 	}
 	if a.session != nil {
 		var drop []string
@@ -3562,6 +3584,7 @@ func (a *App) executeDeleteAssets() {
 			a.notify(fmt.Sprintf(a.t("batch.deleted"), deleted))
 		}
 		a.reload()
+		go debug.FreeOSMemory()
 	}
 
 	if a.win == nil {
