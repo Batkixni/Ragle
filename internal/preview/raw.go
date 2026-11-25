@@ -21,6 +21,7 @@ const (
 	rawMaxScanBytes   = 96 << 20 // 96 MiB cap for fallback stream scanning
 	rawMinGoodPreview = 640 * 480
 	rawFullResStop    = 4_000_000 // stop scanning once a >=4MP preview is found
+	rawHeadBytes      = 256 << 10 // enough of a JPEG to read its EXIF APP1 orientation
 )
 
 var (
@@ -28,27 +29,224 @@ var (
 	cr3CanonUUID   = [16]byte{0x85, 0xc0, 0xb6, 0x87, 0x82, 0x0f, 0x11, 0xe0, 0x81, 0x11, 0xf4, 0xce, 0x46, 0x2b, 0x6a, 0x48}
 )
 
+// rawCandidate is one embedded JPEG preview found inside a RAW container.
+//
+// Structured containers (RAF, CR3, TIFF-based RAW) only record where the JPEG
+// lives, so probing a file reads a few header bytes per preview instead of
+// copying every preview (each one can be tens of MB) into memory. data is set
+// only for candidates found by the fallback byte scanner, which already holds
+// the bytes.
 type rawCandidate struct {
+	off    int64
+	length int64
 	data   []byte
 	width  int
 	height int
-	area   int
+}
+
+func (c rawCandidate) area() int { return c.width * c.height }
+
+func (c rawCandidate) longEdge() int { return max(c.width, c.height) }
+
+// aspectClose reports whether c has nearly the same aspect ratio as ref, so a
+// letterboxed or cropped thumbnail is never used in place of the real photo.
+func (c rawCandidate) aspectClose(ref rawCandidate) bool {
+	cl, cs := c.longEdge(), min(c.width, c.height)
+	rl, rs := ref.longEdge(), min(ref.width, ref.height)
+	if cs <= 0 || rs <= 0 {
+		return false
+	}
+	// |cl/cs - rl/rs| <= 3% of rl/rs, in integer arithmetic.
+	diff := cl*rs - rl*cs
+	if diff < 0 {
+		diff = -diff
+	}
+	return diff*100 <= 3*rl*cs
+}
+
+// rawProbe collects the embedded preview candidates of one RAW file.
+type rawProbe struct {
+	f               *os.File
+	fileSize        int64
+	cands           []rawCandidate
+	best            int // index of the largest candidate, -1 when none
+	containerOrient int
+}
+
+func (p *rawProbe) bestArea() int {
+	if p.best < 0 {
+		return 0
+	}
+	return p.cands[p.best].area()
+}
+
+// addRegion records the JPEG stored at [off, off+length) after reading only
+// its header.
+func (p *rawProbe) addRegion(off, length int64) {
+	if off <= 0 || length < 32 || length > rawMaxSingleJPEG || off+length > p.fileSize {
+		return
+	}
+	var sig [3]byte
+	if _, err := p.f.ReadAt(sig[:], off); err != nil {
+		return
+	}
+	if sig[0] != 0xFF || sig[1] != 0xD8 || sig[2] != 0xFF {
+		return
+	}
+	cfg, err := jpeg.DecodeConfig(io.NewSectionReader(p.f, off, length))
+	if err != nil || cfg.Width <= 0 || cfg.Height <= 0 {
+		return
+	}
+	for _, c := range p.cands {
+		if c.data == nil && c.off == off && c.length == length {
+			return
+		}
+	}
+	p.add(rawCandidate{off: off, length: length, width: cfg.Width, height: cfg.Height})
+}
+
+// addBytes records a JPEG that is already in memory (fallback scanner).
+func (p *rawProbe) addBytes(data []byte) {
+	if len(data) < 32 || data[0] != 0xFF || data[1] != 0xD8 || data[2] != 0xFF {
+		return
+	}
+	cfg, err := jpeg.DecodeConfig(bytes.NewReader(data))
+	if err != nil || cfg.Width <= 0 || cfg.Height <= 0 {
+		return
+	}
+	p.add(rawCandidate{data: data, length: int64(len(data)), width: cfg.Width, height: cfg.Height})
+}
+
+func (p *rawProbe) add(c rawCandidate) {
+	p.cands = append(p.cands, c)
+	if p.best < 0 || c.area() > p.cands[p.best].area() {
+		p.best = len(p.cands) - 1
+	}
+}
+
+// pick returns the preview to decode. With minEdge <= 0 it is the largest one.
+// Otherwise it is the smallest preview whose long edge is at least minEdge and
+// whose framing matches the largest one, so a 512 px thumbnail is cut from a
+// ~1.6 MP medium preview instead of a 24-60 MP full-size JPEG.
+func (p *rawProbe) pick(minEdge int) (rawCandidate, bool) {
+	if p.best < 0 {
+		return rawCandidate{}, false
+	}
+	largest := p.cands[p.best]
+	chosen := largest
+	if minEdge <= 0 {
+		return chosen, true
+	}
+	for _, c := range p.cands {
+		if c.longEdge() >= minEdge && c.area() < chosen.area() && c.aspectClose(largest) {
+			chosen = c
+		}
+	}
+	return chosen, true
+}
+
+// read returns a private copy of the candidate's JPEG bytes. Scanner candidates
+// are cloned so the (up to 96 MiB) scan buffer can be freed right away.
+func (p *rawProbe) read(c rawCandidate) ([]byte, error) {
+	if c.data != nil {
+		return bytes.Clone(c.data), nil
+	}
+	buf := make([]byte, c.length)
+	if _, err := p.f.ReadAt(buf, c.off); err != nil {
+		return nil, err
+	}
+	return buf, nil
+}
+
+// readHead returns the first bytes of the candidate's JPEG, enough to parse its
+// EXIF orientation without loading the whole image.
+func (p *rawProbe) readHead(c rawCandidate) []byte {
+	n := min(c.length, rawHeadBytes)
+	if c.data != nil {
+		return c.data[:n]
+	}
+	buf := make([]byte, n)
+	got, _ := p.f.ReadAt(buf, c.off)
+	return buf[:got]
+}
+
+// probeRAW locates the embedded JPEG previews of an open Camera RAW file.
+func probeRAW(f *os.File) (*rawProbe, error) {
+	fi, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	fileSize := fi.Size()
+	if fileSize < 16 {
+		return nil, errors.New("raw: file too small")
+	}
+	p := &rawProbe{f: f, fileSize: fileSize, best: -1, containerOrient: 1}
+
+	var hdr [128]byte
+	n, _ := f.ReadAt(hdr[:], 0)
+	head := hdr[:n]
+
+	// Path 1: Fujifilm .RAF — exact JPEG offset at byte 84 and length at byte 88.
+	if len(head) >= 92 && bytes.HasPrefix(head, []byte("FUJIFILMCCD-RAW ")) {
+		off := int64(binary.BigEndian.Uint32(head[84:88]))
+		length := int64(binary.BigEndian.Uint32(head[88:92]))
+		p.addRegion(off, length)
+		if p.bestArea() >= rawMinGoodPreview {
+			return p, nil
+		}
+	}
+
+	// Path 2: Canon .CR3 (ISO BMFF / MP4 container: ftyp crx / PRVW / THMB / Track 1 JPEG).
+	if len(head) >= 12 && string(head[4:8]) == "ftyp" {
+		if o := extractCR3Previews(p); o >= 1 && o <= 8 {
+			p.containerOrient = o
+		}
+		if p.bestArea() >= rawMinGoodPreview {
+			return p, nil
+		}
+	}
+
+	// Path 3: TIFF-based RAW containers (ARW, SR2, SRF, NEF, NRW, NAF, CR2, DNG, ORF, RW2, PEF, SRW, 3FR, IIQ, etc.).
+	if isTIFFHeader(head) {
+		if o := extractTIFFRAWPreviews(p); o >= 1 && o <= 8 {
+			p.containerOrient = o
+		}
+		if p.bestArea() >= rawMinGoodPreview {
+			return p, nil
+		}
+	}
+
+	// Path 4: Universal JPEG marker-segment walker (properly skips nested EXIF APP1
+	// thumbnails & their inner FF D9 so MakerNote previews and NAF/CRW/proprietary
+	// RAW files decode cleanly without truncation).
+	scanLimit := min(fileSize, rawMaxScanBytes)
+	if _, err := f.Seek(0, io.SeekStart); err == nil {
+		if buf, err := io.ReadAll(io.LimitReader(f, scanLimit)); err == nil {
+			scanJPEGStreams(buf, p.addBytes)
+		}
+	}
+	return p, nil
 }
 
 // CameraRAWImageSize returns the display dimensions (after EXIF orientation)
 // of a Camera RAW file by reading its embedded preview JPEG header without
-// decoding pixels.
+// decoding pixels or loading the preview into memory.
 func CameraRAWImageSize(path string) (int, int) {
-	data, orient, err := ExtractEmbeddedJPEGBytes(path)
-	if err != nil || len(data) == 0 {
-		return 0, 0
-	}
-	cfg, err := jpeg.DecodeConfig(bytes.NewReader(data))
+	f, err := os.Open(path)
 	if err != nil {
 		return 0, 0
 	}
-	w, h := cfg.Width, cfg.Height
-	if orient >= 5 && orient <= 8 {
+	defer f.Close()
+	p, err := probeRAW(f)
+	if err != nil {
+		return 0, 0
+	}
+	c, ok := p.pick(0)
+	if !ok {
+		return 0, 0
+	}
+	w, h := c.width, c.height
+	if orient := resolveRAWOrientation(p.readHead(c), p.containerOrient); orient >= 5 && orient <= 8 {
 		w, h = h, w
 	}
 	return w, h
@@ -59,9 +257,19 @@ func CameraRAWImageSize(path string) (int, int) {
 // Nikon NEF/NRW/NAF, Adobe DNG, Olympus ORF, Panasonic RW2, Pentax PEF, Samsung
 // SRW, Hasselblad 3FR, Phase One IIQ, etc.).
 func DecodeCameraRAW(path string) (image.Image, error) {
-	if data, orient, err := ExtractEmbeddedJPEGBytes(path); err == nil && len(data) > 0 {
-		if img, derr := jpeg.Decode(bytes.NewReader(data)); derr == nil && img != nil {
-			return applyEXIFOrientation(img, orient), nil
+	return DecodeCameraRAWForSize(path, 0)
+}
+
+// DecodeCameraRAWForSize is DecodeCameraRAW for a display of at most maxEdge
+// pixels on the long side (0 means full size). It decodes the smallest embedded
+// preview that still covers maxEdge and shrinks the result before applying the
+// EXIF rotation, which keeps a thumbnail job at a few MB instead of the
+// hundreds of MB a full-resolution decode plus rotated copy takes.
+func DecodeCameraRAWForSize(path string, maxEdge int) (image.Image, error) {
+	if data, orient, err := ExtractEmbeddedJPEGBytesForSize(path, maxEdge); err == nil && len(data) > 0 {
+		img, derr := jpeg.Decode(bytes.NewReader(data))
+		if derr == nil && img != nil {
+			return applyEXIFOrientation(shrinkToEdge(img, maxEdge), orient), nil
 		}
 	}
 
@@ -70,123 +278,60 @@ func DecodeCameraRAW(path string) (image.Image, error) {
 		img, derr := tiff.Decode(f)
 		_ = f.Close()
 		if derr == nil && img != nil {
-			return img, nil
+			return shrinkToEdge(img, maxEdge), nil
 		}
 	}
 
 	// Fallback 2: Bundled/system ffmpeg frame decode for exotic RAW containers.
 	if img, err := decodeRAWWithFFmpeg(path); err == nil && img != nil {
-		return img, nil
+		return shrinkToEdge(img, maxEdge), nil
 	}
 
 	return nil, errors.New("raw: no readable preview found")
 }
 
+// shrinkToEdge downsizes img so its long edge is at most maxEdge (0 = no-op).
+func shrinkToEdge(img image.Image, maxEdge int) image.Image {
+	if maxEdge <= 0 {
+		return img
+	}
+	b := img.Bounds()
+	if b.Dx() <= maxEdge && b.Dy() <= maxEdge {
+		return img
+	}
+	return imaging.Fit(img, maxEdge, maxEdge, imaging.Linear)
+}
+
 // ExtractEmbeddedJPEGBytes locates the largest valid embedded JPEG preview inside
 // a Camera RAW file along with its resolved EXIF orientation (1..8).
 func ExtractEmbeddedJPEGBytes(path string) ([]byte, int, error) {
+	return ExtractEmbeddedJPEGBytesForSize(path, 0)
+}
+
+// ExtractEmbeddedJPEGBytesForSize returns the smallest embedded JPEG preview
+// whose long edge is at least minEdge (the largest one when minEdge <= 0 or
+// when none is big enough) along with its resolved EXIF orientation (1..8).
+// Only the chosen preview is read into memory.
+func ExtractEmbeddedJPEGBytesForSize(path string, minEdge int) ([]byte, int, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, 1, err
 	}
 	defer f.Close()
 
-	fi, err := f.Stat()
+	p, err := probeRAW(f)
 	if err != nil {
 		return nil, 1, err
 	}
-	fileSize := fi.Size()
-	if fileSize < 16 {
-		return nil, 1, errors.New("raw: file too small")
-	}
-
-	var hdr [128]byte
-	n, _ := f.ReadAt(hdr[:], 0)
-	head := hdr[:n]
-
-	var best rawCandidate
-	containerOrient := 1
-
-	consider := func(data []byte) {
-		if len(data) < 32 {
-			return
-		}
-		if data[0] != 0xFF || data[1] != 0xD8 || data[2] != 0xFF {
-			return
-		}
-		cfg, err := jpeg.DecodeConfig(bytes.NewReader(data))
-		if err != nil || cfg.Width <= 0 || cfg.Height <= 0 {
-			return
-		}
-		area := cfg.Width * cfg.Height
-		if area > best.area {
-			best = rawCandidate{
-				data:   data,
-				width:  cfg.Width,
-				height: cfg.Height,
-				area:   area,
-			}
-		}
-	}
-
-	// Path 1: Fujifilm .RAF — exact JPEG offset at byte 84 and length at byte 88.
-	if len(head) >= 92 && bytes.HasPrefix(head, []byte("FUJIFILMCCD-RAW ")) {
-		off := int64(binary.BigEndian.Uint32(head[84:88]))
-		length := int64(binary.BigEndian.Uint32(head[88:92]))
-		if off > 0 && length > 32 && length <= rawMaxSingleJPEG && off+length <= fileSize {
-			buf := make([]byte, length)
-			if _, err := f.ReadAt(buf, off); err == nil {
-				consider(buf)
-			}
-		}
-		if best.area >= rawMinGoodPreview {
-			orient := resolveRAWOrientation(best.data, containerOrient)
-			return best.data, orient, nil
-		}
-	}
-
-	// Path 2: Canon .CR3 (ISO BMFF / MP4 container: ftyp crx / PRVW / THMB / Track 1 JPEG).
-	if len(head) >= 12 && string(head[4:8]) == "ftyp" {
-		cr3Orient := extractCR3Previews(f, fileSize, consider)
-		if cr3Orient >= 1 && cr3Orient <= 8 {
-			containerOrient = cr3Orient
-		}
-		if best.area >= rawMinGoodPreview {
-			orient := resolveRAWOrientation(best.data, containerOrient)
-			return best.data, orient, nil
-		}
-	}
-
-	// Path 3: TIFF-based RAW containers (ARW, SR2, SRF, NEF, NRW, NAF, CR2, DNG, ORF, RW2, PEF, SRW, 3FR, IIQ, etc.).
-	if isTIFFHeader(head) {
-		tiffOrient := extractTIFFRAWPreviews(f, fileSize, consider)
-		if tiffOrient >= 1 && tiffOrient <= 8 {
-			containerOrient = tiffOrient
-		}
-		if best.area >= rawMinGoodPreview {
-			orient := resolveRAWOrientation(best.data, containerOrient)
-			return best.data, orient, nil
-		}
-	}
-
-	// Path 4: Universal JPEG marker-segment walker (properly skips nested EXIF APP1
-	// thumbnails & their inner FF D9 so MakerNote previews and NAF/CRW/proprietary
-	// RAW files decode cleanly without truncation).
-	scanLimit := fileSize
-	if scanLimit > rawMaxScanBytes {
-		scanLimit = rawMaxScanBytes
-	}
-	if _, err := f.Seek(0, io.SeekStart); err == nil {
-		if buf, err := io.ReadAll(io.LimitReader(f, scanLimit)); err == nil {
-			scanJPEGStreams(buf, consider)
-		}
-	}
-
-	if len(best.data) == 0 {
+	c, ok := p.pick(minEdge)
+	if !ok {
 		return nil, 1, errors.New("raw: no embedded JPEG preview found")
 	}
-	orient := resolveRAWOrientation(best.data, containerOrient)
-	return best.data, orient, nil
+	data, err := p.read(c)
+	if err != nil {
+		return nil, 1, err
+	}
+	return data, resolveRAWOrientation(data, p.containerOrient), nil
 }
 
 // --- Canon CR3 (ISO BMFF) parser ---
@@ -197,10 +342,10 @@ type cr3TrackInfo struct {
 	isJPEG  bool
 }
 
-func extractCR3Previews(f *os.File, fileSize int64, consider func([]byte)) int {
+func extractCR3Previews(p *rawProbe) int {
 	orient := 1
 	var tracks []cr3TrackInfo
-	walkISOBMFF(f, 0, fileSize, 0, &orient, &tracks, consider)
+	walkISOBMFF(p, 0, p.fileSize, 0, &orient, &tracks)
 
 	// Canon CR3 stores a full-resolution JPEG in Track 1 inside mdat.
 	for _, tr := range tracks {
@@ -209,24 +354,16 @@ func extractCR3Previews(f *os.File, fileSize int64, consider func([]byte)) int {
 		}
 		off := tr.offsets[0]
 		sz := tr.sizes[0]
-		if off <= 0 || sz < 1024 || sz > rawMaxSingleJPEG || off+sz > fileSize {
+		if sz < 1024 {
 			continue
 		}
-		var sig [3]byte
-		if _, err := f.ReadAt(sig[:], off); err != nil {
-			continue
-		}
-		if sig[0] == 0xFF && sig[1] == 0xD8 && sig[2] == 0xFF {
-			buf := make([]byte, sz)
-			if _, err := f.ReadAt(buf, off); err == nil {
-				consider(buf)
-			}
-		}
+		p.addRegion(off, sz)
 	}
 	return orient
 }
 
-func walkISOBMFF(f *os.File, start, end int64, depth int, orient *int, tracks *[]cr3TrackInfo, consider func([]byte)) {
+func walkISOBMFF(p *rawProbe, start, end int64, depth int, orient *int, tracks *[]cr3TrackInfo) {
+	f := p.f
 	if depth > 8 || start >= end {
 		return
 	}
@@ -261,7 +398,7 @@ func walkISOBMFF(f *os.File, start, end int64, depth int, orient *int, tracks *[
 
 		switch boxType {
 		case "moov", "mdia", "minf", "stbl":
-			walkISOBMFF(f, bodyStart, bodyEnd, depth+1, orient, tracks, consider)
+			walkISOBMFF(p, bodyStart, bodyEnd, depth+1, orient, tracks)
 		case "trak":
 			var tr cr3TrackInfo
 			walkCR3Track(f, bodyStart, bodyEnd, 0, &tr)
@@ -274,22 +411,23 @@ func walkISOBMFF(f *os.File, start, end int64, depth int, orient *int, tracks *[
 				if _, err := f.ReadAt(uid[:], bodyStart); err == nil {
 					if uid == cr3PreviewUUID {
 						// Canon Preview UUID box contains a 8-byte header before PRVW or direct child boxes.
-						walkISOBMFF(f, bodyStart+16, bodyEnd, depth+1, orient, tracks, consider)
+						walkISOBMFF(p, bodyStart+16, bodyEnd, depth+1, orient, tracks)
 						if bodyStart+24 < bodyEnd {
-							walkISOBMFF(f, bodyStart+24, bodyEnd, depth+1, orient, tracks, consider)
+							walkISOBMFF(p, bodyStart+24, bodyEnd, depth+1, orient, tracks)
 						}
 					} else if uid == cr3CanonUUID {
-						walkISOBMFF(f, bodyStart+16, bodyEnd, depth+1, orient, tracks, consider)
+						walkISOBMFF(p, bodyStart+16, bodyEnd, depth+1, orient, tracks)
 					}
 				}
 			}
 		case "PRVW", "THMB":
 			if bodySize > 32 && bodySize <= rawMaxSingleJPEG {
-				buf := make([]byte, bodySize)
-				if _, err := f.ReadAt(buf, bodyStart); err == nil {
-					if idx := bytes.Index(buf[:min(len(buf), 64)], []byte{0xFF, 0xD8, 0xFF}); idx >= 0 {
-						consider(buf[idx:])
-					}
+				// Only the box header is read here; the JPEG itself is read
+				// later, and only if it is the preview that gets decoded.
+				var sniff [64]byte
+				n, _ := f.ReadAt(sniff[:min(int64(len(sniff)), bodySize)], bodyStart)
+				if idx := bytes.Index(sniff[:n], []byte{0xFF, 0xD8, 0xFF}); idx >= 0 {
+					p.addRegion(bodyStart+int64(idx), bodySize-int64(idx))
 				}
 			}
 		case "CMT1":
@@ -398,7 +536,8 @@ func isTIFFHeader(head []byte) bool {
 	return false
 }
 
-func extractTIFFRAWPreviews(f *os.File, fileSize int64, consider func([]byte)) int {
+func extractTIFFRAWPreviews(p *rawProbe) int {
+	f, fileSize := p.f, p.fileSize
 	var hdr [16]byte
 	if _, err := f.ReadAt(hdr[:12], 0); err != nil {
 		return 1
@@ -498,13 +637,7 @@ func extractTIFFRAWPreviews(f *os.File, fileSize int64, consider func([]byte)) i
 				}
 			case 0x002E: // Panasonic RW2 JpgFromRaw
 				if valCnt > 32 && int64(valCnt) <= rawMaxSingleJPEG {
-					dataOff := int64(bo.Uint32(valRaw))
-					if dataOff > 0 && dataOff+int64(valCnt) <= fileSize {
-						buf := make([]byte, valCnt)
-						if _, err := f.ReadAt(buf, dataOff); err == nil {
-							consider(buf)
-						}
-					}
+					p.addRegion(int64(bo.Uint32(valRaw)), int64(valCnt))
 				}
 			case 0x014A: // SubIFDs
 				if valCnt == 1 {
@@ -526,20 +659,10 @@ func extractTIFFRAWPreviews(f *os.File, fileSize int64, consider func([]byte)) i
 		}
 
 		tryRegion := func(regionOff, regionLen int64) {
-			if regionOff <= 0 || regionLen < 64 || regionLen > rawMaxSingleJPEG || regionOff+regionLen > fileSize {
+			if regionLen < 64 {
 				return
 			}
-			var sig [3]byte
-			if _, err := f.ReadAt(sig[:], regionOff); err != nil {
-				return
-			}
-			if sig[0] != 0xFF || sig[1] != 0xD8 || sig[2] != 0xFF {
-				return
-			}
-			buf := make([]byte, regionLen)
-			if _, err := f.ReadAt(buf, regionOff); err == nil {
-				consider(buf)
-			}
+			p.addRegion(regionOff, regionLen)
 		}
 
 		if jpegOff > 0 && jpegLen > 0 {

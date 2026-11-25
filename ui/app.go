@@ -16,7 +16,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/disintegration/imaging"
 	"github.com/egoist/mygo"
 	gui "github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/video"
@@ -2619,10 +2618,9 @@ func (a *App) loadPreviewAsset(asset model.Asset) {
 				bm, _ = gui.DecodeBitmap(rawJPEG)
 			}
 			if bm == nil {
-				if img, err := preview.DecodeCameraRAW(path); err == nil && img != nil {
-					if img.Bounds().Dx() > 2800 || img.Bounds().Dy() > 2800 {
-						img = imaging.Fit(img, 2800, 2800, imaging.Linear)
-					}
+				// Shrinks before rotating, so a rotated 60 MP preview never
+				// needs a full-resolution NRGBA copy.
+				if img, err := preview.DecodeCameraRAWForSize(path, 2800); err == nil && img != nil {
 					bm, _ = imageToBitmap(img)
 				}
 			}

@@ -9,7 +9,9 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"sync"
+	"sync/atomic"
 
 	"github.com/disintegration/imaging"
 
@@ -38,8 +40,15 @@ func CanThumbnail(mime, path string) bool {
 		model.IsPDF(mime, path)
 }
 
+// maxHeavyDecodes caps how many memory-hungry decodes (Camera RAW, PSD, EPS,
+// Illustrator...) run at once. Each one can hold hundreds of MB while it runs,
+// so letting all workers take them at once during a big RAW import pushed the
+// process into gigabytes of commit and made Windows page.
+const maxHeavyDecodes = 2
+
 // Service fills ThumbnailPath in the background. At most four files are
-// encoded at once. onDone runs after a path is stored; it may be nil.
+// encoded at once, and at most maxHeavyDecodes of them may be heavy creative
+// formats. onDone runs after a path is stored; it may be nil.
 type Service struct {
 	db     *db.DB
 	jobs   chan string
@@ -47,6 +56,9 @@ type Service struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
+
+	heavy      chan struct{}
+	heavyDirty atomic.Bool // a heavy decode ran since memory was last returned
 
 	mu        sync.Mutex
 	pending   []string
@@ -67,6 +79,7 @@ func Start(d *db.DB, onDone func(assetID string)) *Service {
 		queued:    make(map[string]bool),
 		attempted: make(map[string]bool),
 		wake:      make(chan struct{}, 1),
+		heavy:     make(chan struct{}, maxHeavyDecodes),
 	}
 	s.wg.Add(1)
 	go s.feeder()
@@ -178,7 +191,13 @@ func (s *Service) worker() {
 			s.mu.Lock()
 			delete(s.queued, id)
 			s.attempted[id] = true
+			idle := len(s.pending) == 0 && len(s.jobs) == 0
 			s.mu.Unlock()
+			if idle && s.heavyDirty.CompareAndSwap(true, false) {
+				// The batch is done: hand the decode buffers back to Windows
+				// now instead of keeping the peak working set for minutes.
+				debug.FreeOSMemory()
+			}
 			if err != nil || !changed {
 				continue
 			}
@@ -206,6 +225,15 @@ func (s *Service) build(id string) (bool, error) {
 	hasVisual := len(asset.Palette) > 0 && (asset.PHash != 0 || asset.DHash != 0)
 	if hasThumb && hasVisual {
 		return false, nil
+	}
+	if !hasThumb && isHeavyDecode(asset) {
+		select {
+		case s.heavy <- struct{}{}:
+		case <-s.ctx.Done():
+			return false, s.ctx.Err()
+		}
+		defer func() { <-s.heavy }()
+		s.heavyDirty.Store(true)
 	}
 
 	dest := asset.ThumbnailPath
@@ -243,8 +271,14 @@ func (s *Service) build(id string) (bool, error) {
 			if err != nil {
 				return false, err
 			}
-			decodedW = img.Bounds().Dx()
-			decodedH = img.Bounds().Dy()
+			if model.IsCameraRAW(asset.Path) {
+				// RAW decodes are now shrunk to the thumbnail size, so read
+				// the real dimensions from the preview header instead.
+				decodedW, decodedH = preview.CameraRAWImageSize(asset.Path)
+			} else {
+				decodedW = img.Bounds().Dx()
+				decodedH = img.Bounds().Dy()
+			}
 			fitted = imaging.Fit(img, longEdge, longEdge, imaging.Lanczos)
 			savedPath, err := saveSmartThumb(fitted, s.db.ThumbsDir(), asset.ID)
 			if err != nil {
@@ -353,6 +387,13 @@ func (s *Service) build(id string) (bool, error) {
 		return false, err
 	}
 	return true, nil
+}
+
+// isHeavyDecode reports whether building this asset's thumbnail decodes a
+// large creative file in-process (as opposed to a normal image, or a job
+// handed to ffmpeg/pdftoppm).
+func isHeavyDecode(asset model.Asset) bool {
+	return model.IsIllustrator(asset.Mime, asset.Path) || model.IsExtraCreativeImage(asset.Mime, asset.Path)
 }
 
 func imageThumbAndExtract(src, thumbsDir, id string) (image.Image, string, error) {

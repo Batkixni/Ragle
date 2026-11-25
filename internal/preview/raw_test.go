@@ -230,3 +230,141 @@ func TestDecodeARWAndNAFNestedEXIFEOISafety(t *testing.T) {
 		t.Fatalf("decoded NAF bounds = %v, want 480x320", img2.Bounds())
 	}
 }
+
+// buildMultiPreviewTIFFRAW writes a TIFF-based RAW holding three embedded
+// JPEGs, as real ARW/NEF/CR2 files do: a full-size JpgFromRaw (strip, compression
+// 6), a medium preview (IFD0 JPEGInterchangeFormat) and a letterboxed 4:3
+// thumbnail in IFD1.
+func buildMultiPreviewTIFFRAW(t *testing.T, full, medium, thumb []byte) string {
+	t.Helper()
+	le := binary.LittleEndian
+	type entry struct {
+		tag, typ uint16
+		val      uint32
+	}
+	writeIFD := func(b *bytes.Buffer, entries []entry, next uint32) {
+		_ = binary.Write(b, le, uint16(len(entries)))
+		for _, e := range entries {
+			_ = binary.Write(b, le, e.tag)
+			_ = binary.Write(b, le, e.typ)
+			_ = binary.Write(b, le, uint32(1))
+			_ = binary.Write(b, le, e.val)
+		}
+		_ = binary.Write(b, le, next)
+	}
+	const ifd0 = 8
+	const ifd1 = ifd0 + 2 + 5*12 + 4
+	dataStart := uint32(ifd1 + 2 + 2*12 + 4)
+	fullOff := dataStart
+	medOff := fullOff + uint32(len(full))
+	thumbOff := medOff + uint32(len(medium))
+
+	var b bytes.Buffer
+	b.WriteString("II")
+	_ = binary.Write(&b, le, uint16(0x002A))
+	_ = binary.Write(&b, le, uint32(ifd0))
+	writeIFD(&b, []entry{
+		{0x0103, 3, 6},
+		{0x0111, 4, fullOff},
+		{0x0117, 4, uint32(len(full))},
+		{0x0201, 4, medOff},
+		{0x0202, 4, uint32(len(medium))},
+	}, ifd1)
+	writeIFD(&b, []entry{
+		{0x0201, 4, thumbOff},
+		{0x0202, 4, uint32(len(thumb))},
+	}, 0)
+	if b.Len() != int(dataStart) {
+		t.Fatalf("layout mismatch: header is %d bytes, want %d", b.Len(), dataStart)
+	}
+	b.Write(full)
+	b.Write(medium)
+	b.Write(thumb)
+
+	p := filepath.Join(t.TempDir(), "multi_preview.ARW")
+	if err := os.WriteFile(p, b.Bytes(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+func TestRAWPicksSmallestPreviewCoveringTarget(t *testing.T) {
+	full := makeTestJPEG(t, 2400, 1600, color.RGBA{R: 200, G: 30, B: 30, A: 255})
+	medium := makeTestJPEG(t, 800, 533, color.RGBA{R: 30, G: 200, B: 30, A: 255})
+	thumb := makeTestJPEG(t, 640, 480, color.RGBA{R: 30, G: 30, B: 200, A: 255})
+	p := buildMultiPreviewTIFFRAW(t, full, medium, thumb)
+
+	// Dimensions come from the largest preview, read from its header only.
+	if w, h := CameraRAWImageSize(p); w != 2400 || h != 1600 {
+		t.Fatalf("CameraRAWImageSize = %dx%d, want 2400x1600", w, h)
+	}
+
+	// Full-size request keeps the old behaviour: the largest preview.
+	data, _, err := ExtractEmbeddedJPEGBytes(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(data, full) {
+		t.Fatalf("ExtractEmbeddedJPEGBytes returned %d bytes, want the full-size JPEG (%d bytes)", len(data), len(full))
+	}
+
+	// A 512 px thumbnail must come from the 800x533 medium preview, not the
+	// full-size JPEG and not the letterboxed 4:3 thumbnail.
+	data, _, err = ExtractEmbeddedJPEGBytesForSize(p, 512)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(data, medium) {
+		cfg, _ := jpeg.DecodeConfig(bytes.NewReader(data))
+		t.Fatalf("ExtractEmbeddedJPEGBytesForSize(512) picked %dx%d, want the 800x533 medium preview", cfg.Width, cfg.Height)
+	}
+
+	// Nothing smaller covers 1000 px, so the full-size JPEG is used.
+	data, _, err = ExtractEmbeddedJPEGBytesForSize(p, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(data, full) {
+		t.Fatalf("ExtractEmbeddedJPEGBytesForSize(1000) did not pick the full-size JPEG")
+	}
+
+	img, err := DecodeCameraRAWForSize(p, 512)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b := img.Bounds(); max(b.Dx(), b.Dy()) != 512 {
+		t.Fatalf("DecodeCameraRAWForSize(512) bounds = %v, want long edge 512", b)
+	}
+	img, err = DecodeCreativeImage(p, 512)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b := img.Bounds(); max(b.Dx(), b.Dy()) != 512 {
+		t.Fatalf("DecodeCreativeImage(512) bounds = %v, want long edge 512", b)
+	}
+}
+
+func TestRAWForSizeKeepsOrientation(t *testing.T) {
+	// RAF holds one 320x200 preview tagged orientation 6: a 100 px request
+	// must shrink first and still come out portrait.
+	thumb := makeTestJPEG(t, 40, 30, color.RGBA{R: 120, G: 120, B: 120, A: 255})
+	mainJPEG := injectEXIFWithNestedThumb(t, makeTestJPEG(t, 320, 200, color.RGBA{R: 220, G: 80, B: 40, A: 255}), 6, thumb)
+	var raf bytes.Buffer
+	raf.WriteString("FUJIFILMCCD-RAW ")
+	raf.Write(make([]byte, 84-16))
+	_ = binary.Write(&raf, binary.BigEndian, uint32(256))
+	_ = binary.Write(&raf, binary.BigEndian, uint32(len(mainJPEG)))
+	raf.Write(make([]byte, 256-raf.Len()))
+	raf.Write(mainJPEG)
+	p := filepath.Join(t.TempDir(), "fuji_small.RAF")
+	if err := os.WriteFile(p, raf.Bytes(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	img, err := DecodeCameraRAWForSize(p, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b := img.Bounds(); b.Dx() >= b.Dy() || b.Dy() != 100 {
+		t.Fatalf("DecodeCameraRAWForSize(100) bounds = %v, want portrait with long edge 100", b)
+	}
+}
