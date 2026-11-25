@@ -262,8 +262,9 @@ type App struct {
 	inspectorPlaces   int
 	quickTagName      string
 	inspectorNotes    string
-	inspectorSrcURL    string
-	inspectorMetaID    string
+	inspectorSrcURL   string
+	inspectorSrcTitle string
+	inspectorMetaID   string
 	inspFileMenuOpen       bool
 	inspFilePrevMode       bool
 

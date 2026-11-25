@@ -498,6 +498,7 @@ var pairs = []pair{
 
 	{"inspector.notes", "備註", "Notes", "メモ"},
 	{"inspector.notesPlaceholder", "記錄靈感、用法或來源備註…", "Add notes or reference context…", "メモや参考用途を記録…"},
+	{"inspector.sourceTitle", "來源標題", "Source title", "ソースタイトル"},
 	{"inspector.source", "來源網址", "Source URL", "ソース URL"},
 	{"inspector.saveMeta", "儲存備註", "Save notes", "メモを保存"},
 	{"inspector.metaSaved", "已儲存素材備註", "Asset metadata saved", "メタデータを保存しました"},

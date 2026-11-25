@@ -2618,48 +2618,53 @@ func (a *App) inspector(c *gui.Context) {
 									})
 								})
 
-								// Card 2: Editable notes & source URL.
+								// Card 2: Editable notes, source title & full source URL.
 								if a.inspectorMetaID != asset.ID {
 									a.inspectorMetaID = asset.ID
 									a.inspectorNotes = asset.Notes
 									a.inspectorSrcURL = asset.SourceURL
+									a.inspectorSrcTitle = asset.SourceTitle
+								}
+								saveInspectorMeta := func() {
+									if _, err := a.lib.UpdateAssetMeta(asset.ID, a.inspectorNotes, a.inspectorSrcURL, a.inspectorSrcTitle); err == nil {
+										a.reload()
+										a.notify(a.t("inspector.metaSaved"))
+									}
 								}
 								inspectorCard("insp-card-meta-"+asset.ID, 8, func() {
 									gui.Row(c).FillWidth().AlignItems(gui.Center).Children(func() {
 										a.sectionLabel(c, a.t("inspector.notes"))
 										gui.Spacer(c)
-										if a.inspectorNotes != asset.Notes || a.inspectorSrcURL != asset.SourceURL {
+										if a.inspectorNotes != asset.Notes || a.inspectorSrcURL != asset.SourceURL || a.inspectorSrcTitle != asset.SourceTitle {
 											a.toolButton(c, "insp-save-meta", iconCheck, a.t("inspector.saveMeta"), true).
 												Padding(3, 8).
-												OnClick(func() {
-													if _, err := a.lib.UpdateAssetMeta(asset.ID, a.inspectorNotes, a.inspectorSrcURL, asset.SourceTitle); err == nil {
-														a.reload()
-														a.notify(a.t("inspector.metaSaved"))
-													}
-												})
+												OnClick(saveInspectorMeta)
 										}
 									})
 									gui.TextInput(c.Key("insp-notes-"+asset.ID), &a.inspectorNotes).
 										Placeholder(a.t("inspector.notesPlaceholder")).
 										Background(a.pal.surface).
 										FillWidth().
-										OnSubmit(func() {
-											if _, err := a.lib.UpdateAssetMeta(asset.ID, a.inspectorNotes, a.inspectorSrcURL, asset.SourceTitle); err == nil {
-												a.reload()
-												a.notify(a.t("inspector.metaSaved"))
-											}
-										})
+										OnSubmit(saveInspectorMeta)
+									gui.TextInput(c.Key("insp-srctitle-"+asset.ID), &a.inspectorSrcTitle).
+										Placeholder(a.t("inspector.sourceTitle")).
+										Background(a.pal.surface).
+										FillWidth().
+										OnSubmit(saveInspectorMeta)
 									gui.Row(c).FillWidth().Gap(4).AlignItems(gui.Center).Children(func() {
 										gui.TextInput(c.Key("insp-srcurl-"+asset.ID), &a.inspectorSrcURL).
 											Placeholder(a.t("inspector.source")).
 											Background(a.pal.surface).
 											Grow(1).
-											OnSubmit(func() {
-												if _, err := a.lib.UpdateAssetMeta(asset.ID, a.inspectorNotes, a.inspectorSrcURL, asset.SourceTitle); err == nil {
-													a.reload()
-													a.notify(a.t("inspector.metaSaved"))
-												}
-											})
+											OnSubmit(saveInspectorMeta)
+										if strings.TrimSpace(a.inspectorSrcURL) != "" {
+											a.iconButton(c, "insp-copy-url", iconCopy, a.t("common.copy"), false).
+												Size(28, 28).
+												OnClick(func() {
+													services.WriteClipboard(strings.TrimSpace(a.inspectorSrcURL))
+													a.notify(a.t("common.copied"))
+												})
+										}
 										if openURL := normalizeWebURL(a.inspectorSrcURL); openURL != "" {
 											a.iconButton(c, "insp-open-url", iconExternal, a.t("webimport.openPage"), false).
 												Size(28, 28).

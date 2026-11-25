@@ -134,7 +134,18 @@ let inSettings = false;
 let activeTab = null;
 let scanned = [];
 let selectedUrls = new Set();
-let pageMeta = { pageUrl: "", title: "" };
+let pageMeta = {
+  pageUrl: "",
+  title: "",
+  sourceUrl: "",
+  sourceTitle: "",
+  canonicalUrl: "",
+  siteName: "",
+  author: "",
+  description: "",
+  ogImage: "",
+  selectedText: ""
+};
 
 function tr(key) {
   return (STRINGS[lang] || STRINGS.en)[key];
@@ -384,7 +395,16 @@ $("savePageBtn").addEventListener("click", async () => {
   const resp = await sendMsg({
     type: "IMPORT_SOURCE",
     payload: {
-      url: activeTab.url,
+      url: pageMeta.sourceUrl || activeTab.url,
+      sourceUrl: pageMeta.sourceUrl || activeTab.url,
+      sourceTitle: pageMeta.sourceTitle || activeTab.title || "",
+      canonicalUrl: pageMeta.canonicalUrl || "",
+      siteName: pageMeta.siteName || "",
+      author: pageMeta.author || "",
+      description: pageMeta.description || "",
+      ogImage: pageMeta.ogImage || "",
+      selectedText: pageMeta.selectedText || "",
+      clippedAt: new Date().toISOString(),
       ...currentDestPayload()
     }
   });
@@ -412,7 +432,17 @@ $("captureBtn").addEventListener("click", async () => {
   btn.disabled = true;
   const resp = await sendMsg({
     type: "CAPTURE_TAB",
-    payload: currentDestPayload()
+    payload: {
+      sourceUrl: pageMeta.sourceUrl || activeTab?.url || "",
+      sourceTitle: pageMeta.sourceTitle || activeTab?.title || "",
+      canonicalUrl: pageMeta.canonicalUrl || "",
+      siteName: pageMeta.siteName || "",
+      author: pageMeta.author || "",
+      description: pageMeta.description || "",
+      selectedText: pageMeta.selectedText || "",
+      clippedAt: new Date().toISOString(),
+      ...currentDestPayload()
+    }
   });
   btn.disabled = false;
   if (resp?.ok) {
@@ -433,7 +463,15 @@ $("scanBtn").addEventListener("click", async () => {
     return;
   }
   scanned = resp.images;
-  pageMeta = { pageUrl: resp.pageUrl || activeTab.url, title: resp.title || activeTab.title };
+  const pm = resp.pageMeta || {};
+  pageMeta = {
+    ...pageMeta,
+    ...pm,
+    pageUrl: pm.sourceUrl || resp.pageUrl || activeTab.url,
+    title: pm.sourceTitle || resp.title || activeTab.title,
+    sourceUrl: pm.sourceUrl || resp.pageUrl || activeTab.url,
+    sourceTitle: pm.sourceTitle || resp.title || activeTab.title
+  };
   selectedUrls = new Set(scanned.map((i) => i.url));
   $("scanMeta").textContent = `${scanned.length}`;
   renderGrid();
@@ -477,13 +515,22 @@ $("saveBatchBtn").addEventListener("click", async () => {
   let anyOffline = false;
   const importedIds = [];
   setMsg(tr("saving"));
+  const itemByUrl = new Map(scanned.map((it) => [it.url, it]));
   for (const url of selectedUrls) {
+    const item = itemByUrl.get(url);
     const resp = await sendMsg({
       type: "IMPORT_URL",
       payload: {
         url,
-        sourceUrl: pageMeta.pageUrl,
-        sourceTitle: pageMeta.title,
+        sourceUrl: pageMeta.sourceUrl || pageMeta.pageUrl || activeTab?.url || "",
+        sourceTitle: pageMeta.sourceTitle || pageMeta.title || activeTab?.title || "",
+        canonicalUrl: pageMeta.canonicalUrl || "",
+        siteName: pageMeta.siteName || "",
+        author: pageMeta.author || "",
+        description: pageMeta.description || "",
+        alt: item?.alt || "",
+        selectedText: pageMeta.selectedText || "",
+        clippedAt: new Date().toISOString(),
         ...dest
       }
     });
@@ -531,14 +578,33 @@ $("saveBatchBtn").addEventListener("click", async () => {
   stackEl.checked = cfg.autoStack !== false;
   autoTagEl.checked = cfg.autoTag !== false;
 
-  api.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+  api.tabs.query({ active: true, currentWindow: true }, async (tabs) => {
     activeTab = tabs?.[0] || null;
     if (activeTab) {
-      $("pageTitle").textContent = activeTab.title || activeTab.url || "";
+      const titleEl = $("pageTitle");
+      titleEl.textContent = activeTab.title || activeTab.url || "";
+      titleEl.title = activeTab.title && activeTab.url ? `${activeTab.title}\n${activeTab.url}` : (activeTab.url || "");
+      pageMeta.pageUrl = activeTab.url || "";
+      pageMeta.sourceUrl = activeTab.url || "";
+      pageMeta.title = activeTab.title || "";
+      pageMeta.sourceTitle = activeTab.title || "";
       if (activeTab.favIconUrl && activeTab.favIconUrl.startsWith("http")) {
         const fav = $("pageFav");
         fav.src = activeTab.favIconUrl;
         fav.style.display = "block";
+      }
+      if (activeTab.id) {
+        const liveMeta = await sendTabMsg(activeTab.id, { type: "GET_PAGE_META" });
+        if (liveMeta) {
+          pageMeta = {
+            ...pageMeta,
+            ...liveMeta,
+            pageUrl: liveMeta.sourceUrl || activeTab.url || "",
+            sourceUrl: liveMeta.sourceUrl || activeTab.url || "",
+            title: liveMeta.sourceTitle || activeTab.title || "",
+            sourceTitle: liveMeta.sourceTitle || activeTab.title || ""
+          };
+        }
       }
     }
     applyI18n();

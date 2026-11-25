@@ -184,12 +184,27 @@ func (w *Watcher) scanSingleRule(ctx context.Context, rule WatchRule) (int, erro
 	}
 
 	totalAdded := 0
+	handledMedia := map[string]bool{}
 	// Process offline browser clipper sidecars first so paired images receive their
-	// exact tags, source URLs, notes, and project/board routing immediately.
+	// exact tags, source URLs, titles, notes, and project/board routing immediately.
 	for _, sc := range sidecars {
-		if n, _ := w.ingestClipSidecar(ctx, sc, rule); n > 0 {
+		n, handled, mediaPath := w.ingestClipSidecar(ctx, sc, rule)
+		if handled && mediaPath != "" {
+			handledMedia[filepath.Clean(mediaPath)] = true
+		}
+		if n > 0 {
 			totalAdded += n
 		}
+	}
+
+	if len(handledMedia) > 0 && len(files) > 0 {
+		filtered := files[:0]
+		for _, f := range files {
+			if !handledMedia[filepath.Clean(f)] {
+				filtered = append(filtered, f)
+			}
+		}
+		files = filtered
 	}
 
 	if len(files) == 0 {
@@ -357,14 +372,13 @@ func (w *Watcher) dispatch(ev fsnotify.Event) {
 		} else if rule, ok := w.matchWatchRule(ev.Name); ok {
 			base := filepath.Base(ev.Name)
 			if rule.IsClipperInbox && isClipSidecar(base) {
-				if _, handled := w.ingestClipSidecar(w.ctx, ev.Name, rule); handled {
+				if _, handled, _ := w.ingestClipSidecar(w.ctx, ev.Name, rule); handled {
 					changed = true
 				}
 			} else if !isIgnoredWatchFile(base) {
 				if rule.IsClipperInbox {
-					scPath := ev.Name + ClipSidecarSuffix
-					if _, err := os.Stat(scPath); err == nil {
-						if _, handled := w.ingestClipSidecar(w.ctx, scPath, rule); handled {
+					if scPath := findMatchingSidecar(ev.Name); scPath != "" {
+						if _, handled, _ := w.ingestClipSidecar(w.ctx, scPath, rule); handled {
 							changed = true
 							break
 						}

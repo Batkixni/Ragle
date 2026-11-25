@@ -808,14 +808,20 @@ func (s *Server) handleImportBase64(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		Filename    string   `json:"filename"`
-		DataBase64  string   `json:"data_base64"`
-		SourceURL   string   `json:"source_url"`
-		SourceTitle string   `json:"source_title"`
-		Notes       string   `json:"notes"`
-		TagIDs      []string `json:"tag_ids"`
-		ProjectID   string   `json:"project_id"`
-		BoardID     string   `json:"board_id"`
+		Filename     string   `json:"filename"`
+		DataBase64   string   `json:"data_base64"`
+		SourceURL    string   `json:"source_url"`
+		SourceTitle  string   `json:"source_title"`
+		CanonicalURL string   `json:"canonical_url"`
+		SiteName     string   `json:"site_name"`
+		Author       string   `json:"author"`
+		Description  string   `json:"description"`
+		SelectedText string   `json:"selected_text"`
+		ClippedAt    string   `json:"clipped_at"`
+		Notes        string   `json:"notes"`
+		TagIDs       []string `json:"tag_ids"`
+		ProjectID    string   `json:"project_id"`
+		BoardID      string   `json:"board_id"`
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, maxImportMB)).Decode(&req); err != nil {
 		writeJSONError(w, http.StatusBadRequest, err.Error())
@@ -835,8 +841,18 @@ func (s *Server) handleImportBase64(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if req.Notes != "" {
-		asset, _ = s.lib.UpdateAssetMeta(asset.ID, req.Notes, req.SourceURL, req.SourceTitle)
+	if updated, uerr := s.lib.ApplyClipMeta(asset.ID, library.ClipMeta{
+		SourceURL:    req.SourceURL,
+		SourceTitle:  req.SourceTitle,
+		CanonicalURL: req.CanonicalURL,
+		SiteName:     req.SiteName,
+		Author:       req.Author,
+		Description:  req.Description,
+		SelectedText: req.SelectedText,
+		ClippedAt:    req.ClippedAt,
+		Notes:        req.Notes,
+	}); uerr == nil {
+		asset = updated
 	}
 	s.attachImportedDestinations([]string{asset.ID}, req.ProjectID, req.BoardID)
 	if _, err := s.lib.EnsureVisualFeatures(asset.ID); err == nil {
@@ -872,14 +888,21 @@ func (s *Server) handleImportURL(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		URL         string   `json:"url"`
-		Filename    string   `json:"filename"`
-		SourceURL   string   `json:"source_url"`
-		SourceTitle string   `json:"source_title"`
-		Notes       string   `json:"notes"`
-		TagIDs      []string `json:"tag_ids"`
-		ProjectID   string   `json:"project_id"`
-		BoardID     string   `json:"board_id"`
+		URL          string   `json:"url"`
+		Filename     string   `json:"filename"`
+		SourceURL    string   `json:"source_url"`
+		SourceTitle  string   `json:"source_title"`
+		CanonicalURL string   `json:"canonical_url"`
+		SiteName     string   `json:"site_name"`
+		Author       string   `json:"author"`
+		Description  string   `json:"description"`
+		Alt          string   `json:"alt"`
+		SelectedText string   `json:"selected_text"`
+		ClippedAt    string   `json:"clipped_at"`
+		Notes        string   `json:"notes"`
+		TagIDs       []string `json:"tag_ids"`
+		ProjectID    string   `json:"project_id"`
+		BoardID      string   `json:"board_id"`
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 2<<20)).Decode(&req); err != nil {
 		writeJSONError(w, http.StatusBadRequest, err.Error())
@@ -939,8 +962,20 @@ func (s *Server) handleImportURL(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if req.Notes != "" {
-		asset, _ = s.lib.UpdateAssetMeta(asset.ID, req.Notes, srcURL, req.SourceTitle)
+	if updated, uerr := s.lib.ApplyClipMeta(asset.ID, library.ClipMeta{
+		SourceURL:    srcURL,
+		SourceTitle:  req.SourceTitle,
+		ImageURL:     req.URL,
+		CanonicalURL: req.CanonicalURL,
+		SiteName:     req.SiteName,
+		Author:       req.Author,
+		Description:  req.Description,
+		Alt:          req.Alt,
+		SelectedText: req.SelectedText,
+		ClippedAt:    req.ClippedAt,
+		Notes:        req.Notes,
+	}); uerr == nil {
+		asset = updated
 	}
 	s.attachImportedDestinations([]string{asset.ID}, req.ProjectID, req.BoardID)
 	if _, err := s.lib.EnsureVisualFeatures(asset.ID); err == nil {
@@ -964,6 +999,15 @@ func (s *Server) handleImportSource(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		URL             string   `json:"url"`
 		URLs            []string `json:"urls"`
+		SourceURL       string   `json:"source_url"`
+		SourceTitle     string   `json:"source_title"`
+		ImageURL        string   `json:"image_url"`
+		CanonicalURL    string   `json:"canonical_url"`
+		SiteName        string   `json:"site_name"`
+		Author          string   `json:"author"`
+		Description     string   `json:"description"`
+		SelectedText    string   `json:"selected_text"`
+		ClippedAt       string   `json:"clipped_at"`
 		Notes           string   `json:"notes"`
 		TagIDs          []string `json:"tag_ids"`
 		ProjectID       string   `json:"project_id"`
@@ -991,11 +1035,33 @@ func (s *Server) handleImportSource(w http.ResponseWriter, r *http.Request) {
 	if req.AutoStack != nil {
 		autoStack = *req.AutoStack
 	}
+	fullSourceURL := strings.TrimSpace(req.SourceURL)
+	if fullSourceURL == "" && len(urls) == 1 {
+		fullSourceURL = urls[0]
+	}
 	res, err := s.lib.ImportSourcesFromURLs(r.Context(), urls, library.SourceImportOptions{
 		TagIDs:              req.TagIDs,
 		AutoPlatformTag:     autoTag,
 		AutoStackMultiImage: autoStack,
 	})
+	if (err != nil || len(res.Assets) == 0) && len(urls) == 1 {
+		// Graceful fallback for login-walled / bot-blocked sites using live browser metadata.
+		if fb, ferr := s.lib.ImportFallbackBookmark(r.Context(), library.ClipMeta{
+			SourceURL:    fullSourceURL,
+			SourceTitle:  req.SourceTitle,
+			ImageURL:     req.ImageURL,
+			CanonicalURL: req.CanonicalURL,
+			SiteName:     req.SiteName,
+			Author:       req.Author,
+			Description:  req.Description,
+			SelectedText: req.SelectedText,
+			ClippedAt:    req.ClippedAt,
+			Notes:        req.Notes,
+		}, req.TagIDs); ferr == nil {
+			res.Assets = []model.Asset{fb}
+			err = nil
+		}
+	}
 	if err != nil && len(res.Assets) == 0 {
 		writeJSONError(w, http.StatusBadGateway, err.Error())
 		return
@@ -1003,8 +1069,27 @@ func (s *Server) handleImportSource(w http.ResponseWriter, r *http.Request) {
 	ids := make([]string, 0, len(res.Assets))
 	apiAssets := make([]apiAsset, 0, len(res.Assets))
 	for _, a := range res.Assets {
-		if strings.TrimSpace(req.Notes) != "" {
-			a, _ = s.lib.UpdateAssetMeta(a.ID, strings.TrimSpace(req.Notes), a.SourceURL, a.SourceTitle)
+		srcURL := a.SourceURL
+		if len(urls) == 1 && fullSourceURL != "" {
+			srcURL = fullSourceURL
+		}
+		srcTitle := a.SourceTitle
+		if strings.TrimSpace(srcTitle) == "" && strings.TrimSpace(req.SourceTitle) != "" {
+			srcTitle = strings.TrimSpace(req.SourceTitle)
+		}
+		if updated, uerr := s.lib.ApplyClipMeta(a.ID, library.ClipMeta{
+			SourceURL:    srcURL,
+			SourceTitle:  srcTitle,
+			ImageURL:     req.ImageURL,
+			CanonicalURL: req.CanonicalURL,
+			SiteName:     req.SiteName,
+			Author:       req.Author,
+			Description:  req.Description,
+			SelectedText: req.SelectedText,
+			ClippedAt:    req.ClippedAt,
+			Notes:        req.Notes,
+		}); uerr == nil {
+			a = updated
 		}
 		if _, err := s.lib.EnsureVisualFeatures(a.ID); err == nil {
 			a, _ = s.lib.Get(a.ID)

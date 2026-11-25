@@ -35,7 +35,7 @@ function authHeaders(cfg) {
 
 function sanitizeFileStem(raw, fallback = "clip") {
   const stem = (raw || fallback)
-    .replace(/[^a-zA-Z0-9_\u4e00-\u9fff-]+/g, "_")
+    .replace(/[^a-zA-Z0-9_\u4e00-\u9fff\u3040-\u30ff-]+/g, "_")
     .replace(/^_+|_+$/g, "")
     .slice(0, 48);
   return stem || fallback;
@@ -59,6 +59,50 @@ function resolveTagNames(cfg, tagIds) {
     if (hit) names.push(hit.Name || hit.name);
   }
   return names;
+}
+
+function getTabPageMeta(tab) {
+  const fallback = {
+    sourceUrl: tab?.url || "",
+    sourceTitle: tab?.title || "",
+    canonicalUrl: "",
+    siteName: "",
+    author: "",
+    description: "",
+    ogImage: "",
+    selectedText: "",
+    clippedAt: new Date().toISOString()
+  };
+  if (!tab?.id) return Promise.resolve(fallback);
+  return new Promise((resolve) => {
+    try {
+      api.tabs.sendMessage(tab.id, { type: "GET_PAGE_META" }, (resp) => {
+        if (api.runtime.lastError || !resp) {
+          resolve(fallback);
+          return;
+        }
+        resolve({
+          sourceUrl: resp.sourceUrl || fallback.sourceUrl,
+          sourceTitle: resp.sourceTitle || fallback.sourceTitle,
+          canonicalUrl: resp.canonicalUrl || "",
+          siteName: resp.siteName || "",
+          author: resp.author || "",
+          description: resp.description || "",
+          ogImage: resp.ogImage || "",
+          selectedText: resp.selectedText || "",
+          clippedAt: resp.clippedAt || fallback.clippedAt
+        });
+      });
+    } catch {
+      resolve(fallback);
+    }
+  });
+}
+
+function extractBasename(filePath) {
+  if (!filePath) return "";
+  const parts = String(filePath).split(/[\\/]/);
+  return parts[parts.length - 1] || "";
 }
 
 function dataUrlToBlob(dataUrl) {
@@ -89,6 +133,51 @@ function downloadFile(url, filename) {
   });
 }
 
+// Wait for a download to finish so we know the EXACT basename the browser wrote
+// (even if Chrome/Firefox adjusted the extension from Content-Type or added " (1)").
+function waitForDownloadBasename(downloadId, fallbackBase, timeoutMs = 15000) {
+  return new Promise((resolve) => {
+    if (!downloadId || !api.downloads?.search) {
+      resolve(fallbackBase);
+      return;
+    }
+    let settled = false;
+    const finish = (base) => {
+      if (settled) return;
+      settled = true;
+      try { api.downloads.onChanged?.removeListener(onChanged); } catch {}
+      clearTimeout(timer);
+      resolve(base || fallbackBase);
+    };
+    const lookupName = () => {
+      api.downloads.search({ id: downloadId }, (items) => {
+        const item = items && items[0];
+        const actual = extractBasename(item?.filename);
+        if (item?.state === "complete" || item?.state === "interrupted") {
+          finish(actual || fallbackBase);
+        }
+      });
+    };
+    const onChanged = (delta) => {
+      if (!delta || delta.id !== downloadId) return;
+      if (delta.state?.current === "complete" || delta.state?.current === "interrupted") {
+        lookupName();
+      }
+    };
+    try {
+      api.downloads.onChanged?.addListener(onChanged);
+    } catch {}
+    const timer = setTimeout(() => {
+      api.downloads.search({ id: downloadId }, (items) => {
+        const actual = extractBasename(items?.[0]?.filename);
+        finish(actual || fallbackBase);
+      });
+    }, timeoutMs);
+    // Check immediately in case the download already completed synchronously.
+    lookupName();
+  });
+}
+
 async function downloadTextOrDataUrl(contentOrDataUrl, filename, mime, isDataUrl = false) {
   // Firefox MV3 rejects data: URLs in downloads.download, while Chrome MV3
   // service workers do not have URL.createObjectURL. Support both cleanly!
@@ -112,21 +201,41 @@ async function downloadTextOrDataUrl(contentOrDataUrl, filename, mime, isDataUrl
   return downloadFile(`data:${mime};base64,${b64}`, filename);
 }
 
+function buildRichMetadataFields(payload, defaults = {}) {
+  const sourceUrl = payload.sourceUrl || defaults.sourceUrl || payload.url || "";
+  const sourceTitle = payload.sourceTitle || defaults.sourceTitle || "";
+  return {
+    source_url: sourceUrl,
+    source_title: sourceTitle,
+    image_url: payload.imageUrl || payload.ogImage || defaults.imageUrl || "",
+    canonical_url: payload.canonicalUrl || defaults.canonicalUrl || "",
+    site_name: payload.siteName || defaults.siteName || "",
+    author: payload.author || defaults.author || "",
+    description: payload.description || defaults.description || "",
+    alt: payload.alt || defaults.alt || "",
+    selected_text: payload.selectedText || defaults.selectedText || "",
+    clipped_at: payload.clippedAt || defaults.clippedAt || new Date().toISOString()
+  };
+}
+
 async function saveOfflineImage(cfg, payload, tags, projectId, boardId) {
   const ts = Date.now();
   const ext = guessImageExt(payload.url, ".jpg");
   const base = `${sanitizeFileStem(payload.sourceTitle, "image")}_${ts}${ext}`;
   const relMedia = `${cfg.offlineFolder}/${base}`;
-  const relSidecar = `${relMedia}.raglex-clip.json`;
 
-  await downloadFile(payload.url, relMedia);
+  const dlId = await downloadFile(payload.url, relMedia);
+  const actualBase = await waitForDownloadBasename(dlId, base);
+  const actualRelMedia = `${cfg.offlineFolder}/${actualBase}`;
+  const relSidecar = `${actualRelMedia}.raglex-clip.json`;
+
+  const meta = buildRichMetadataFields(payload, { imageUrl: payload.url });
   const sidecar = {
-    version: 1,
+    version: 2,
     kind: "image",
-    filename: base,
+    filename: actualBase,
     url: payload.url,
-    source_url: payload.sourceUrl || payload.url,
-    source_title: payload.sourceTitle || "",
+    ...meta,
     notes: payload.notes || "",
     tag_ids: tags,
     tag_names: resolveTagNames(cfg, tags),
@@ -134,22 +243,29 @@ async function saveOfflineImage(cfg, payload, tags, projectId, boardId) {
     board_id: boardId || ""
   };
   await downloadTextOrDataUrl(JSON.stringify(sidecar, null, 2), relSidecar, "application/json", false);
-  return { ok: true, offline: true, filename: relMedia };
+  return { ok: true, offline: true, filename: actualRelMedia };
 }
 
 async function saveOfflineScreenshot(cfg, dataUrl, tab, payload, tags, projectId, boardId) {
   const ts = Date.now();
-  const base = `${sanitizeFileStem(tab?.title, "capture")}_${ts}.png`;
+  const title = payload.sourceTitle || tab?.title || "";
+  const base = `${sanitizeFileStem(title, "capture")}_${ts}.png`;
   const relMedia = `${cfg.offlineFolder}/${base}`;
-  const relSidecar = `${relMedia}.raglex-clip.json`;
 
-  await downloadTextOrDataUrl(dataUrl, relMedia, "image/png", true);
+  const dlId = await downloadTextOrDataUrl(dataUrl, relMedia, "image/png", true);
+  const actualBase = await waitForDownloadBasename(dlId, base);
+  const actualRelMedia = `${cfg.offlineFolder}/${actualBase}`;
+  const relSidecar = `${actualRelMedia}.raglex-clip.json`;
+
+  const meta = buildRichMetadataFields(payload, {
+    sourceUrl: tab?.url || "",
+    sourceTitle: tab?.title || ""
+  });
   const sidecar = {
-    version: 1,
+    version: 2,
     kind: "image",
-    filename: base,
-    source_url: tab?.url || "",
-    source_title: tab?.title || "",
+    filename: actualBase,
+    ...meta,
     notes: payload.notes || "",
     tag_ids: tags,
     tag_names: resolveTagNames(cfg, tags),
@@ -157,18 +273,20 @@ async function saveOfflineScreenshot(cfg, dataUrl, tab, payload, tags, projectId
     board_id: boardId || ""
   };
   await downloadTextOrDataUrl(JSON.stringify(sidecar, null, 2), relSidecar, "application/json", false);
-  return { ok: true, offline: true, filename: relMedia };
+  return { ok: true, offline: true, filename: actualRelMedia };
 }
 
 async function saveOfflineSource(cfg, payload, tags, projectId, boardId) {
   const ts = Date.now();
-  const base = `source_${ts}.raglex-clip.json`;
+  const stem = sanitizeFileStem(payload.sourceTitle, "source");
+  const base = `${stem}_${ts}.raglex-clip.json`;
   const relSidecar = `${cfg.offlineFolder}/${base}`;
+  const meta = buildRichMetadataFields(payload, { sourceUrl: payload.url });
   const sidecar = {
-    version: 1,
+    version: 2,
     kind: "source",
     url: payload.url,
-    source_url: payload.url,
+    ...meta,
     notes: payload.notes || "",
     tag_ids: tags,
     tag_names: resolveTagNames(cfg, tags),
@@ -186,14 +304,14 @@ async function importImageURL(payload = {}) {
   const tags = payload.tagIds?.length ? payload.tagIds : (cfg.defaultTagId ? [cfg.defaultTagId] : []);
   const projectId = payload.projectId !== undefined ? payload.projectId : cfg.defaultProjectId;
   const boardId = payload.boardId !== undefined ? payload.boardId : cfg.defaultBoardId;
+  const meta = buildRichMetadataFields(payload, { imageUrl: payload.url });
   try {
     const resp = await fetch(`${cfg.serverUrl}/api/v1/import/url`, {
       method: "POST",
       headers: authHeaders(cfg),
       body: JSON.stringify({
         url: payload.url,
-        source_url: payload.sourceUrl || payload.url,
-        source_title: payload.sourceTitle || "",
+        ...meta,
         notes: payload.notes || "",
         tag_ids: tags,
         project_id: projectId || "",
@@ -217,12 +335,14 @@ async function importSourceURL(payload = {}) {
   const tags = payload.tagIds?.length ? payload.tagIds : (cfg.defaultTagId ? [cfg.defaultTagId] : []);
   const projectId = payload.projectId !== undefined ? payload.projectId : cfg.defaultProjectId;
   const boardId = payload.boardId !== undefined ? payload.boardId : cfg.defaultBoardId;
+  const meta = buildRichMetadataFields(payload, { sourceUrl: payload.url });
   try {
     const resp = await fetch(`${cfg.serverUrl}/api/v1/import/source`, {
       method: "POST",
       headers: authHeaders(cfg),
       body: JSON.stringify({
         url: payload.url,
+        ...meta,
         notes: payload.notes || "",
         tag_ids: tags,
         project_id: projectId || "",
@@ -250,10 +370,18 @@ async function captureVisibleToRaglex(tab, payload = {}) {
       else resolve(url);
     });
   });
+  const tabMeta = await getTabPageMeta(tab);
+  const enrichedPayload = {
+    ...tabMeta,
+    ...payload,
+    sourceUrl: payload.sourceUrl || tabMeta.sourceUrl || tab.url || "",
+    sourceTitle: payload.sourceTitle || tabMeta.sourceTitle || tab.title || ""
+  };
   const tags = payload.tagIds?.length ? payload.tagIds : (cfg.defaultTagId ? [cfg.defaultTagId] : []);
   const projectId = payload.projectId !== undefined ? payload.projectId : cfg.defaultProjectId;
   const boardId = payload.boardId !== undefined ? payload.boardId : cfg.defaultBoardId;
-  const safeTitle = sanitizeFileStem(tab.title, "capture");
+  const safeTitle = sanitizeFileStem(enrichedPayload.sourceTitle, "capture");
+  const meta = buildRichMetadataFields(enrichedPayload);
   try {
     const resp = await fetch(`${cfg.serverUrl}/api/v1/import/base64`, {
       method: "POST",
@@ -261,8 +389,7 @@ async function captureVisibleToRaglex(tab, payload = {}) {
       body: JSON.stringify({
         filename: `${safeTitle}.png`,
         data_base64: dataUrl,
-        source_url: tab.url || "",
-        source_title: tab.title || "",
+        ...meta,
         notes: payload.notes || "",
         tag_ids: tags,
         project_id: projectId || "",
@@ -274,7 +401,7 @@ async function captureVisibleToRaglex(tab, payload = {}) {
     return data;
   } catch (err) {
     if (!String(err?.message || "").startsWith("HTTP 4")) {
-      return await saveOfflineScreenshot(cfg, dataUrl, tab, payload, tags, projectId, boardId);
+      return await saveOfflineScreenshot(cfg, dataUrl, tab, enrichedPayload, tags, projectId, boardId);
     }
     throw err;
   }
@@ -319,17 +446,36 @@ api.runtime.onInstalled.addListener(registerContextMenus);
 
 api.contextMenus.onClicked.addListener(async (info, tab) => {
   try {
+    const tabMeta = await getTabPageMeta(tab);
     if (info.menuItemId === "raglex-save-image" && info.srcUrl) {
       await importImageURL({
+        ...tabMeta,
         url: info.srcUrl,
-        sourceUrl: info.pageUrl || tab?.url || "",
-        sourceTitle: tab?.title || ""
+        sourceUrl: info.pageUrl || tabMeta.sourceUrl || tab?.url || "",
+        sourceTitle: tabMeta.sourceTitle || tab?.title || ""
       });
     } else if (info.menuItemId === "raglex-save-page") {
-      const target = info.linkUrl || info.pageUrl || tab?.url || "";
-      if (target) await importSourceURL({ url: target });
+      const isLinkClick = !!info.linkUrl && info.linkUrl !== (info.pageUrl || tab?.url);
+      const target = info.linkUrl || info.pageUrl || tabMeta.sourceUrl || tab?.url || "";
+      if (target) {
+        await importSourceURL(
+          isLinkClick
+            ? {
+                url: target,
+                sourceUrl: target,
+                sourceTitle: info.selectionText || tabMeta.sourceTitle || "",
+                clippedAt: new Date().toISOString()
+              }
+            : {
+                ...tabMeta,
+                url: target,
+                sourceUrl: target,
+                sourceTitle: tabMeta.sourceTitle || tab?.title || ""
+              }
+        );
+      }
     } else if (info.menuItemId === "raglex-capture-tab" && tab) {
-      await captureVisibleToRaglex(tab, {});
+      await captureVisibleToRaglex(tab, tabMeta);
     }
   } catch (err) {
     console.error("[Raglex Clipper]", err);

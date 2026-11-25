@@ -144,7 +144,7 @@ func TestUnifiedServerAPIWebAndSignaling(t *testing.T) {
 	var htmlBuf bytes.Buffer
 	_, _ = htmlBuf.ReadFrom(resp.Body)
 	_ = resp.Body.Close()
-	if !strings.Contains(htmlBuf.String(), "clip.png") || !strings.Contains(htmlBuf.String(), "Web Mood") {
+	if !strings.Contains(htmlBuf.String(), "Orange Study") || !strings.Contains(htmlBuf.String(), "Web Mood") {
 		t.Fatalf("web index missing expected content")
 	}
 
@@ -177,9 +177,13 @@ func TestUnifiedServerAPIWebAndSignaling(t *testing.T) {
 	defer srcSrv.Close()
 
 	srcBody, _ := json.Marshal(map[string]any{
-		"url":        srcSrv.URL + "/post",
-		"board_id":   boardResp.ID,
-		"auto_stack": true,
+		"url":          srcSrv.URL + "/post?ref=clip&idx=1",
+		"source_url":   srcSrv.URL + "/post?ref=clip&idx=1",
+		"source_title": "Clip Gallery — Browser Tab",
+		"author":       "Studio Demo",
+		"site_name":    "DemoSite",
+		"board_id":     boardResp.ID,
+		"auto_stack":   true,
 	})
 	req, _ = http.NewRequest(http.MethodPost, base+"/api/v1/import/source", bytes.NewReader(srcBody))
 	req.Header.Set("Content-Type", "application/json")
@@ -189,12 +193,16 @@ func TestUnifiedServerAPIWebAndSignaling(t *testing.T) {
 		t.Fatalf("import source failed: err=%v status=%v", err, resp.StatusCode)
 	}
 	var srcResp struct {
-		Added  int `json:"added"`
-		Stacks int `json:"stacks"`
+		Added  int        `json:"added"`
+		Stacks int        `json:"stacks"`
+		Assets []apiAsset `json:"assets"`
 	}
 	_ = json.NewDecoder(resp.Body).Decode(&srcResp)
 	_ = resp.Body.Close()
 	if srcResp.Added != 2 || srcResp.Stacks != 1 {
 		t.Fatalf("expected 2 assets + 1 auto stack from /api/v1/import/source, got %+v", srcResp)
+	}
+	if len(srcResp.Assets) == 0 || srcResp.Assets[0].SourceURL != srcSrv.URL+"/post?ref=clip&idx=1" || !strings.Contains(srcResp.Assets[0].Notes, "Author: Studio Demo") {
+		t.Fatalf("expected full source URL & rich metadata preserved, got %+v", srcResp.Assets)
 	}
 }
